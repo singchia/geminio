@@ -5,12 +5,12 @@ import (
 	"net"
 	"sync"
 
+	"github.com/singchia/geminio/delegate"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/log"
+	"github.com/singchia/geminio/pkg/synchub"
 	"github.com/singchia/go-timer"
 	"github.com/singchia/yafsm"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/delegate"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/packet"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/log"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/synchub"
 )
 
 const (
@@ -60,7 +60,7 @@ func OptionPacketFactory(pf *packet.PacketFactory) ConnOption {
 func OptionTimer(tmr timer.Timer) ConnOption {
 	return func(bc *BaseConn) error {
 		bc.tmr = tmr
-		bc.tmrOutside = true
+		bc.tmrOutsIDe = true
 		return nil
 	}
 }
@@ -80,7 +80,7 @@ func OptionLoggy(log log.Loggy) ConnOption {
 }
 
 type ConnOpts struct {
-	ClientId    uint64
+	ClientID    uint64
 	Heartbeat   packet.Heartbeat
 	Retain      bool
 	Clear       bool
@@ -96,11 +96,11 @@ type ConnOpts struct {
 	dlgt delegate.Delegate
 }
 
-type Side int
+type SIDe int
 
 const (
-	ClientSide Side = 0
-	ServerSide Side = 1
+	ClientSIDe SIDe = 0
+	ServerSIDe SIDe = 1
 )
 
 type BaseConn struct {
@@ -109,13 +109,13 @@ type BaseConn struct {
 
 	fsm     *yafsm.FSM
 	netconn net.Conn
-	Side    Side
+	SIDe    SIDe
 	shub    *synchub.SyncHub
 	log     log.Loggy
 
 	//delegate Delegate
 	tmr        timer.Timer
-	tmrOutside bool
+	tmrOutsIDe bool
 	hbTick     timer.Tick
 
 	connOK  bool

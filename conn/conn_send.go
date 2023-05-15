@@ -6,14 +6,13 @@ import (
 	"net"
 	"sync"
 
+	"github.com/jumboframes/armorigo/log"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/geminio/pkg/iodefine"
+	"github.com/singchia/geminio/synchub"
 	"github.com/singchia/go-timer"
 	"github.com/singchia/yafsm"
-	"github.com/sirupsen/logrus"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/packet"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/id"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/iodefine"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/log"
-	"gitlab.moresec.cn/moresec/ms_gw/alf/pkg/synchub"
 )
 
 type packetAndConnver struct {
@@ -34,18 +33,18 @@ type SendConn struct {
 	onceClose *sync.Once
 }
 
-func NewSendConn(dialer Dialer, clientId uint64, meta []byte, opts ...ConnOption) (*SendConn, error) {
+func NewSendConn(dialer Dialer, clientID uint64, meta []byte, opts ...ConnOption) (*SendConn, error) {
 	err := error(nil)
 	sc := &SendConn{
 		dialer: dialer,
 		BaseConn: &BaseConn{
 			ConnOpts: ConnOpts{
-				ClientId:  clientId,
+				ClientID:  clientID,
 				Heartbeat: packet.Heartbeat20,
 				Meta:      meta,
 			},
 			fsm:  yafsm.NewFSM(),
-			Side: ClientSide,
+			SIDe: ClientSIDe,
 		},
 		writeCh:   make(chan *packetAndConnver, 1024),
 		onceFini:  new(sync.Once),
@@ -62,7 +61,7 @@ func NewSendConn(dialer Dialer, clientId uint64, meta []byte, opts ...ConnOption
 	sc.writeFromUpCh = make(chan packet.Packet, 1024)
 	sc.readToUpCh = make(chan packet.Packet, 1024)
 	// timer
-	if !sc.tmrOutside {
+	if !sc.tmrOutsIDe {
 		sc.tmr = timer.NewTimer()
 		sc.tmr.Start()
 	}
@@ -126,7 +125,6 @@ func (sc *SendConn) initFSM() {
 }
 
 func (sc *SendConn) init() error {
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 	sc.connMtx.Lock()
 	if sc.connOK {
 		sc.connMtx.Unlock()
@@ -135,11 +133,7 @@ func (sc *SendConn) init() error {
 	}
 	netconn, err := sc.dialer()
 	if err != nil {
-		if yes {
-			logrusLog.Errorf("dial err: %s", err)
-		} else {
-			sc.log.Errorf("dial err: %s", err)
-		}
+		sc.log.Errorf("dial err: %s", err)
 		sc.connMtx.Unlock()
 		sc.wg.Done()
 		return err
@@ -150,16 +144,12 @@ func (sc *SendConn) init() error {
 	sc.connMtx.Unlock()
 	sc.wg.Done()
 
-	if yes {
-		logrusLog.WithField("remote", netconn.RemoteAddr()).Debug("dial succeed")
-	} else {
-		sc.log.Debugf("dial succeed, remote: %s", netconn.RemoteAddr())
-	}
+	sc.log.Debugf("dial succeed, remote: %s", netconn.RemoteAddr())
 	return sc.connect()
 }
 
 func (sc *SendConn) connect() error {
-	pkt := sc.pf.NewConnPacket(sc.ClientId, sc.Heartbeat, sc.Meta)
+	pkt := sc.pf.NewConnPacket(sc.ClientID, sc.Heartbeat, sc.Meta)
 	sc.connMtx.RLock()
 	if !sc.connOK {
 		sc.connMtx.RUnlock()
@@ -167,42 +157,24 @@ func (sc *SendConn) connect() error {
 	}
 	ver := sc.netconnVer
 	sc.writeCh <- &packetAndConnver{pkt, ver}
-	ch := sc.shub.Sync(pkt.PacketId, nil, 10)
+	ch := sc.shub.Sync(pkt.PacketID, nil, 10)
 	unit := <-ch
 	sc.connMtx.RUnlock()
 
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 	if unit.Error != nil {
-		if yes {
-			logrusLog.WithField("clientId", sc.ClientId).WithField("remote", sc.netconn.RemoteAddr()).
-				Error("connect err", unit.Error)
-		} else {
-			sc.log.Errorf("connect err: %s, clientId: %d, remote: %s",
-				unit.Error, sc.ClientId, sc.netconn.RemoteAddr())
-		}
+		sc.log.Errorf("connect err: %s, clientID: %d, remote: %s",
+			unit.Error, sc.ClientID, sc.netconn.RemoteAddr())
 		return unit.Error
 	}
-	if yes {
-		logrusLog.WithField("clientId", sc.ClientId).WithField("remote", sc.netconn.RemoteAddr()).
-			Debug("connect succeed")
-	} else {
-		sc.log.Debugf("connect succeed, clientId: %d, remote: %s",
-			sc.ClientId, sc.netconn.RemoteAddr())
-	}
+	sc.log.Debugf("connect succeed, clientID: %d, remote: %s",
+		sc.ClientID, sc.netconn.RemoteAddr())
 	return nil
 }
 
 func (sc *SendConn) Close() {
 	sc.onceClose.Do(func() {
-		logrusLog, yes := sc.log.(logrus.FieldLogger)
-		if yes {
-			logrusLog.WithField("clientId", sc.ClientId).
-				WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-				Debug("client is closing")
-		} else {
-			sc.log.Debugf("client is closing, clientId: %d, remote: %s, meta: %s",
-				sc.ClientId, sc.netconn.RemoteAddr(), string(sc.Meta))
-		}
+		sc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
+			sc.ClientID, sc.netconn.RemoteAddr(), string(sc.Meta))
 
 		sc.connMtx.RLock()
 		if !sc.connOK {
@@ -222,15 +194,8 @@ func (sc *SendConn) fini() {
 		if sc.netconn != nil {
 			remote = sc.netconn.RemoteAddr().String()
 		}
-		logrusLog, yes := sc.log.(logrus.FieldLogger)
-		if yes {
-			logrusLog.WithField("clientId", sc.ClientId).
-				WithField("remote", remote).WithField("meta", string(sc.Meta)).
-				Debug("client finished")
-		} else {
-			sc.log.Debugf("client finished, clientId: %d, remote: %s, meta: %s",
-				sc.ClientId, remote, string(sc.Meta))
-		}
+		sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
+			sc.ClientID, remote, string(sc.Meta))
 
 		sc.connMtx.Lock()
 		sc.connOK = false
@@ -243,7 +208,7 @@ func (sc *SendConn) fini() {
 		close(sc.writeFromUpCh)
 		close(sc.readToUpCh)
 		sc.connMtx.Unlock()
-		if !sc.tmrOutside {
+		if !sc.tmrOutsIDe {
 			sc.tmr.Stop()
 		}
 
@@ -253,7 +218,6 @@ func (sc *SendConn) fini() {
 }
 
 func (sc *SendConn) writePkt() {
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 	err := error(nil)
 
 	for !sc.fsm.InStates(
@@ -273,15 +237,11 @@ func (sc *SendConn) writePkt() {
 				if !ok {
 					return
 				}
-				if !sc.validConnVer(pkt.netconnVer) {
+				if !sc.valIDConnVer(pkt.netconnVer) {
 					// drop the old packet
-					if yes {
-						logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.pkt.Id()).
-							Error("invalid conn version: %s", pkt.netconnVer)
-					} else {
-						sc.log.Errorf("invalid conn version: %v",
-							pkt.netconnVer)
-					}
+
+					sc.log.Errorf("invalID conn version: %v",
+						pkt.netconnVer)
 					continue
 				}
 				ie := sc.handlePkt(pkt.pkt, iodefine.OUT)
@@ -294,62 +254,32 @@ func (sc *SendConn) writePkt() {
 				case iodefine.IOClosed:
 					goto CLOSED
 				case iodefine.IOErr:
-					logrusLog, yes := sc.log.(logrus.FieldLogger)
-					if yes {
-						logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.pkt.Id()).
-							Info("handle packet return err")
-					} else {
-						sc.log.Infof("handle packet return err, clientId: %d, packetId:%d",
-							sc.ClientId, pkt.pkt.Id())
-					}
+					sc.log.Infof("handle packet return err, clientID: %d, PacketID:%d",
+						sc.ClientID, pkt.pkt.ID())
 					goto CLOSED
 				}
 				continue
 
 			case pkt, ok := <-sc.writeFromUpCh:
-				logrusLog, yes := sc.log.(logrus.FieldLogger)
 				if !ok {
-					if yes {
-						logrusLog.WithField("clientId", sc.ClientId).
-							Info("write from up EOF")
-					} else {
-						sc.log.Infof("write from up EOF, clientId: %d",
-							sc.ClientId)
-					}
+					sc.log.Infof("write from up EOF, clientID: %d",
+						sc.ClientID)
 					//return
 					continue
 				}
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("packetType", pkt.Type().String()).
-						Trace("to write down")
-				} else {
-					sc.log.Tracef("to write down, packetId: %d, clientId: %d, packetType: %s",
-						pkt.Id(), sc.ClientId, pkt.Type().String())
-				}
+				sc.log.Tracef("to write down, PacketID: %d, clientID: %d, packetType: %s",
+					pkt.ID(), sc.ClientID, pkt.Type().String())
 				err = packet.EncodeToWriter(pkt, sc.netconn)
 				if err != nil {
 					if err == io.EOF {
 						// eof means no need for graceful close
 						sc.fsm.EmitEvent(ET_EOF)
-						if yes {
-							logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-								WithField("packetType", pkt.Type().String()).
-								Error("conn write down EOF")
-						} else {
-							sc.log.Errorf("conn write down EOF, clientId: %d, packetId: %d",
-								sc.ClientId, pkt.Id())
-						}
+						sc.log.Errorf("conn write down EOF, clientID: %d, PacketID: %d",
+							sc.ClientID, pkt.ID())
 					} else {
 						sc.fsm.EmitEvent(ET_ERROR)
-						if yes {
-							logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-								WithField("packetType", pkt.Type().String()).
-								Error("conn write down err", err)
-						} else {
-							sc.log.Errorf("conn write down err: %s, clientId: %d, packetId: %d",
-								err, sc.ClientId, pkt.Id())
-						}
+						sc.log.Errorf("conn write down err: %s, clientID: %d, PacketID: %d",
+							err, sc.ClientID, pkt.ID())
 					}
 					goto CLOSED
 				}
@@ -359,14 +289,13 @@ func (sc *SendConn) writePkt() {
 	}
 
 CLOSED:
-	if sc.dlgt != nil && sc.ClientId != 0 {
-		sc.dlgt.Offline(sc.ClientId, sc.Meta, sc.RemoteAddr())
+	if sc.dlgt != nil && sc.ClientID != 0 {
+		sc.dlgt.Offline(sc.ClientID, sc.Meta, sc.RemoteAddr())
 	}
 	sc.fini()
 }
 
 func (sc *SendConn) readPkt() {
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 
 	for !sc.fsm.InStates(
 		CLOSE_SENT,
@@ -384,31 +313,14 @@ func (sc *SendConn) readPkt() {
 			if err != nil {
 				if err == io.EOF {
 					sc.fsm.EmitEvent(ET_EOF)
-					if yes {
-						logrusLog.WithField("clientId", sc.ClientId).
-							Info("conn read down EOF")
-					} else {
-						sc.log.Infof("conn read down EOF, clientId: %d", sc.ClientId)
-					}
+					sc.log.Infof("conn read down EOF, clientID: %d", sc.ClientID)
 				} else {
-					if yes {
-						logrusLog.WithField("clientId", sc.ClientId).
-							Error("conn read down err", err)
-					} else {
-						sc.log.Errorf("conn read down err: %s, clientId: %d", err, sc.ClientId)
-					}
+					sc.log.Errorf("conn read down err: %s, clientID: %d", err, sc.ClientID)
 				}
 				goto CLOSED
 			}
-			logrusLog, yes := sc.log.(logrus.FieldLogger)
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("packetType", pkt.Type().String()).
-					Tracef("read %s", pkt.Type().String())
-			} else {
-				sc.log.Tracef("read %s , clientId: %d, packetId: %d, packetType: %s",
-					pkt.Type().String(), sc.ClientId, pkt.Id(), pkt.Type().String())
-			}
+			sc.log.Tracef("read %s , clientID: %d, PacketID: %d, packetType: %s",
+				pkt.Type().String(), sc.ClientID, pkt.ID(), pkt.Type().String())
 			ie := sc.handlePkt(pkt, iodefine.IN)
 			switch ie {
 			case iodefine.IOSuccess:
@@ -433,27 +345,21 @@ func (sc *SendConn) readPkt() {
 			case iodefine.IOErr:
 				// TODO 在遇到IOErr之后，还有必要发送Close吗，需要区分情况
 				sc.fsm.EmitEvent(ET_ERROR)
-				logrusLog, yes := sc.log.(logrus.FieldLogger)
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						Error("handle packet return err")
-				} else {
-					sc.log.Errorf("handle packet return err, clientId: %d, packetId:%d",
-						sc.ClientId, pkt.Id())
-				}
+				sc.log.Errorf("handle packet return err, clientID: %d, PacketID:%d",
+					sc.ClientID, pkt.ID())
 				goto CLOSED
 			}
 		}
 	}
 
 CLOSED:
-	if sc.dlgt != nil && sc.ClientId != 0 {
-		sc.dlgt.Offline(sc.ClientId, sc.Meta, sc.RemoteAddr())
+	if sc.dlgt != nil && sc.ClientID != 0 {
+		sc.dlgt.Offline(sc.ClientID, sc.Meta, sc.RemoteAddr())
 	}
 	sc.fini()
 }
 
-func (sc *SendConn) validConnVer(connver uint32) bool {
+func (sc *SendConn) valIDConnVer(connver uint32) bool {
 	sc.connMtx.RLock()
 	defer sc.connMtx.RUnlock()
 
@@ -480,7 +386,6 @@ func (sc *SendConn) netErr() {
 
 // TODO 做更细节的状态管理，思考chaos边缘场景（并发、延迟、宕机）
 func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 	err := error(nil)
 	switch iotype {
 	case iodefine.OUT:
@@ -489,75 +394,44 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			// 发起连接
 			err = sc.fsm.EmitEvent(ET_CONNSENT)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_CONNSENT err", err)
-				} else {
-					sc.log.Errorf("emit ET_CONNSENT err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
-				sc.shub.Error(pkt.Id(), err)
+
+				sc.log.Errorf("emit ET_CONNSENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
+
+				sc.shub.Error(pkt.ID(), err)
 				return iodefine.IOReconnect
 			}
 			err = packet.EncodeToWriter(pkt, sc.netconn)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						Error("encode CONN to writer err", err)
-				} else {
-					sc.log.Errorf("encode CONN to writer err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta))
-				}
-				sc.shub.Error(pkt.Id(), err)
+
+				sc.log.Errorf("encode CONN to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta))
+
+				sc.shub.Error(pkt.ID(), err)
 				return iodefine.IOReconnect
 			}
-			logrusLog, yes := sc.log.(logrus.FieldLogger)
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("packetType", pkt.Type().String()).
-					Debug("send conn succeed")
-			} else {
-				sc.log.Debugf("send connsucceed, clientId: %d, packetId: %d, packetType: %s",
-					sc.ClientId, pkt.Id(), pkt.Type().String())
-			}
+			sc.log.Debugf("send connsucceed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.ClientID, pkt.ID(), pkt.Type().String())
+
 			return iodefine.IOSuccess
 
 		case packet.TypeDisConnPacket:
 			// 客户端主动关闭连接
 			err = sc.fsm.EmitEvent(ET_CLOSESENT)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_CLOSESENT err", err)
-				} else {
-					sc.log.Errorf("emit ET_CLOSESENT err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
-				return iodefine.IOErr
+				sc.log.Errorf("emit ET_CLOSESENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
 			}
+			return iodefine.IOErr
 			err = packet.EncodeToWriter(pkt, sc.netconn)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						Error("encode DISCONN to writer err", err)
-				} else {
-					sc.log.Errorf("encode DISCONN to writer err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta))
-				}
+				sc.log.Errorf("encode DISCONN to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta))
+
 				return iodefine.IOErr
 			}
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("packetType", pkt.Type().String()).
-					Debug("send dis conn succeed")
-			} else {
-				sc.log.Debugf("send dis conn succeed, clientId: %d, packetId: %d, packetType: %s",
-					sc.ClientId, pkt.Id(), pkt.Type().String())
-			}
+			sc.log.Debugf("send dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.ClientID, pkt.ID(), pkt.Type().String())
 			//return iodefine.IOClosed
 			return iodefine.IOSuccess
 
@@ -565,61 +439,31 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			// 客户端回复关闭连接
 			err = sc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_CLOSEACK err", err)
-				} else {
-					sc.log.Errorf("emit ET_CLOSEACK err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
+				sc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
 
 			err = packet.EncodeToWriter(pkt, sc.netconn)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						Error("encode DISCONNACK to writer err", err)
-				} else {
-					sc.log.Errorf("encode DISCONNACK to writer err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta))
-				}
+				sc.log.Errorf("encode DISCONNACK to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta))
 				return iodefine.IOErr
 			}
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("packetType", pkt.Type().String()).
-					Debug("send dis conn ack succeed")
-			} else {
-				sc.log.Debugf("send dis conn ack succeed, clientId: %d, packetId: %d, packetType: %s",
-					sc.ClientId, pkt.Id(), pkt.Type().String())
-			}
+			sc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.ClientID, pkt.ID(), pkt.Type().String())
 			//return iodefine.IOClosed
 			return iodefine.IOSuccess
 
 		case packet.TypeHeartbeatPacket:
 			err = packet.EncodeToWriter(pkt, sc.netconn)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						Error("encode HEARTBEAT to writer err", err)
-				} else {
-					sc.log.Errorf("encode HEARTBEAT to writer err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s",
-						err, sc.ClientId, pkt.Id(), sc.RemoteAddr().String(), string(sc.Meta))
-				}
+				sc.log.Errorf("encode HEARTBEAT to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+					err, sc.ClientID, pkt.ID(), sc.RemoteAddr().String(), string(sc.Meta))
 				return iodefine.IOReconnect
 			}
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("packetType", pkt.Type().String()).
-					Debug("send heartbeat succeed")
-			} else {
-				sc.log.Debugf("send heartbeat succeed, clientId: %d, packetId: %d, packetType: %s",
-					sc.ClientId, pkt.Id(), pkt.Type().String())
-			}
+			sc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.ClientID, pkt.ID(), pkt.Type().String())
 			return iodefine.IOSuccess
 		}
 
@@ -629,42 +473,30 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			// 服务端回复连接
 			err = sc.fsm.EmitEvent(ET_CONNACK)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_CONNACK err", err)
-				} else {
-					sc.log.Errorf("emit ET_CONNACK err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
-				sc.shub.Error(realPkt.PacketId, err)
+				sc.log.Errorf("emit ET_CONNACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
+				sc.shub.Error(realPkt.PacketID, err)
 				return iodefine.IOReconnect
 			}
-			sc.ClientId = realPkt.ClientId
+			sc.ClientID = realPkt.ClientID
 
 			if realPkt.ConnData.Error != "" {
 				err := errors.New(realPkt.ConnData.Error)
-				sc.shub.Error(realPkt.PacketId, err)
+				sc.shub.Error(realPkt.PacketID, err)
 				return iodefine.IOClosed
 			}
-			sc.shub.Ack(realPkt.PacketId, nil)
+			sc.shub.Ack(realPkt.PacketID, nil)
 			return iodefine.IOSuccess
 
 		case *packet.DisConnPacket:
 			// 服务端主动关闭连接
 			err = sc.fsm.EmitEvent(ET_CLOSERECV)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_DISCONN err", err)
-				} else {
-					sc.log.Errorf("emit ET_DISCONN err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
+				sc.log.Errorf("emit ET_DISCONN err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
-			retPkt := sc.pf.NewDisConnAckPacket(pkt.Id(), nil)
+			retPkt := sc.pf.NewDisConnAckPacket(pkt.ID(), nil)
 			sc.connMtx.RLock()
 			if !sc.connOK {
 				sc.connMtx.RUnlock()
@@ -680,38 +512,20 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			// 服务端确认关闭连接
 			err = sc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("emit ET_CLOSEACK err", err)
-				} else {
-					sc.log.Errorf("emit ET_CLOSEACK err: %s, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						err, sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
+				sc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
-			if yes {
-				logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-					WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-					Debug("recv dis conn ack succeed")
-			} else {
-				sc.log.Debugf("recv dis conn ack succeed, clientId: %d, packetId: %d, remote: %s, meta: %s",
-					sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta))
-			}
+			sc.log.Debugf("recv dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+				sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta))
 			return iodefine.IOClosed
 
 		case *packet.HeartbeatAckPacket:
 			// 心跳确定
 			ok := sc.fsm.InStates(CONNED)
 			if !ok {
-				if yes {
-					logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-						WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-						WithField("state", sc.fsm.State()).Error("heartbeat at non-CONNED state")
-				} else {
-					sc.log.Errorf("heartbeat at non-CONNED state, clientId: %d, packetId: %d, remote: %s, meta: %s, state: %s",
-						sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
-				}
+				sc.log.Errorf("heartbeat at non-CONNED state, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
 			return iodefine.IOSuccess
@@ -720,33 +534,20 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			return iodefine.IOData
 		}
 	}
-	if yes {
-		logrusLog.WithField("clientId", sc.ClientId).WithField("packetId", pkt.Id()).
-			WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-			Debugf("BUG! should not be here, iotype: %v", iotype)
-	} else {
-		sc.log.Debugf("BUG! should not be here, clientId: %d, packetId: %d, remote: %s, meta: %s",
-			sc.ClientId, pkt.Id(), sc.netconn.RemoteAddr(), string(sc.Meta))
-	}
+	sc.log.Debugf("BUG! should not be here, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+		sc.ClientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.Meta))
 	return iodefine.IOErr
 }
 
 func (sc *SendConn) heartbeat(data interface{}) error {
-	logrusLog, yes := sc.log.(logrus.FieldLogger)
 	err := error(nil)
 
 	sc.hbTick, err = sc.tmr.Time(
 		uint64(sc.Heartbeat), struct{}{}, nil, sc.heartbeat)
 	if err != nil {
 		// TODO
-		if yes {
-			logrusLog.WithField("clientId", sc.ClientId).
-				WithField("remote", sc.netconn.RemoteAddr()).WithField("meta", string(sc.Meta)).
-				Errorf("set heartbeat timer err", err)
-		} else {
-			sc.log.Errorf("set heartbeat timer err, clientId: %d, remote: %s, meta: %s",
-				err, sc.ClientId, sc.netconn.RemoteAddr(), string(sc.Meta))
-		}
+		sc.log.Errorf("set heartbeat timer err, clientID: %d, remote: %s, meta: %s",
+			err, sc.ClientID, sc.netconn.RemoteAddr(), string(sc.Meta))
 		return err
 	}
 	sc.connMtx.RLock()

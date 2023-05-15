@@ -6,7 +6,6 @@ require (
 	github.com/singchia/go-timer v0.0.7
 	github.com/singchia/yafsm v0.0.0-20230502131922-3ae091cf3b73
 	github.com/sirupsen/logrus v1.9.0
-	gitlab.moresec.cn/moresec/ms_gw/alf v1.2.0
 )
 
 require (
