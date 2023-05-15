@@ -9,7 +9,7 @@ import (
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
-	"github.com/singchia/geminio/synchub"
+	"github.com/singchia/geminio/pkg/synchub"
 	"github.com/singchia/go-timer"
 	"github.com/singchia/yafsm"
 )
@@ -38,7 +38,7 @@ func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
 		writeCh:     make(chan packet.Packet, 1024),
 		once:        new(sync.Once),
 		offlineOnce: new(sync.Once),
-		clientIDs:   ID.NewIDCounter(ID.Unique),
+		clientIDs:   id.NewIDCounter(id.Unique),
 	}
 	rc.cn = rc
 	// options

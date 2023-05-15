@@ -5,9 +5,9 @@ import (
 	"net"
 	"sync"
 
+	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/log"
 	"github.com/singchia/geminio/pkg/synchub"
 	"github.com/singchia/go-timer"
 	"github.com/singchia/yafsm"
@@ -72,7 +72,7 @@ func OptionDelegate(dlgt delegate.Delegate) ConnOption {
 	}
 }
 
-func OptionLoggy(log log.Loggy) ConnOption {
+func OptionLoggy(log log.Logger) ConnOption {
 	return func(bc *BaseConn) error {
 		bc.log = log
 		return nil
@@ -111,7 +111,7 @@ type BaseConn struct {
 	netconn net.Conn
 	SIDe    SIDe
 	shub    *synchub.SyncHub
-	log     log.Loggy
+	log     log.Logger
 
 	//delegate Delegate
 	tmr        timer.Timer

@@ -10,7 +10,7 @@ import (
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
-	"github.com/singchia/geminio/synchub"
+	"github.com/singchia/geminio/pkg/synchub"
 	"github.com/singchia/go-timer"
 	"github.com/singchia/yafsm"
 )
