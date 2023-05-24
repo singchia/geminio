@@ -32,7 +32,7 @@ func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
 			},
 			fsm:     yafsm.NewFSM(),
 			netconn: netconn,
-			SIDe:    ServerSIDe,
+			Side:    ServerSide,
 			connOK:  true,
 		},
 		writeCh:     make(chan packet.Packet, 1024),

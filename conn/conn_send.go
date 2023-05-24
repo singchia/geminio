@@ -44,7 +44,7 @@ func NewSendConn(dialer Dialer, clientID uint64, meta []byte, opts ...ConnOption
 				Meta:      meta,
 			},
 			fsm:  yafsm.NewFSM(),
-			SIDe: ClientSIDe,
+			Side: ClientSide,
 		},
 		writeCh:   make(chan *packetAndConnver, 1024),
 		onceFini:  new(sync.Once),

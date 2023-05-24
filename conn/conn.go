@@ -96,11 +96,11 @@ type ConnOpts struct {
 	dlgt delegate.Delegate
 }
 
-type SIDe int
+type Side int
 
 const (
-	ClientSIDe SIDe = 0
-	ServerSIDe SIDe = 1
+	ClientSide Side = 0
+	ServerSide Side = 1
 )
 
 type BaseConn struct {
@@ -109,7 +109,7 @@ type BaseConn struct {
 
 	fsm     *yafsm.FSM
 	netconn net.Conn
-	SIDe    SIDe
+	Side    Side
 	shub    *synchub.SyncHub
 	log     log.Logger
 
