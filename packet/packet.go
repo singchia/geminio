@@ -94,23 +94,21 @@ func (typ Type) String() string {
 const (
 	TypeConnPacket         Type = 0x01
 	TypeConnAckPacket      Type = 0x02
-	TypeDisConnPacket      Type = 0x03
-	TypeDisConnAckPacket   Type = 0x04
-	TypeHeartbeatPacket    Type = 0x05
-	TypeHeartbeatAckPacket Type = 0x06
-
-	TypeSessionPacket    Type = 0x07
-	TypeSessionAckPacket Type = 0x08
-	TypeDismissPacket    Type = 0x09
-	TypeDismissAckPacket Type = 0x0A
-
-	TypeMessagePacket     Type = 0x0B
-	TypeMessageAckPacket  Type = 0x0C
-	TypeStreamPacket      Type = 0x0D
-	TypeRequestPacket     Type = 0x0E
-	TypeResponsePacket    Type = 0x0F
-	TypeRegisterPacket    Type = 0x11
-	TypeRegisterAckPacket Type = 0x12
+	TypeDisConnPacket      Type = 0x11
+	TypeDisConnAckPacket   Type = 0x12
+	TypeHeartbeatPacket    Type = 0x21
+	TypeHeartbeatAckPacket Type = 0x22
+	TypeSessionPacket      Type = 0x31
+	TypeSessionAckPacket   Type = 0x32
+	TypeDismissPacket      Type = 0x41
+	TypeDismissAckPacket   Type = 0x42
+	TypeMessagePacket      Type = 0x51
+	TypeMessageAckPacket   Type = 0x52
+	TypeStreamPacket       Type = 0x61
+	TypeRequestPacket      Type = 0x71
+	TypeResponsePacket     Type = 0x72
+	TypeRegisterPacket     Type = 0x81
+	TypeRegisterAckPacket  Type = 0x82
 )
 
 type Cnss byte

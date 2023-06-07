@@ -4,35 +4,68 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/jumboframes/armorigo/log"
+	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
-	"github.com/singchia/geminio/pkg/synchub"
-	"github.com/singchia/go-timer"
+	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
 
 type RecvConn struct {
-	*BaseConn
+	*baseConn
 	writeCh chan packet.Packet
+	dlgt    RecvConnDelegate
 
 	once        *sync.Once
 	offlineOnce *sync.Once
 	clientIDs   id.IDFactory // global IDs
 }
 
-func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
+type RecvConnOption func(*RecvConn) error
+
+func OptionRecvConnPacketFactory(pf *packet.PacketFactory) RecvConnOption {
+	return func(rc *RecvConn) error {
+		rc.pf = pf
+		return nil
+	}
+}
+
+func OptionRecvConnTimer(tmr timer.Timer) RecvConnOption {
+	return func(rc *RecvConn) error {
+		rc.tmr = tmr
+		rc.tmrOutside = true
+		return nil
+	}
+}
+
+func OptionRecvConnDelegate(dlgt RecvConnDelegate) RecvConnOption {
+	return func(rc *RecvConn) error {
+		rc.dlgt = dlgt
+		return nil
+	}
+}
+
+func OptionRecvConnLogger(log log.Logger) RecvConnOption {
+	return func(rc *RecvConn) error {
+		rc.log = log
+		return nil
+	}
+}
+
+func NewRecvConn(netconn net.Conn, opts ...RecvConnOption) (*RecvConn, error) {
 	err := error(nil)
 	rc := &RecvConn{
-		BaseConn: &BaseConn{
-			ConnOpts: ConnOpts{
-				WaitTimeout: 10,
+		baseConn: &baseConn{
+			connOpts: connOpts{
+				waitTimeout: 10,
 			},
 			fsm:     yafsm.NewFSM(),
 			netconn: netconn,
-			Side:    ServerSide,
+			side:    ServerSide,
 			connOK:  true,
 		},
 		writeCh:     make(chan packet.Packet, 1024),
@@ -43,7 +76,7 @@ func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
 	rc.cn = rc
 	// options
 	for _, opt := range opts {
-		err = opt(rc.BaseConn)
+		err = opt(rc)
 		if err != nil {
 			return nil, err
 		}
@@ -51,11 +84,10 @@ func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
 	rc.writeFromUpCh = make(chan packet.Packet)
 	rc.readToUpCh = make(chan packet.Packet)
 	// timer
-	if !rc.tmrOutsIDe {
+	if !rc.tmrOutside {
 		rc.tmr = timer.NewTimer()
-		rc.tmr.Start()
 	}
-	rc.shub = synchub.NewSyncHub(rc.tmr)
+	rc.shub = synchub.NewSyncHub(synchub.OptionTimer(rc.tmr))
 
 	if rc.pf == nil {
 		rc.pf = packet.NewPacketFactory(id.NewIDCounter(id.Even))
@@ -65,7 +97,33 @@ func NewRecvConn(netconn net.Conn, opts ...ConnOption) (*RecvConn, error) {
 	}
 	// states
 	rc.initFSM()
+	go rc.readPkt()
+	go rc.writePkt()
+	err = rc.wait()
+	if err != nil {
+		goto ERR
+	}
 	return rc, nil
+ERR:
+	rc.fini()
+	return nil, err
+}
+
+func (rc *RecvConn) wait() error {
+	sync := rc.shub.New(rc.getSyncID(), synchub.WithTimeout(10*time.Second))
+	event := <-sync.C()
+	if event.Error != nil {
+		rc.log.Errorf("wait conn timeout, clientID: %d, remote: %s, meta: %s",
+			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
+		return event.Error
+	}
+	return nil
+}
+
+func (rc *RecvConn) getSyncID() string {
+	rc.connMtx.RLock()
+	defer rc.connMtx.RUnlock()
+	return rc.netconn.RemoteAddr().String() + rc.netconn.LocalAddr().String()
 }
 
 func (rc *RecvConn) initFSM() {
@@ -125,32 +183,32 @@ func (rc *RecvConn) writePkt() {
 			}
 		case pkt, ok := <-rc.writeFromUpCh:
 			if !ok {
-				rc.log.Infof("write from up EOF, clientID: %d", rc.ClientID)
+				rc.log.Infof("write from up EOF, clientID: %d", rc.clientID)
 				// return
 				continue
 			}
 
 			rc.log.Tracef("to write down, clientID: %d, packetID: %d, packetType: %s",
-				rc.ClientID, pkt.ID(), pkt.Type().String())
+				rc.clientID, pkt.ID(), pkt.Type().String())
 			err = packet.EncodeToWriter(pkt, rc.netconn)
 			if err != nil {
 				if err == io.EOF {
 					// eof means no need for graceful close
 					rc.fsm.EmitEvent(ET_EOF)
 					rc.log.Infof("conn write down EOF, clientID: %d, packetID: %d",
-						rc.ClientID, pkt.ID())
+						rc.clientID, pkt.ID())
 				}
 			} else {
 				rc.fsm.EmitEvent(ET_ERROR)
 				rc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
-					err, rc.ClientID, pkt.ID())
+					err, rc.clientID, pkt.ID())
 			}
 			continue
 		}
 	}
 CLOSED:
-	if rc.dlgt != nil && rc.ClientID != 0 {
-		rc.offlineOnce.Do(func() { rc.dlgt.Offline(rc.ClientID, rc.Meta, rc.RemoteAddr()) })
+	if rc.dlgt != nil && rc.clientID != 0 {
+		rc.offlineOnce.Do(func() { rc.dlgt.Offline(rc.clientID, rc.meta, rc.RemoteAddr()) })
 	}
 	rc.fini()
 }
@@ -162,17 +220,17 @@ func (rc *RecvConn) readPkt() {
 			if err == io.EOF {
 				rc.fsm.EmitEvent(ET_EOF)
 				rc.log.Debugf("conn read down EOF, clientID: %d, remote: %s, meta: %s",
-					rc.ClientID, rc.netconn.RemoteAddr(), string(rc.Meta))
+					rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 			} else {
 				rc.fsm.EmitEvent(ET_ERROR)
 				rc.log.Errorf("conn read down err, clientID: %d",
-					rc.ClientID)
+					rc.clientID)
 			}
 			goto CLOSED
 		}
 
 		rc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
-			pkt.Type().String(), rc.ClientID, pkt.ID(), pkt.Type().String())
+			pkt.Type().String(), rc.clientID, pkt.ID(), pkt.Type().String())
 		ie := rc.handlePkt(pkt, iodefine.IN)
 		switch ie {
 		case iodefine.IONew:
@@ -201,8 +259,8 @@ func (rc *RecvConn) readPkt() {
 		}
 	}
 CLOSED:
-	if rc.dlgt != nil && rc.ClientID != 0 {
-		rc.offlineOnce.Do(func() { rc.dlgt.Offline(rc.ClientID, rc.Meta, rc.RemoteAddr()) })
+	if rc.dlgt != nil && rc.clientID != 0 {
+		rc.offlineOnce.Do(func() { rc.dlgt.Offline(rc.clientID, rc.meta, rc.RemoteAddr()) })
 	}
 	rc.fini()
 }
@@ -217,72 +275,72 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			err = rc.fsm.EmitEvent(ET_CLOSESENT)
 			if err != nil {
 				rc.log.Errorf("emit ET_CLOSESENT err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 			err = packet.EncodeToWriter(pkt, rc.netconn)
 			if err != nil {
 				rc.log.Errorf("encode DISCONN to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 				return iodefine.IOErr
 			}
 			rc.log.Debugf("send dis conn succeed, clientID: %d, packetID: %d",
-				rc.ClientID, pkt.ID())
+				rc.clientID, pkt.ID())
 			return iodefine.IOSuccess
 
 		case packet.TypeDisConnAckPacket:
 			err = rc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
 				rc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 			err = packet.EncodeToWriter(pkt, rc.netconn)
 			if err != nil {
 				rc.log.Errorf("encode DISCONNACK to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 				return iodefine.IOErr
 			}
 			rc.log.Debugf("send dis conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			return iodefine.IOSuccess
 
 		default:
 			rc.log.Error("unknown outgoing packet, clientID: %d, packetID: %d",
-				rc.ClientID, pkt.ID())
+				rc.clientID, pkt.ID())
 		}
 
 	case iodefine.IN:
 		switch realPkt := pkt.(type) {
 		case *packet.ConnPacket:
 			rc.log.Debugf("read conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(realPkt.ConnData.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(realPkt.ConnData.Meta))
 
 			err = rc.fsm.EmitEvent(ET_CONNRECV)
 			if err != nil {
 				rc.log.Errorf("emit ET_CONNRECV err: %s, clientID: %d, packetID: %d, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.fsm.State())
 				rc.shub.Error(rc.getSyncID(), err)
 				return iodefine.IOErr
 			}
 
-			rc.Meta = realPkt.ConnData.Meta
+			rc.meta = realPkt.ConnData.Meta
 			//clientID := realPkt.ClientID
 			if realPkt.ClientID == 0 {
 				if rc.dlgt != nil {
-					rc.ClientID, err = rc.dlgt.GetClientIDByMeta(rc.Meta)
+					rc.clientID, err = rc.dlgt.GetClientIDByMeta(rc.meta)
 				} else {
-					rc.ClientID, err = rc.clientIDs.GetIDByMeta(rc.Meta)
+					rc.clientID, err = rc.clientIDs.GetIDByMeta(rc.meta)
 				}
 				if err != nil {
 					rc.log.Errorf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-						err, rc.ClientID, pkt.ID(), string(rc.Meta))
+						err, rc.clientID, pkt.ID(), string(rc.meta))
 
-					retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.ClientID, err)
+					retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.clientID, err)
 					err = packet.EncodeToWriter(retPkt, rc.netconn)
 					if err != nil {
 						rc.log.Errorf("encode CONNERRACK to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-							err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr())
+							err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr())
 					}
 					rc.shub.Error(rc.getSyncID(), err)
 					return iodefine.IOErr
@@ -290,16 +348,16 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 
 			if rc.dlgt != nil {
-				err = rc.dlgt.Online(rc.ClientID, rc.Meta, rc.RemoteAddr())
+				err = rc.dlgt.Online(rc.clientID, rc.meta, rc.RemoteAddr())
 				if err != nil {
 					rc.log.Errorf("online err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-						err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+						err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 
-					retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.ClientID, err)
+					retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.clientID, err)
 					err = packet.EncodeToWriter(retPkt, rc.netconn)
 					if err != nil {
 						rc.log.Errorf("encode CONNERRACK to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-							err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+							err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 					}
 					rc.shub.Error(rc.getSyncID(), err)
 					// close the connection
@@ -310,42 +368,36 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			rc.shub.Ack(rc.getSyncID(), nil)
 
 			// 正常响应
-			retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.ClientID, nil)
+			retPkt := rc.pf.NewConnAckPacket(realPkt.PacketID, rc.clientID, nil)
 			err = packet.EncodeToWriter(retPkt, rc.netconn)
 			if err != nil {
 				rc.log.Errorf("encode CONNACK to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 				return iodefine.IOErr
 			}
 			err = rc.fsm.EmitEvent(ET_CONNACK)
 			if err != nil {
 				rc.log.Errorf("emit ET_CONNACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 
 			// 心跳延长
-			rc.Heartbeat = realPkt.Heartbeat
-			rc.hbTick, err = rc.tmr.Time(
-				uint64(rc.Heartbeat*2), struct{}{}, nil, rc.waitHBTimeout)
-			if err != nil {
-				rc.log.Errorf("set hb timer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
-				return iodefine.IOErr
-			}
+			rc.heartbeat = realPkt.Heartbeat
+			rc.hbTick = rc.tmr.Add(time.Duration(rc.heartbeat)*2*time.Second, timer.WithHandler(rc.waitHBTimeout))
 
 			rc.log.Debugf("send conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			return iodefine.IONew
 
 		case *packet.DisConnPacket:
 			rc.log.Debugf("read dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			// 收到断开请求
 			err = rc.fsm.EmitEvent(ET_CLOSERECV)
 			if err != nil {
 				rc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 			// no more read
@@ -362,12 +414,12 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 
 		case *packet.DisConnAckPacket:
 			rc.log.Debugf("read dis conn ack packet, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			// 确定断开请求，断开所有上下文
 			err = rc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
 				rc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 			return iodefine.IOClosed
@@ -377,29 +429,24 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			ok := rc.fsm.InStates(CONNED)
 			if !ok {
 				rc.log.Errorf("heartbeat at non-CONNED state, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
+					rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
 			}
 			// 重置心跳
 			rc.hbTick.Cancel()
-			rc.hbTick, err = rc.tmr.Time(
-				uint64(rc.Heartbeat*2), struct{}{}, nil, rc.waitHBTimeout)
-			if err != nil {
-				rc.log.Errorf("set heartbeat timer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta), rc.fsm.State())
-			}
+			rc.hbTick = rc.tmr.Add(time.Duration(rc.heartbeat)*2*time.Second, timer.WithHandler(rc.waitHBTimeout), timer.WithCyclically())
 
 			retPkt := rc.pf.NewHeartbeatAckPacket(realPkt.PacketID)
 			err = packet.EncodeToWriter(retPkt, rc.netconn)
 			if err != nil {
 				rc.log.Errorf("encode HEARTBEAT to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					err, rc.ClientID, pkt.ID(), rc.RemoteAddr().String(), string(rc.Meta))
+					err, rc.clientID, pkt.ID(), rc.RemoteAddr().String(), string(rc.meta))
 				return iodefine.IOErr
 			}
 			rc.log.Debugf("send heartbeat ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			if rc.dlgt != nil {
-				rc.dlgt.Heartbeat(rc.ClientID, rc.Meta, rc.netconn.RemoteAddr())
+				rc.dlgt.Heartbeat(rc.clientID, rc.meta, rc.netconn.RemoteAddr())
 			}
 			return iodefine.IOSuccess
 
@@ -407,40 +454,21 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			ok := rc.fsm.InStates(CONNED)
 			if !ok {
 				rc.log.Debugf("data at non CONNED, clientID: %d, packetID: %d, remote: %s, meta: %s",
-					rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+					rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 				return iodefine.IOErr
 			}
 			return iodefine.IOData
 		}
 	}
 	rc.log.Debugf("BUG! should not be here, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		rc.ClientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.Meta))
+		rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 	return iodefine.IOErr
-}
-
-func (rc *RecvConn) init() error {
-	rc.wg.Done() // 兼容抽象，在发送端需要先连接再进入loop，所以使用wg控制 TODO
-	ch := rc.shub.Sync(rc.getSyncID(), nil, 10)
-	unit := <-ch
-	if unit.Error != nil {
-		rc.log.Errorf("wait conn timeout, clientID: %d, remote: %s, meta: %s",
-			rc.ClientID, rc.netconn.RemoteAddr(), string(rc.Meta))
-		rc.fini()
-		return unit.Error
-	}
-	return nil
-}
-
-func (rc *RecvConn) getSyncID() string {
-	rc.connMtx.RLock()
-	defer rc.connMtx.RUnlock()
-	return rc.netconn.RemoteAddr().String() + rc.netconn.LocalAddr().String()
 }
 
 // TODO 优雅关闭
 func (rc *RecvConn) Close() {
 	rc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
-		rc.ClientID, rc.netconn.RemoteAddr(), string(rc.Meta))
+		rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 
 	rc.connMtx.RLock()
 	pkt := rc.pf.NewDisConnPacket()
@@ -462,7 +490,7 @@ func (rc *RecvConn) closeWrapper(_ *yafsm.Event) {
 func (rc *RecvConn) fini() {
 	rc.once.Do(func() {
 		rc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
-			rc.ClientID, rc.netconn.RemoteAddr(), string(rc.Meta))
+			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 
 		rc.connMtx.Lock()
 		rc.connOK = false
@@ -475,8 +503,8 @@ func (rc *RecvConn) fini() {
 		close(rc.writeFromUpCh)
 		close(rc.readToUpCh)
 		rc.connMtx.Unlock()
-		if !rc.tmrOutsIDe {
-			rc.tmr.Stop()
+		if !rc.tmrOutside {
+			rc.tmr.Close()
 		}
 
 		rc.fsm.EmitEvent(ET_FINI)
@@ -484,9 +512,8 @@ func (rc *RecvConn) fini() {
 	})
 }
 
-func (rc *RecvConn) waitHBTimeout(data interface{}) error {
+func (rc *RecvConn) waitHBTimeout(event *timer.Event) {
 	rc.log.Errorf("wait HEARTBEAT timeout, clientID: %d, remote: %s, meta: %s",
-		rc.ClientID, rc.netconn.RemoteAddr(), string(rc.Meta))
+		rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 	rc.fini()
-	return nil
 }

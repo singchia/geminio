@@ -137,8 +137,7 @@ type ConnAckPacket struct {
 
 // TODO 约束，包id由双方保障单调递增可信
 type ConnData struct {
-	Meta []byte `json:"meta,omitempty"`
-	//Error error  `json:"error,omitempty"`
+	Meta  []byte `json:"meta,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
