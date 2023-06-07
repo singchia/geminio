@@ -6,10 +6,9 @@ import (
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio/delegate"
+	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/synchub"
-	"github.com/singchia/go-timer"
+	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
 
@@ -36,64 +35,32 @@ const (
 )
 
 type Conn interface {
-	Start() error
-	Close()
+	// row functions
+	Read() (packet.Packet, error)
+	Write(pkt packet.Packet) error
+
+	// meta
+	ClientID() uint64
+	Meta() []byte
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
+	Side() Side
 
-	init() error
-	fini()
-	close()
-	readPkt()
-	writePkt()
+	// control
+	Close()
 }
 
-type ConnOption func(*BaseConn) error
-
-func OptionPacketFactory(pf *packet.PacketFactory) ConnOption {
-	return func(bc *BaseConn) error {
-		bc.pf = pf
-		return nil
-	}
-}
-
-func OptionTimer(tmr timer.Timer) ConnOption {
-	return func(bc *BaseConn) error {
-		bc.tmr = tmr
-		bc.tmrOutsIDe = true
-		return nil
-	}
-}
-
-func OptionDelegate(dlgt delegate.Delegate) ConnOption {
-	return func(bc *BaseConn) error {
-		bc.dlgt = dlgt
-		return nil
-	}
-}
-
-func OptionLoggy(log log.Logger) ConnOption {
-	return func(bc *BaseConn) error {
-		bc.log = log
-		return nil
-	}
-}
-
-type ConnOpts struct {
-	ClientID    uint64
-	Heartbeat   packet.Heartbeat
-	Retain      bool
-	Clear       bool
-	WaitTimeout uint64
-	Meta        []byte
+type connOpts struct {
+	clientID    uint64
+	heartbeat   packet.Heartbeat
+	retain      bool
+	clear       bool
+	waitTimeout uint64
+	meta        []byte
 
 	writeFromUpCh, readToUpCh chan packet.Packet
-	wg                        sync.WaitGroup
 
 	pf *packet.PacketFactory
-
-	// delegate
-	dlgt delegate.Delegate
 }
 
 type Side int
@@ -103,26 +70,26 @@ const (
 	ServerSide Side = 1
 )
 
-type BaseConn struct {
-	ConnOpts
+type baseConn struct {
+	connOpts
 	cn Conn
 
 	fsm     *yafsm.FSM
 	netconn net.Conn
-	Side    Side
+	side    Side
 	shub    *synchub.SyncHub
 	log     log.Logger
 
 	//delegate Delegate
 	tmr        timer.Timer
-	tmrOutsIDe bool
+	tmrOutside bool
 	hbTick     timer.Tick
 
 	connOK  bool
 	connMtx sync.RWMutex
 }
 
-func (bc *BaseConn) Read() (packet.Packet, error) {
+func (bc *baseConn) Read() (packet.Packet, error) {
 	pkt, ok := <-bc.readToUpCh
 	if !ok {
 		return nil, io.EOF
@@ -130,7 +97,7 @@ func (bc *BaseConn) Read() (packet.Packet, error) {
 	return pkt, nil
 }
 
-func (bc *BaseConn) Write(pkt packet.Packet) error {
+func (bc *baseConn) Write(pkt packet.Packet) error {
 	bc.connMtx.RLock()
 	defer bc.connMtx.RUnlock()
 
@@ -141,38 +108,26 @@ func (bc *BaseConn) Write(pkt packet.Packet) error {
 	return nil
 }
 
-func (bc *BaseConn) LocalAddr() net.Addr {
+func (bc *baseConn) LocalAddr() net.Addr {
 	return bc.netconn.LocalAddr()
 }
 
-func (bc *BaseConn) RemoteAddr() net.Addr {
+func (bc *baseConn) RemoteAddr() net.Addr {
 	return bc.netconn.RemoteAddr()
 }
 
-func (bc *BaseConn) Start() error {
-	bc.wg.Add(1)
-
-	go bc.cn.readPkt()
-	go bc.cn.writePkt()
-
-	err := bc.cn.init()
-	if err != nil {
-		bc.cn.fini()
-		return err
-	}
-	return nil
+func (bc *baseConn) Side() Side {
+	return bc.side
 }
 
-func (bc *BaseConn) init() error {
-	return nil
-}
-
-func (bc *BaseConn) close() {}
-
-func (bc *BaseConn) Close() {
+func (bc *baseConn) Close() {
 	bc.cn.Close()
 }
 
-func (bc *BaseConn) readPkt() {}
+func (bc *baseConn) Meta() []byte {
+	return bc.meta
+}
 
-func (bc *BaseConn) writePkt() {}
+func (bc *baseConn) ClientID() uint64 {
+	return bc.clientID
+}

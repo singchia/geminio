@@ -129,7 +129,6 @@ func Decode(data []byte) (Packet, uint32, error) {
 	default:
 		return nil, 10, ErrUnsupportedPacket
 	}
-	return nil, 10, ErrUnsupportedPacket
 }
 
 func DecodeFromReader(reader io.Reader) (Packet, error) {
@@ -253,7 +252,6 @@ func DecodeFromReader(reader io.Reader) (Packet, error) {
 	default:
 		return nil, ErrUnsupportedPacket
 	}
-	return nil, ErrUnsupportedPacket
 }
 
 func Encode(pkt Packet) ([]byte, error) {

@@ -20,8 +20,7 @@ type SessionPacket struct {
 }
 
 type SessionData struct {
-	Meta []byte `json:"meta,omitempty"`
-	//Error error  `json:"error,omitempty"`
+	Meta  []byte `json:"meta,omitempty"`
 	Error string `json:"error,omitempty"`
 }
 
