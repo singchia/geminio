@@ -228,6 +228,8 @@ func (rc *RecvConn) readPkt() {
 				rc.fsm.EmitEvent(ET_EOF)
 				rc.log.Debugf("conn read down EOF, clientID: %d, remote: %s, meta: %s",
 					rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
+			} else if iodefine.ErrUseOfClosedNetwork(err) {
+				rc.log.Infof("conn read down closed, clientID: %d", rc.clientID)
 			} else {
 				rc.fsm.EmitEvent(ET_ERROR)
 				rc.log.Errorf("conn read down err: %s, clientID: %d",
@@ -242,10 +244,8 @@ func (rc *RecvConn) readPkt() {
 		switch ie {
 		case iodefine.IONew:
 			continue
-
 		case iodefine.IOSuccess:
 			continue
-
 		case iodefine.IOData:
 			// TODO using RCU
 			rc.readToUpCh <- pkt
@@ -394,7 +394,7 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			return iodefine.IONew
 
 		case *packet.DisConnPacket:
-			rc.log.Debugf("read dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
+			rc.log.Debugf("recv dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			// 收到断开请求
 			err = rc.fsm.EmitEvent(ET_CLOSERECV)
@@ -405,7 +405,14 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 			// no more read
 			retPkt := rc.pf.NewDisConnAckPacket(realPkt.PacketID, nil)
+			rc.connMtx.RLock()
+			if !rc.connOK {
+				rc.connMtx.RUnlock()
+				return iodefine.IOErr
+			}
 			rc.writeCh <- retPkt
+			rc.connMtx.RUnlock()
+			rc.Close()
 			return iodefine.IOSuccess
 
 		case *packet.DisConnAckPacket:
@@ -418,7 +425,7 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 				return iodefine.IOErr
 			}
 			if rc.fsm.State() == CLOSE_HALF {
-				return iodefine.IOExit
+				return iodefine.IOSuccess
 			}
 			return iodefine.IOClosed
 

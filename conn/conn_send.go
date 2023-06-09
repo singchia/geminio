@@ -283,6 +283,8 @@ func (sc *SendConn) readPkt() {
 				if err == io.EOF {
 					sc.fsm.EmitEvent(ET_EOF)
 					sc.log.Infof("conn read down EOF, clientID: %d", sc.clientID)
+				} else if iodefine.ErrUseOfClosedNetwork(err) {
+					sc.log.Infof("conn read down closed, clientID: %d", sc.clientID)
 				} else {
 					sc.log.Errorf("conn read down err: %s, clientID: %d", err, sc.clientID)
 				}
@@ -449,6 +451,7 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			sc.connMtx.RUnlock()
 			sc.log.Debugf("recv dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
 				sc.clientID, pkt.ID(), pkt.Type().String())
+			sc.Close()
 			return iodefine.IOSuccess
 
 		case *packet.DisConnAckPacket:
@@ -462,7 +465,7 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			sc.log.Debugf("recv dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
 				sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			if sc.fsm.State() == CLOSE_HALF {
-				return iodefine.IOExit
+				return iodefine.IOSuccess
 			}
 			return iodefine.IOClosed
 
