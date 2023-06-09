@@ -1,6 +1,6 @@
 module github.com/singchia/geminio
 
-go 1.20
+go 1.17
 
 require (
 	github.com/jumboframes/armorigo v0.1.0

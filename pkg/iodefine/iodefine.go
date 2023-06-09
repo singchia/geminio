@@ -22,6 +22,7 @@ const (
 	IOErr           IORet = 7
 	IONewActive     IORet = 8
 	IONewPassive    IORet = 9
+	IOExit          IORet = 10
 )
 
 var (

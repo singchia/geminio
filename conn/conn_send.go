@@ -97,6 +97,7 @@ func newSendConn(netconn net.Conn, opts ...SendConnOption) (*SendConn, error) {
 			netconn: netconn,
 			fsm:     yafsm.NewFSM(),
 			side:    ClientSide,
+			connOK:  true,
 		},
 		writeCh:   make(chan packet.Packet, 1024),
 		onceFini:  new(sync.Once),
@@ -150,6 +151,7 @@ func (sc *SendConn) initFSM() {
 	abnormal := sc.fsm.AddState(ABNORMAL)
 	closesent := sc.fsm.AddState(CLOSE_SENT)
 	closerecv := sc.fsm.AddState(CLOSE_RECV)
+	closehalf := sc.fsm.AddState(CLOSE_HALF)
 	closed := sc.fsm.AddState(CLOSED)
 	fini := sc.fsm.AddState(FINI)
 	sc.fsm.SetState(INIT)
@@ -166,13 +168,18 @@ func (sc *SendConn) initFSM() {
 
 	sc.fsm.AddEvent(ET_EOF, connsent, closed)
 	sc.fsm.AddEvent(ET_EOF, conned, closed)
-	sc.fsm.AddEvent(ET_EOF, closesent, closed)
-	sc.fsm.AddEvent(ET_EOF, closerecv, closed)
 
 	sc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
+	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // been closed and we acked, then start to close
+
 	sc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
-	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closed)
-	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closed)
+	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
+
+	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
+	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
+	sc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed) // close and been closed at same time
 	// fini
 	sc.fsm.AddEvent(ET_FINI, init, fini)
 	sc.fsm.AddEvent(ET_FINI, connsent, fini)
@@ -180,6 +187,7 @@ func (sc *SendConn) initFSM() {
 	sc.fsm.AddEvent(ET_FINI, abnormal, fini)
 	sc.fsm.AddEvent(ET_FINI, closesent, fini)
 	sc.fsm.AddEvent(ET_FINI, closerecv, fini)
+	sc.fsm.AddEvent(ET_FINI, closehalf, fini)
 	sc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
@@ -217,6 +225,8 @@ func (sc *SendConn) writePkt() {
 				case iodefine.IOSuccess:
 					continue
 				case iodefine.IOClosed:
+					sc.log.Infof("handle packet return closed, clientID: %d, PacketID:%d",
+						sc.clientID, pkt.ID())
 					goto CLOSED
 				case iodefine.IOErr:
 					sc.log.Infof("handle packet return err, clientID: %d, PacketID:%d",
@@ -278,13 +288,15 @@ func (sc *SendConn) readPkt() {
 				}
 				goto CLOSED
 			}
-			sc.log.Tracef("read %s , clientID: %d, PacketID: %d, packetType: %s",
+			sc.log.Tracef("read %s, clientID: %d, PacketID: %d, packetType: %s",
 				pkt.Type().String(), sc.clientID, pkt.ID(), pkt.Type().String())
 			ie := sc.handlePkt(pkt, iodefine.IN)
 			switch ie {
 			case iodefine.IOSuccess:
 				continue
 			case iodefine.IOClosed:
+				sc.log.Debugf("handle packet return closed, clientID: %d, PacketID:%d",
+					sc.clientID, pkt.ID())
 				goto CLOSED
 			case iodefine.IOData:
 				sc.connMtx.RLock()
@@ -294,7 +306,9 @@ func (sc *SendConn) readPkt() {
 				}
 				sc.readToUpCh <- pkt
 				sc.connMtx.RUnlock()
-
+			case iodefine.IOExit:
+				// no more reading, but the underlay conn is still using
+				return
 			case iodefine.IOErr:
 				sc.fsm.EmitEvent(ET_ERROR)
 				sc.log.Errorf("handle packet return err, clientID: %d, PacketID:%d",
@@ -363,22 +377,24 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 
 		case packet.TypeDisConnAckPacket:
 			// the close ack from client
-			err = sc.fsm.EmitEvent(ET_CLOSEACK)
-			if err != nil {
-				sc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
-			}
-
 			err = packet.EncodeToWriter(pkt, sc.netconn)
 			if err != nil {
 				sc.log.Errorf("encode DISCONNACK to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
 					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 				return iodefine.IOErr
 			}
+			err = sc.fsm.EmitEvent(ET_CLOSEACK)
+			if err != nil {
+				sc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
+				return iodefine.IOErr
+			}
 			sc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
 				sc.clientID, pkt.ID(), pkt.Type().String())
-			return iodefine.IOSuccess
+			if sc.fsm.State() == CLOSE_HALF {
+				return iodefine.IOSuccess
+			}
+			return iodefine.IOClosed
 
 		case packet.TypeHeartbeatPacket:
 			err = packet.EncodeToWriter(pkt, sc.netconn)
@@ -411,13 +427,15 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 				return iodefine.IOClosed
 			}
 			sc.shub.Ack(realPkt.PacketID, nil)
+			sc.log.Debugf("recv conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.clientID, pkt.ID(), pkt.Type().String())
 			return iodefine.IOSuccess
 
 		case *packet.DisConnPacket:
 			// the close request from server
 			err = sc.fsm.EmitEvent(ET_CLOSERECV)
 			if err != nil {
-				sc.log.Errorf("emit ET_DISCONN err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+				sc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
 					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
@@ -429,18 +447,23 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 			sc.writeCh <- retPkt
 			sc.connMtx.RUnlock()
+			sc.log.Debugf("recv dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
+				sc.clientID, pkt.ID(), pkt.Type().String())
 			return iodefine.IOSuccess
 
 		case *packet.DisConnAckPacket:
 			// 服务端确认关闭连接
 			err = sc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
-				sc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+				sc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
 					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
 				return iodefine.IOErr
 			}
 			sc.log.Debugf("recv dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
 				sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
+			if sc.fsm.State() == CLOSE_HALF {
+				return iodefine.IOExit
+			}
 			return iodefine.IOClosed
 
 		case *packet.HeartbeatAckPacket:
