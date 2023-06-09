@@ -1,6 +1,9 @@
 package iodefine
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 type IOType uint
 
@@ -22,8 +25,13 @@ const (
 	IOErr           IORet = 7
 	IONewActive     IORet = 8
 	IONewPassive    IORet = 9
+	IOExit          IORet = 10
 )
 
 var (
 	ErrIOTimeout = errors.New("io time out")
 )
+
+func ErrUseOfClosedNetwork(err error) bool {
+	return strings.Contains(err.Error(), "use of closed network connection")
+}

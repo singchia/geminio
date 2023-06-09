@@ -132,6 +132,7 @@ func (rc *RecvConn) initFSM() {
 	conned := rc.fsm.AddState(CONNED)
 	closesent := rc.fsm.AddState(CLOSE_SENT)
 	closerecv := rc.fsm.AddState(CLOSE_RECV)
+	closehalf := rc.fsm.AddState(CLOSE_HALF)
 	closed := rc.fsm.AddState(CLOSED)
 	fini := rc.fsm.AddState(FINI)
 	rc.fsm.SetState(INIT)
@@ -147,18 +148,25 @@ func (rc *RecvConn) initFSM() {
 
 	rc.fsm.AddEvent(ET_EOF, connrecv, closed)
 	rc.fsm.AddEvent(ET_EOF, conned, closed)
-	rc.fsm.AddEvent(ET_EOF, closesent, closed)
-	rc.fsm.AddEvent(ET_EOF, closerecv, closed)
 
 	rc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
+	rc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
+	rc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // been closed and we acked, then start to close
+
 	rc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
-	rc.fsm.AddEvent(ET_CLOSEACK, closesent, closed)
-	rc.fsm.AddEvent(ET_CLOSEACK, closerecv, closed)
+	rc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
+	rc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
+
+	rc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
+	rc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
+	rc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed) // close and been closed at same time
 	// fini
 	rc.fsm.AddEvent(ET_FINI, init, fini)
+	rc.fsm.AddEvent(ET_FINI, connrecv, fini)
 	rc.fsm.AddEvent(ET_FINI, conned, fini)
 	rc.fsm.AddEvent(ET_FINI, closesent, fini)
 	rc.fsm.AddEvent(ET_FINI, closerecv, fini)
+	rc.fsm.AddEvent(ET_FINI, closehalf, fini)
 	rc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
@@ -184,7 +192,6 @@ func (rc *RecvConn) writePkt() {
 		case pkt, ok := <-rc.writeFromUpCh:
 			if !ok {
 				rc.log.Infof("write from up EOF, clientID: %d", rc.clientID)
-				// return
 				continue
 			}
 
@@ -197,11 +204,11 @@ func (rc *RecvConn) writePkt() {
 					rc.fsm.EmitEvent(ET_EOF)
 					rc.log.Infof("conn write down EOF, clientID: %d, packetID: %d",
 						rc.clientID, pkt.ID())
+				} else {
+					rc.fsm.EmitEvent(ET_ERROR)
+					rc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
+						err, rc.clientID, pkt.ID())
 				}
-			} else {
-				rc.fsm.EmitEvent(ET_ERROR)
-				rc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
-					err, rc.clientID, pkt.ID())
 			}
 			continue
 		}
@@ -221,10 +228,12 @@ func (rc *RecvConn) readPkt() {
 				rc.fsm.EmitEvent(ET_EOF)
 				rc.log.Debugf("conn read down EOF, clientID: %d, remote: %s, meta: %s",
 					rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
+			} else if iodefine.ErrUseOfClosedNetwork(err) {
+				rc.log.Infof("conn read down closed, clientID: %d", rc.clientID)
 			} else {
 				rc.fsm.EmitEvent(ET_ERROR)
-				rc.log.Errorf("conn read down err, clientID: %d",
-					rc.clientID)
+				rc.log.Errorf("conn read down err: %s, clientID: %d",
+					err, rc.clientID)
 			}
 			goto CLOSED
 		}
@@ -235,26 +244,19 @@ func (rc *RecvConn) readPkt() {
 		switch ie {
 		case iodefine.IONew:
 			continue
-
 		case iodefine.IOSuccess:
 			continue
-
 		case iodefine.IOData:
-			// TODO 性能待优化，使用RCU优化该场景
-			rc.connMtx.RLock()
-			if !rc.connOK {
-				rc.connMtx.RUnlock()
-				goto CLOSED
-			}
+			// TODO using RCU
 			rc.readToUpCh <- pkt
-			rc.connMtx.RUnlock()
+		case iodefine.IOExit:
+			// no more reading, but the underlay conn is still using
+			return
 
 		case iodefine.IOErr:
-			// TODO 在遇到IOErr之后，还有必要发送Close吗，需要区分情况
 			rc.fsm.EmitEvent(ET_ERROR)
 			goto CLOSED
 		case iodefine.IOClosed:
-			// 无需优雅关闭，直接关闭连接
 			goto CLOSED
 		}
 	}
@@ -286,15 +288,10 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 			rc.log.Debugf("send dis conn succeed, clientID: %d, packetID: %d",
 				rc.clientID, pkt.ID())
+			// TODO no more writing
 			return iodefine.IOSuccess
 
 		case packet.TypeDisConnAckPacket:
-			err = rc.fsm.EmitEvent(ET_CLOSEACK)
-			if err != nil {
-				rc.log.Errorf("emit ET_CLOSEACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
-				return iodefine.IOErr
-			}
 			err = packet.EncodeToWriter(pkt, rc.netconn)
 			if err != nil {
 				rc.log.Errorf("encode DISCONNACK to writer err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
@@ -303,7 +300,16 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 			rc.log.Debugf("send dis conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
-			return iodefine.IOSuccess
+			err = rc.fsm.EmitEvent(ET_CLOSEACK)
+			if err != nil {
+				rc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
+					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
+				return iodefine.IOErr
+			}
+			if rc.fsm.State() == CLOSE_HALF {
+				return iodefine.IOSuccess
+			}
+			return iodefine.IOClosed
 
 		default:
 			rc.log.Error("unknown outgoing packet, clientID: %d, packetID: %d",
@@ -325,7 +331,6 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 
 			rc.meta = realPkt.ConnData.Meta
-			//clientID := realPkt.ClientID
 			if realPkt.ClientID == 0 {
 				if rc.dlgt != nil {
 					rc.clientID, err = rc.dlgt.GetClientIDByMeta(rc.meta)
@@ -360,8 +365,6 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 							err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 					}
 					rc.shub.Error(rc.getSyncID(), err)
-					// close the connection
-					//return iodefine.IOErr
 					return iodefine.IOSuccess
 				}
 			}
@@ -391,7 +394,7 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			return iodefine.IONew
 
 		case *packet.DisConnPacket:
-			rc.log.Debugf("read dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
+			rc.log.Debugf("recv dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
 			// 收到断开请求
 			err = rc.fsm.EmitEvent(ET_CLOSERECV)
@@ -409,18 +412,20 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 			}
 			rc.writeCh <- retPkt
 			rc.connMtx.RUnlock()
-			//return iodefine.IOClosed TODO 当前收到diconn后立即断开连接会让对端收不到dis conn ack的包
+			rc.Close()
 			return iodefine.IOSuccess
 
 		case *packet.DisConnAckPacket:
 			rc.log.Debugf("read dis conn ack packet, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta))
-			// 确定断开请求，断开所有上下文
 			err = rc.fsm.EmitEvent(ET_CLOSEACK)
 			if err != nil {
-				rc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
+				rc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
 					err, rc.clientID, pkt.ID(), rc.netconn.RemoteAddr(), string(rc.meta), rc.fsm.State())
 				return iodefine.IOErr
+			}
+			if rc.fsm.State() == CLOSE_HALF {
+				return iodefine.IOSuccess
 			}
 			return iodefine.IOClosed
 

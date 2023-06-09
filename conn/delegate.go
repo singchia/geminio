@@ -3,9 +3,9 @@ package conn
 import "net"
 
 type Delegate interface {
-	Online(clientId uint64, meta []byte, addr net.Addr) error
-	Offline(clientId uint64, meta []byte, addr net.Addr) error
-	RemoteRegistration(method string, clientId uint64, sessionId uint64)
+	Online(clientID uint64, meta []byte, addr net.Addr) error
+	Offline(clientID uint64, meta []byte, addr net.Addr) error
+	RemoteRegistration(method string, clientID uint64, sessionID uint64)
 }
 
 type SendConnDelegate interface {
@@ -14,6 +14,6 @@ type SendConnDelegate interface {
 
 type RecvConnDelegate interface {
 	Delegate
-	Heartbeat(clientId uint64, meta []byte, addr net.Addr) error
+	Heartbeat(clientID uint64, meta []byte, addr net.Addr) error
 	GetClientIDByMeta(meta []byte) (uint64, error)
 }

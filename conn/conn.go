@@ -20,6 +20,7 @@ const (
 	ABNORMAL   = "abnormal"
 	CLOSE_SENT = "close_sent"
 	CLOSE_RECV = "close_recv"
+	CLOSE_HALF = "close_half"
 	CLOSED     = "closed"
 	FINI       = "fini"
 
@@ -34,8 +35,23 @@ const (
 	ET_FINI      = "fini"
 )
 
+type Reader interface {
+	Read() (packet.Packet, error)
+}
+
+type Writer interface {
+	Write(pkt packet.Packet) error
+}
+
+type Closer interface {
+	Close()
+}
+
 type Conn interface {
 	// row functions
+	Reader
+	Writer
+	Closer
 	Read() (packet.Packet, error)
 	Write(pkt packet.Packet) error
 
@@ -45,9 +61,6 @@ type Conn interface {
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
 	Side() Side
-
-	// control
-	Close()
 }
 
 type connOpts struct {
