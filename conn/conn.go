@@ -52,8 +52,6 @@ type Conn interface {
 	Reader
 	Writer
 	Closer
-	Read() (packet.Packet, error)
-	Write(pkt packet.Packet) error
 
 	// meta
 	ClientID() uint64

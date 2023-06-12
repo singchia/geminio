@@ -23,7 +23,7 @@ func main() {
 	}
 
 	pf := packet.NewPacketFactory(id.NewIDCounter(id.Odd))
-	sc, err := conn.NewSendConnWithDialer(dialer, conn.OptionSendConnPacketFactory(pf))
+	sc, err := conn.NewClientConnWithDialer(dialer, conn.OptionClientConnPacketFactory(pf))
 	if err != nil {
 		log.Println("new send conn err:", err)
 		return

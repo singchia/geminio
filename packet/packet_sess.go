@@ -6,6 +6,10 @@ import (
 	"io"
 )
 
+type SessionLayer interface {
+	SessionID() uint64
+}
+
 // TODO
 type SessionFlags struct {
 	Priority uint32

@@ -8,11 +8,11 @@ type Delegate interface {
 	RemoteRegistration(method string, clientID uint64, sessionID uint64)
 }
 
-type SendConnDelegate interface {
+type ClientConnDelegate interface {
 	Delegate
 }
 
-type RecvConnDelegate interface {
+type ServerConnDelegate interface {
 	Delegate
 	Heartbeat(clientID uint64, meta []byte, addr net.Addr) error
 	GetClientIDByMeta(meta []byte) (uint64, error)

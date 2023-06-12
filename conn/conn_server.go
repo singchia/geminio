@@ -15,50 +15,50 @@ import (
 	"github.com/singchia/yafsm"
 )
 
-type RecvConn struct {
+type ServerConn struct {
 	*baseConn
 	writeCh chan packet.Packet
-	dlgt    RecvConnDelegate
+	dlgt    ServerConnDelegate
 
 	once        *sync.Once
 	offlineOnce *sync.Once
 	clientIDs   id.IDFactory // global IDs
 }
 
-type RecvConnOption func(*RecvConn) error
+type ServerConnOption func(*ServerConn) error
 
-func OptionRecvConnPacketFactory(pf *packet.PacketFactory) RecvConnOption {
-	return func(rc *RecvConn) error {
+func OptionServerConnPacketFactory(pf *packet.PacketFactory) ServerConnOption {
+	return func(rc *ServerConn) error {
 		rc.pf = pf
 		return nil
 	}
 }
 
-func OptionRecvConnTimer(tmr timer.Timer) RecvConnOption {
-	return func(rc *RecvConn) error {
+func OptionServerConnTimer(tmr timer.Timer) ServerConnOption {
+	return func(rc *ServerConn) error {
 		rc.tmr = tmr
 		rc.tmrOutside = true
 		return nil
 	}
 }
 
-func OptionRecvConnDelegate(dlgt RecvConnDelegate) RecvConnOption {
-	return func(rc *RecvConn) error {
+func OptionServerConnDelegate(dlgt ServerConnDelegate) ServerConnOption {
+	return func(rc *ServerConn) error {
 		rc.dlgt = dlgt
 		return nil
 	}
 }
 
-func OptionRecvConnLogger(log log.Logger) RecvConnOption {
-	return func(rc *RecvConn) error {
+func OptionServerConnLogger(log log.Logger) ServerConnOption {
+	return func(rc *ServerConn) error {
 		rc.log = log
 		return nil
 	}
 }
 
-func NewRecvConn(netconn net.Conn, opts ...RecvConnOption) (*RecvConn, error) {
+func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, error) {
 	err := error(nil)
-	rc := &RecvConn{
+	rc := &ServerConn{
 		baseConn: &baseConn{
 			connOpts: connOpts{
 				waitTimeout: 10,
@@ -109,7 +109,7 @@ ERR:
 	return nil, err
 }
 
-func (rc *RecvConn) wait() error {
+func (rc *ServerConn) wait() error {
 	sync := rc.shub.New(rc.getSyncID(), synchub.WithTimeout(10*time.Second))
 	event := <-sync.C()
 	if event.Error != nil {
@@ -120,13 +120,13 @@ func (rc *RecvConn) wait() error {
 	return nil
 }
 
-func (rc *RecvConn) getSyncID() string {
+func (rc *ServerConn) getSyncID() string {
 	rc.connMtx.RLock()
 	defer rc.connMtx.RUnlock()
 	return rc.netconn.RemoteAddr().String() + rc.netconn.LocalAddr().String()
 }
 
-func (rc *RecvConn) initFSM() {
+func (rc *ServerConn) initFSM() {
 	init := rc.fsm.AddState(INIT)
 	connrecv := rc.fsm.AddState(CONN_RECV)
 	conned := rc.fsm.AddState(CONNED)
@@ -170,7 +170,7 @@ func (rc *RecvConn) initFSM() {
 	rc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
-func (rc *RecvConn) writePkt() {
+func (rc *ServerConn) writePkt() {
 	err := error(nil)
 
 	for {
@@ -220,7 +220,7 @@ CLOSED:
 	rc.fini()
 }
 
-func (rc *RecvConn) readPkt() {
+func (rc *ServerConn) readPkt() {
 	for {
 		pkt, err := packet.DecodeFromReader(rc.netconn)
 		if err != nil {
@@ -267,7 +267,7 @@ CLOSED:
 	rc.fini()
 }
 
-func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
+func (rc *ServerConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
 	err := error(nil)
 
 	switch iotype {
@@ -471,7 +471,7 @@ func (rc *RecvConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 }
 
 // TODO 优雅关闭
-func (rc *RecvConn) Close() {
+func (rc *ServerConn) Close() {
 	rc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
 		rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 
@@ -485,14 +485,14 @@ func (rc *RecvConn) Close() {
 	rc.connMtx.RUnlock()
 }
 
-func (rc *RecvConn) close() {}
+func (rc *ServerConn) close() {}
 
-func (rc *RecvConn) closeWrapper(_ *yafsm.Event) {
+func (rc *ServerConn) closeWrapper(_ *yafsm.Event) {
 	rc.Close()
 }
 
 // 回收资源
-func (rc *RecvConn) fini() {
+func (rc *ServerConn) fini() {
 	rc.once.Do(func() {
 		rc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
@@ -517,7 +517,7 @@ func (rc *RecvConn) fini() {
 	})
 }
 
-func (rc *RecvConn) waitHBTimeout(event *timer.Event) {
+func (rc *ServerConn) waitHBTimeout(event *timer.Event) {
 	rc.log.Errorf("wait HEARTBEAT timeout, clientID: %d, remote: %s, meta: %s",
 		rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 	rc.fini()

@@ -72,7 +72,7 @@ func main() {
 						log.Printf("clientId not found '%d'\n", clientId)
 						continue
 					}
-					rc.(*conn.RecvConn).Close()
+					rc.(*conn.ServerConn).Close()
 					clients.Delete(clientId)
 					continue
 
@@ -91,7 +91,7 @@ func main() {
 							continue
 						}
 						pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
-						err = rc.(*conn.RecvConn).Write(pkt)
+						err = rc.(*conn.ServerConn).Write(pkt)
 						if err != nil {
 							log.Println("write err:", err)
 						}
@@ -111,8 +111,8 @@ func main() {
 			log.Printf("accept err: %s", err)
 			break
 		}
-		rc, err := conn.NewRecvConn(netconn, conn.OptionRecvConnPacketFactory(pf),
-			conn.OptionRecvConnDelegate(server))
+		rc, err := conn.NewServerConn(netconn, conn.OptionServerConnPacketFactory(pf),
+			conn.OptionServerConnDelegate(server))
 		if err != nil {
 			log.Printf("new recvconn err: %s", err)
 			continue
