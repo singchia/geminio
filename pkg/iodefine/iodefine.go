@@ -19,13 +19,14 @@ const (
 	IOData          IORet = 1
 	IOReconnect     IORet = 2
 	IONew           IORet = 3
-	IOClosed        IORet = 4
-	IOClosedActive  IORet = 5
-	IOClosedPassive IORet = 6
-	IOErr           IORet = 7
-	IONewActive     IORet = 8
-	IONewPassive    IORet = 9
+	IONewActive     IORet = 4
+	IONewPassive    IORet = 5
+	IOClosed        IORet = 6
+	IOClosedActive  IORet = 7
+	IOClosedPassive IORet = 8
+	IOErr           IORet = 9
 	IOExit          IORet = 10
+	IODiscard       IORet = 11
 )
 
 var (
