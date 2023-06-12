@@ -18,9 +18,9 @@ import (
 
 type Dialer func() (net.Conn, error)
 
-type SendConn struct {
+type ClientConn struct {
 	*baseConn
-	dlgt    SendConnDelegate
+	dlgt    ClientConnDelegate
 	dialer  Dialer
 	writeCh chan packet.Packet
 
@@ -28,66 +28,66 @@ type SendConn struct {
 	onceClose *sync.Once
 }
 
-type SendConnOption func(*SendConn) error
+type ClientConnOption func(*ClientConn) error
 
-func OptionSendConnPacketFactory(pf *packet.PacketFactory) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnPacketFactory(pf *packet.PacketFactory) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.pf = pf
 		return nil
 	}
 }
 
-func OptionSendConnTimer(tmr timer.Timer) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnTimer(tmr timer.Timer) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.tmr = tmr
 		sc.tmrOutside = true
 		return nil
 	}
 }
 
-func OptionSendConnDelegate(dlgt SendConnDelegate) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnDelegate(dlgt ClientConnDelegate) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.dlgt = dlgt
 		return nil
 	}
 }
 
-func OptionSendConnLogger(log log.Logger) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnLogger(log log.Logger) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.log = log
 		return nil
 	}
 }
 
-func OptionSendConnMeta(meta []byte) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnMeta(meta []byte) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.meta = meta
 		return nil
 	}
 }
 
-func OptionSendConnClientID(clientID uint64) SendConnOption {
-	return func(sc *SendConn) error {
+func OptionClientConnClientID(clientID uint64) ClientConnOption {
+	return func(sc *ClientConn) error {
 		sc.clientID = clientID
 		return nil
 	}
 }
 
-func NewSendConn(netconn net.Conn, opts ...SendConnOption) (*SendConn, error) {
-	return newSendConn(netconn, opts...)
+func NewClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, error) {
+	return newClientConn(netconn, opts...)
 }
 
-func NewSendConnWithDialer(dialer Dialer, opts ...SendConnOption) (*SendConn, error) {
+func NewClientConnWithDialer(dialer Dialer, opts ...ClientConnOption) (*ClientConn, error) {
 	netconn, err := dialer()
 	if err != nil {
 		return nil, err
 	}
-	return newSendConn(netconn, opts...)
+	return newClientConn(netconn, opts...)
 }
 
-func newSendConn(netconn net.Conn, opts ...SendConnOption) (*SendConn, error) {
+func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, error) {
 	err := error(nil)
-	sc := &SendConn{
+	sc := &ClientConn{
 		baseConn: &baseConn{
 			connOpts: connOpts{
 				clientID:  packet.ClientIDNull,
@@ -144,7 +144,7 @@ ERR:
 	return nil, err
 }
 
-func (sc *SendConn) initFSM() {
+func (sc *ClientConn) initFSM() {
 	init := sc.fsm.AddState(INIT)
 	connsent := sc.fsm.AddState(CONN_SENT)
 	conned := sc.fsm.AddState(CONNED)
@@ -191,7 +191,7 @@ func (sc *SendConn) initFSM() {
 	sc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
-func (sc *SendConn) connect() error {
+func (sc *ClientConn) connect() error {
 	pkt := sc.pf.NewConnPacket(sc.clientID, sc.heartbeat, sc.meta)
 	sc.writeCh <- pkt
 	sync := sc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
@@ -207,7 +207,7 @@ func (sc *SendConn) connect() error {
 	return nil
 }
 
-func (sc *SendConn) writePkt() {
+func (sc *ClientConn) writePkt() {
 	err := error(nil)
 
 	for !sc.fsm.InStates(
@@ -269,7 +269,7 @@ CLOSED:
 	sc.fini()
 }
 
-func (sc *SendConn) readPkt() {
+func (sc *ClientConn) readPkt() {
 
 	for !sc.fsm.InStates(
 		CLOSE_SENT,
@@ -327,7 +327,7 @@ CLOSED:
 	sc.fini()
 }
 
-func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
+func (sc *ClientConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
 	err := error(nil)
 	switch iotype {
 	case iodefine.OUT:
@@ -488,7 +488,7 @@ func (sc *SendConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefin
 	return iodefine.IOErr
 }
 
-func (sc *SendConn) sendHeartbeat(event *timer.Event) {
+func (sc *ClientConn) sendHeartbeat(event *timer.Event) {
 	sc.connMtx.RLock()
 	if !sc.connOK {
 		sc.connMtx.RUnlock()
@@ -499,7 +499,7 @@ func (sc *SendConn) sendHeartbeat(event *timer.Event) {
 	sc.connMtx.RUnlock()
 }
 
-func (sc *SendConn) Close() {
+func (sc *ClientConn) Close() {
 	sc.onceClose.Do(func() {
 		sc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
 			sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
@@ -515,7 +515,7 @@ func (sc *SendConn) Close() {
 	})
 }
 
-func (sc *SendConn) fini() {
+func (sc *ClientConn) fini() {
 	sc.onceFini.Do(func() {
 		remote := "unknown"
 		if sc.netconn != nil {

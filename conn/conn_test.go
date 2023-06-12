@@ -189,11 +189,11 @@ func getConnPair() (Conn, Conn, error) {
 	var errServer, errClient error
 	done := make(chan struct{})
 	go func() {
-		connServer, errServer = NewRecvConn(tcpConnServer)
+		connServer, errServer = NewServerConn(tcpConnServer)
 		close(done)
 	}()
 
-	connClient, errClient = newSendConn(tcpConnClient)
+	connClient, errClient = newClientConn(tcpConnClient)
 	if errClient != nil {
 		return nil, nil, errClient
 	}
