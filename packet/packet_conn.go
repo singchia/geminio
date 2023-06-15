@@ -33,6 +33,18 @@ type ConnPacket struct {
 	ConnData *ConnData
 }
 
+func ConnLayer(pkt Packet) bool {
+	if pkt.Type() == TypeConnPacket ||
+		pkt.Type() == TypeConnAckPacket ||
+		pkt.Type() == TypeDisConnPacket ||
+		pkt.Type() == TypeDisConnAckPacket ||
+		pkt.Type() == TypeHeartbeatPacket ||
+		pkt.Type() == TypeHeartbeatAckPacket {
+		return true
+	}
+	return false
+}
+
 func (connPkt *ConnPacket) ClientIDAcquire() bool {
 	return connPkt.clientIDAcquire
 }
