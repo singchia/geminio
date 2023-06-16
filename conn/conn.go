@@ -68,10 +68,7 @@ type connOpts struct {
 	clear       bool
 	waitTimeout uint64
 	meta        []byte
-
-	writeFromUpCh, readToUpCh chan packet.Packet
-
-	pf *packet.PacketFactory
+	pf          *packet.PacketFactory
 }
 
 type Side int
@@ -90,6 +87,8 @@ type baseConn struct {
 	side    Side
 	shub    *synchub.SyncHub
 	log     log.Logger
+
+	writeFromUpCh, readToUpCh chan packet.Packet
 
 	//delegate Delegate
 	tmr        timer.Timer

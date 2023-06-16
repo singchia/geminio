@@ -56,5 +56,5 @@ func main() {
 			break
 		}
 	}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(5 * time.Second)
 }
