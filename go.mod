@@ -2,6 +2,10 @@ module github.com/singchia/geminio
 
 go 1.17
 
+replace (
+	github.com/singchia/go-timer/v2 => ../../austin/go-timer
+)
+
 require (
 	github.com/jumboframes/armorigo v0.1.0
 	github.com/singchia/go-timer/v2 v2.0.3

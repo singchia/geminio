@@ -137,8 +137,10 @@ func BenchmarkConn(b *testing.B) {
 		b.Error(err)
 		return
 	}
-	defer connServer.Close()
-	defer connClient.Close()
+	defer func() {
+		connServer.Close()
+		connClient.Close()
+	}()
 
 	benchRW(b, connClient, connServer)
 	benchRW(b, connServer, connClient)

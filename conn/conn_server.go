@@ -24,8 +24,7 @@ type ServerConn struct {
 	*baseConn
 
 	readInCh, writeOutCh chan packet.Packet // io neighbor channel
-	readOutCh            chan packet.Packet // to outside
-	writeInCh            chan packet.Packet
+	readOutCh, writeInCh chan packet.Packet // to outside
 	failedCh             chan packet.Packet
 
 	dlgt ServerConnDelegate
@@ -82,10 +81,10 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			side:    ServerSide,
 			connOK:  true,
 		},
-		readInCh:   make(chan packet.Packet, 1024),
-		writeOutCh: make(chan packet.Packet, 1024),
-		readOutCh:  make(chan packet.Packet, 1024),
-		writeInCh:  make(chan packet.Packet, 1024),
+		readInCh:   make(chan packet.Packet, 16),
+		writeOutCh: make(chan packet.Packet, 16),
+		readOutCh:  make(chan packet.Packet, 16),
+		writeInCh:  make(chan packet.Packet, 16),
 
 		closeOnce:   new(sync.Once),
 		finiOnce:    new(sync.Once),
@@ -167,9 +166,11 @@ func (rc *ServerConn) initFSM() {
 
 	rc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
 	rc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
+	rc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // close and been closed at same time
 
 	rc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
 	rc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
+	rc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf) // close and been closed at same time
 
 	rc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
 	rc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
@@ -209,9 +210,10 @@ func (rc *ServerConn) writePkt() {
 		select {
 		case pkt, ok := <-rc.writeOutCh:
 			if !ok {
+				rc.log.Infof("conn write done, clientID: %d", rc.clientID)
 				return
 			}
-			rc.log.Tracef("to write down, clientID: %d, packetID: %d, packetType: %s",
+			rc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s",
 				rc.clientID, pkt.ID(), pkt.Type().String())
 			err = rc.dowritePkt(pkt, true)
 			if err != nil {
@@ -545,8 +547,6 @@ func (rc *ServerConn) closeWrapper(_ *yafsm.Event) {
 // 回收资源
 func (rc *ServerConn) fini() {
 	rc.finiOnce.Do(func() {
-		rc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
-			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 
 		rc.connMtx.Lock()
 		rc.connOK = false
@@ -578,6 +578,9 @@ func (rc *ServerConn) fini() {
 
 		rc.fsm.EmitEvent(ET_FINI)
 		rc.fsm.Close()
+
+		rc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
+			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
 	})
 }
 

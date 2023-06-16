@@ -5,7 +5,10 @@ import (
 	"flag"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +39,12 @@ func (s *server) GetClientIDByMeta(meta []byte) (uint64, error) {
 }
 
 func main() {
+
+	runtime.SetCPUProfileRate(10000)
+	go func() {
+		http.ListenAndServe("0.0.0.0:6061", nil)
+	}()
+
 	network := flag.String("network", "tcp", "network to listen")
 	address := flag.String("address", "127.0.0.1:1202", "address to listen")
 	flag.Parse()
@@ -62,32 +71,32 @@ func main() {
 
 				switch command {
 				case "close":
-					clientId, err := strconv.ParseUint(text, 10, 64)
+					clientID, err := strconv.ParseUint(text, 10, 64)
 					if err != nil {
 						log.Println("illegal id", err)
 						continue
 					}
-					rc, ok := clients.Load(clientId)
+					rc, ok := clients.Load(clientID)
 					if !ok {
-						log.Printf("clientId not found '%d'\n", clientId)
+						log.Printf("clientID not found '%d'\n", clientID)
 						continue
 					}
 					rc.(*conn.ServerConn).Close()
-					clients.Delete(clientId)
+					clients.Delete(clientID)
 					continue
 
 				case "sendto":
 					index = strings.Index(text, " ")
 					if index > -1 && index < len(text) {
-						clientId, err := strconv.ParseUint(text[:index], 10, 64)
+						clientID, err := strconv.ParseUint(text[:index], 10, 64)
 						if err != nil {
 							log.Println("illegal id", err)
 							continue
 						}
 						text = text[index+1:]
-						rc, ok := clients.Load(clientId)
+						rc, ok := clients.Load(clientID)
 						if !ok {
-							log.Println("clientId not found", clientId)
+							log.Println("clientID not found", clientID)
 							continue
 						}
 						pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
@@ -111,7 +120,8 @@ func main() {
 			log.Printf("accept err: %s", err)
 			break
 		}
-		rc, err := conn.NewServerConn(netconn, conn.OptionServerConnPacketFactory(pf),
+		rc, err := conn.NewServerConn(netconn,
+			conn.OptionServerConnPacketFactory(pf),
 			conn.OptionServerConnDelegate(server))
 		if err != nil {
 			log.Printf("new recvconn err: %s", err)
@@ -119,16 +129,18 @@ func main() {
 		}
 		clients.Store(rc.ClientID(), rc)
 
-		go func() {
+		go func(rc *conn.ServerConn) {
 			for {
+				defer clients.Delete(rc.ClientID())
 				pkt, err := rc.Read()
 				if err != nil {
 					log.Println("read error", err)
 					return
 				}
+				rc.Write(pkt)
 				msg := pkt.(*packet.MessagePacket)
 				log.Println(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
 			}
-		}()
+		}(rc)
 	}
 }
