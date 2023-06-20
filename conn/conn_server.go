@@ -15,11 +15,6 @@ import (
 	"github.com/singchia/yafsm"
 )
 
-type dirPkt struct {
-	iotype iodefine.IOType
-	pkt    packet.Packet
-}
-
 type ServerConn struct {
 	*baseConn
 
@@ -161,9 +156,6 @@ func (rc *ServerConn) initFSM() {
 	rc.fsm.AddEvent(ET_ERROR, closesent, closed, rc.closeWrapper)
 	rc.fsm.AddEvent(ET_ERROR, closerecv, closed, rc.closeWrapper)
 
-	rc.fsm.AddEvent(ET_EOF, connrecv, closed)
-	rc.fsm.AddEvent(ET_EOF, conned, closed)
-
 	rc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
 	rc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
 	rc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // close and been closed at same time
@@ -188,6 +180,7 @@ func (rc *ServerConn) initFSM() {
 func (rc *ServerConn) Read() (packet.Packet, error) {
 	pkt, ok := <-rc.readOutCh
 	if !ok {
+		rc.readOutCh = nil
 		return nil, io.EOF
 	}
 	return pkt, nil
@@ -204,11 +197,12 @@ func (rc *ServerConn) Write(pkt packet.Packet) error {
 }
 
 func (rc *ServerConn) writePkt() {
+	writeOutCh := rc.writeOutCh
 	err := error(nil)
 
 	for {
 		select {
-		case pkt, ok := <-rc.writeOutCh:
+		case pkt, ok := <-writeOutCh:
 			if !ok {
 				rc.log.Infof("conn write done, clientID: %d", rc.clientID)
 				return
@@ -226,16 +220,8 @@ func (rc *ServerConn) writePkt() {
 func (rc *ServerConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, rc.netconn)
 	if err != nil {
-		if err == io.EOF {
-			// eof means no need for graceful close
-			rc.fsm.EmitEvent(ET_EOF)
-			rc.log.Infof("conn write down EOF, clientID: %d, packetID: %d",
-				rc.clientID, pkt.ID())
-		} else {
-			rc.fsm.EmitEvent(ET_ERROR)
-			rc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
-				err, rc.clientID, pkt.ID())
-		}
+		rc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
+			err, rc.clientID, pkt.ID())
 		if record && rc.failedCh != nil {
 			rc.failedCh <- pkt
 		}
@@ -244,17 +230,13 @@ func (rc *ServerConn) dowritePkt(pkt packet.Packet, record bool) error {
 }
 
 func (rc *ServerConn) readPkt() {
+	readInCh := rc.readInCh
 	for {
 		pkt, err := packet.DecodeFromReader(rc.netconn)
 		if err != nil {
-			if err == io.EOF {
-				rc.fsm.EmitEvent(ET_EOF)
-				rc.log.Debugf("conn read down EOF, clientID: %d, remote: %s, meta: %s",
-					rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
-			} else if iodefine.ErrUseOfClosedNetwork(err) {
+			if iodefine.ErrUseOfClosedNetwork(err) {
 				rc.log.Infof("conn read down closed, clientID: %d", rc.clientID)
 			} else {
-				rc.fsm.EmitEvent(ET_ERROR)
 				rc.log.Errorf("conn read down err: %s, clientID: %d",
 					err, rc.clientID)
 			}
@@ -262,16 +244,18 @@ func (rc *ServerConn) readPkt() {
 		}
 		rc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
 			pkt.Type().String(), rc.clientID, pkt.ID(), pkt.Type().String())
-		rc.readInCh <- pkt
+		readInCh <- pkt
 	}
 FINI:
-	close(rc.readInCh)
+	close(readInCh)
 }
 
 func (rc *ServerConn) handlePkt() {
+	readInCh := rc.readInCh
+	writeInCh := rc.writeInCh
 	for {
 		select {
-		case pkt, ok := <-rc.readInCh:
+		case pkt, ok := <-readInCh:
 			if !ok {
 				goto FINI
 			}
@@ -284,7 +268,7 @@ func (rc *ServerConn) handlePkt() {
 				rc.log.Infof("handle in packet done, clientID: %d", rc.clientID)
 				goto FINI
 			}
-		case pkt := <-rc.writeInCh:
+		case pkt := <-writeInCh:
 			ret := rc.handleOut(pkt)
 			if ret == iodefine.IOErr {
 				rc.log.Errorf("handle out packet err, clientID: %d", rc.clientID)
@@ -548,21 +532,16 @@ func (rc *ServerConn) closeWrapper(_ *yafsm.Event) {
 func (rc *ServerConn) fini() {
 	rc.finiOnce.Do(func() {
 
+		// collect shub
+		rc.shub.Close()
+		rc.shub = nil
+
+		// collect net.Conn
+		rc.netconn.Close()
 		rc.connMtx.Lock()
 		rc.connOK = false
-		if rc.hbTick != nil {
-			rc.hbTick.Cancel()
-		}
-		rc.netconn.Close()
-		rc.shub.Close()
-
-		close(rc.writeOutCh)
-		for pkt := range rc.writeOutCh {
-			if rc.failedCh != nil && !packet.ConnLayer(pkt) {
-				rc.failedCh <- pkt
-			}
-		}
 		close(rc.writeInCh)
+		rc.connMtx.Unlock()
 		for pkt := range rc.writeInCh {
 			if rc.failedCh != nil && !packet.ConnLayer(pkt) {
 				rc.failedCh <- pkt
@@ -571,13 +550,31 @@ func (rc *ServerConn) fini() {
 		// the outside should care about channel status
 		close(rc.readOutCh)
 
-		rc.connMtx.Unlock()
+		close(rc.writeOutCh)
+		for pkt := range rc.writeOutCh {
+			if rc.failedCh != nil && !packet.ConnLayer(pkt) {
+				rc.failedCh <- pkt
+			}
+		}
+
+		// collect timer
+		if rc.hbTick != nil {
+			rc.hbTick.Cancel()
+			rc.hbTick = nil
+		}
 		if !rc.tmrOutside {
 			rc.tmr.Close()
 		}
-
+		rc.tmr = nil
+		// collect fsm
 		rc.fsm.EmitEvent(ET_FINI)
 		rc.fsm.Close()
+		rc.fsm = nil
+		// collect id
+		rc.clientIDs.Close()
+		rc.clientIDs = nil
+		// collect channels
+		rc.readInCh, rc.writeInCh, rc.writeOutCh = nil, nil, nil
 
 		rc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 			rc.clientID, rc.netconn.RemoteAddr(), string(rc.meta))
