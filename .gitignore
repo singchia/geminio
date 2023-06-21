@@ -25,6 +25,7 @@ _testmain.go
 *.prof
 .DS_Store
 .*.swp
+*.out
 
 # ---> JetBrains
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio
