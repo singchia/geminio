@@ -2,7 +2,6 @@ package conn
 
 import (
 	"errors"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -20,55 +19,54 @@ type Dialer func() (net.Conn, error)
 
 type ClientConn struct {
 	*baseConn
-	dlgt    ClientConnDelegate
-	dialer  Dialer
-	writeCh chan packet.Packet
+	dlgt ClientConnDelegate
 
-	onceFini  *sync.Once
-	onceClose *sync.Once
+	finiOnce    *sync.Once
+	closeOnce   *sync.Once
+	offlineOnce *sync.Once
 }
 
 type ClientConnOption func(*ClientConn) error
 
 func OptionClientConnPacketFactory(pf *packet.PacketFactory) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.pf = pf
+	return func(cc *ClientConn) error {
+		cc.pf = pf
 		return nil
 	}
 }
 
 func OptionClientConnTimer(tmr timer.Timer) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.tmr = tmr
-		sc.tmrOutside = true
+	return func(cc *ClientConn) error {
+		cc.tmr = tmr
+		cc.tmrOutside = true
 		return nil
 	}
 }
 
 func OptionClientConnDelegate(dlgt ClientConnDelegate) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.dlgt = dlgt
+	return func(cc *ClientConn) error {
+		cc.dlgt = dlgt
 		return nil
 	}
 }
 
 func OptionClientConnLogger(log log.Logger) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.log = log
+	return func(cc *ClientConn) error {
+		cc.log = log
 		return nil
 	}
 }
 
 func OptionClientConnMeta(meta []byte) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.meta = meta
+	return func(cc *ClientConn) error {
+		cc.meta = meta
 		return nil
 	}
 }
 
 func OptionClientConnClientID(clientID uint64) ClientConnOption {
-	return func(sc *ClientConn) error {
-		sc.clientID = clientID
+	return func(cc *ClientConn) error {
+		cc.clientID = clientID
 		return nil
 	}
 }
@@ -87,459 +85,455 @@ func NewClientConnWithDialer(dialer Dialer, opts ...ClientConnOption) (*ClientCo
 
 func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, error) {
 	err := error(nil)
-	sc := &ClientConn{
+	cc := &ClientConn{
 		baseConn: &baseConn{
 			connOpts: connOpts{
 				clientID:  packet.ClientIDNull,
 				heartbeat: packet.Heartbeat20,
 				meta:      []byte{},
 			},
-			netconn: netconn,
-			fsm:     yafsm.NewFSM(),
-			side:    ClientSide,
-			connOK:  true,
+			netconn:    netconn,
+			fsm:        yafsm.NewFSM(),
+			side:       ClientSide,
+			connOK:     true,
+			readInCh:   make(chan packet.Packet, 16),
+			writeOutCh: make(chan packet.Packet, 16),
+			readOutCh:  make(chan packet.Packet, 16),
+			writeInCh:  make(chan packet.Packet, 16),
 		},
-		writeCh:   make(chan packet.Packet, 1024),
-		onceFini:  new(sync.Once),
-		onceClose: new(sync.Once),
+		//finiOnce:  new(sync.Once),
+		closeOnce: new(sync.Once),
 	}
-	sc.cn = sc
+	cc.cn = cc
 	// options
 	for _, opt := range opts {
-		err = opt(sc)
+		err = opt(cc)
 		if err != nil {
 			return nil, err
 		}
 	}
-	sc.writeFromUpCh = make(chan packet.Packet, 1024)
-	sc.readToUpCh = make(chan packet.Packet, 1024)
 	// timer
-	if !sc.tmrOutside {
-		sc.tmr = timer.NewTimer()
+	if !cc.tmrOutside {
+		cc.tmr = timer.NewTimer()
 	}
-	sc.shub = synchub.NewSyncHub(synchub.OptionTimer(sc.tmr))
+	cc.shub = synchub.NewSyncHub(synchub.OptionTimer(cc.tmr))
 	// packet factory
-	if sc.pf == nil {
-		sc.pf = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
+	if cc.pf == nil {
+		cc.pf = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
 	}
 	// log
-	if sc.log == nil {
-		sc.log = log.DefaultLog
+	if cc.log == nil {
+		cc.log = log.DefaultLog
 	}
 	// states
-	sc.initFSM()
+	cc.initFSM()
 	// timer
-	sc.hbTick = sc.tmr.Add(time.Duration(sc.heartbeat)*time.Second,
-		timer.WithHandler(sc.sendHeartbeat), timer.WithCyclically())
+	cc.hbTick = cc.tmr.Add(time.Duration(cc.heartbeat)*time.Second,
+		timer.WithHandler(cc.sendHeartbeat), timer.WithCyclically())
 	// start
-	go sc.readPkt()
-	go sc.writePkt()
-	err = sc.connect()
+	go cc.readPkt()
+	go cc.writePkt()
+	go cc.handlePkt()
+	err = cc.connect()
 	if err != nil {
 		goto ERR
 	}
-	return sc, nil
+	return cc, nil
 ERR:
-	sc.fini()
+	// let fini finish the end
+	cc.netconn.Close()
 	return nil, err
 }
 
-func (sc *ClientConn) initFSM() {
-	init := sc.fsm.AddState(INIT)
-	connsent := sc.fsm.AddState(CONN_SENT)
-	conned := sc.fsm.AddState(CONNED)
-	abnormal := sc.fsm.AddState(ABNORMAL)
-	closesent := sc.fsm.AddState(CLOSE_SENT)
-	closerecv := sc.fsm.AddState(CLOSE_RECV)
-	closehalf := sc.fsm.AddState(CLOSE_HALF)
-	closed := sc.fsm.AddState(CLOSED)
-	fini := sc.fsm.AddState(FINI)
-	sc.fsm.SetState(INIT)
+func (cc *ClientConn) initFSM() {
+	init := cc.fsm.AddState(INIT)
+	connsent := cc.fsm.AddState(CONN_SENT)
+	conned := cc.fsm.AddState(CONNED)
+	closesent := cc.fsm.AddState(CLOSE_SENT)
+	closerecv := cc.fsm.AddState(CLOSE_RECV)
+	closehalf := cc.fsm.AddState(CLOSE_HALF)
+	closed := cc.fsm.AddState(CLOSED)
+	fini := cc.fsm.AddState(FINI)
+	cc.fsm.SetState(INIT)
 
 	// events
-	sc.fsm.AddEvent(ET_CONNSENT, init, connsent)
-	sc.fsm.AddEvent(ET_CONNSENT, abnormal, connsent)
-	sc.fsm.AddEvent(ET_CONNACK, connsent, conned)
-
-	sc.fsm.AddEvent(ET_ERROR, conned, abnormal)
-	sc.fsm.AddEvent(ET_ERROR, connsent, abnormal)
-	sc.fsm.AddEvent(ET_ERROR, closesent, abnormal)
-	sc.fsm.AddEvent(ET_ERROR, closerecv, abnormal)
-
-	sc.fsm.AddEvent(ET_EOF, connsent, closed)
-	sc.fsm.AddEvent(ET_EOF, conned, closed)
-
-	sc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
-	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // been closed and we acked, then start to close
-
-	sc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
-	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
-
-	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
-	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
-	sc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed) // close and been closed at same time
-	// fini
-	sc.fsm.AddEvent(ET_FINI, init, fini)
-	sc.fsm.AddEvent(ET_FINI, connsent, fini)
-	sc.fsm.AddEvent(ET_FINI, conned, fini)
-	sc.fsm.AddEvent(ET_FINI, abnormal, fini)
-	sc.fsm.AddEvent(ET_FINI, closesent, fini)
-	sc.fsm.AddEvent(ET_FINI, closerecv, fini)
-	sc.fsm.AddEvent(ET_FINI, closehalf, fini)
-	sc.fsm.AddEvent(ET_FINI, closed, fini)
+	cc.fsm.AddEvent(ET_CONNSENT, init, connsent)
+	cc.fsm.AddEvent(ET_CONNACK, connsent, conned)
+	cc.fsm.AddEvent(ET_CLOSESENT, connsent, closesent) // illegal conn
+	cc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
+	cc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
+	cc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // been closed and we acked, then start to close
+	cc.fsm.AddEvent(ET_CLOSERECV, connsent, closerecv)  // illegal conn
+	cc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
+	cc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
+	cc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
+	cc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
+	cc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
+	cc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed) // close and been closed at same time
+	cc.fsm.AddEvent(ET_FINI, init, fini)
+	cc.fsm.AddEvent(ET_FINI, connsent, fini)
+	cc.fsm.AddEvent(ET_FINI, conned, fini)
+	cc.fsm.AddEvent(ET_FINI, closesent, fini)
+	cc.fsm.AddEvent(ET_FINI, closerecv, fini)
+	cc.fsm.AddEvent(ET_FINI, closehalf, fini)
+	cc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
-func (sc *ClientConn) connect() error {
-	pkt := sc.pf.NewConnPacket(sc.clientID, sc.heartbeat, sc.meta)
-	sc.writeCh <- pkt
-	sync := sc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
+func (cc *ClientConn) connect() error {
+	pkt := cc.pf.NewConnPacket(cc.clientID, cc.heartbeat, cc.meta)
+	cc.writeInCh <- pkt
+	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
 	event := <-sync.C()
 
 	if event.Error != nil {
-		sc.log.Errorf("connect err: %s, clientID: %d, remote: %s",
-			event.Error, sc.clientID, sc.netconn.RemoteAddr())
+		cc.log.Errorf("connect err: %s, clientID: %d, remote: %s",
+			event.Error, cc.clientID, cc.netconn.RemoteAddr())
 		return event.Error
 	}
-	sc.log.Debugf("connect succeed, clientID: %d, remote: %s",
-		sc.clientID, sc.netconn.RemoteAddr())
+	cc.log.Debugf("connect succeed, clientID: %d, remote: %s",
+		cc.clientID, cc.netconn.RemoteAddr())
 	return nil
 }
 
-func (sc *ClientConn) writePkt() {
+func (cc *ClientConn) writePkt() {
+	writeOutCh := cc.writeOutCh
 	err := error(nil)
 
-	for !sc.fsm.InStates(
-		CLOSED,
-		FINI) {
-
-		for {
-			select {
-			case pkt, ok := <-sc.writeCh:
-				if !ok {
-					return
-				}
-				ie := sc.handlePkt(pkt, iodefine.OUT)
-				switch ie {
-				case iodefine.IOSuccess:
-					continue
-				case iodefine.IOClosed:
-					sc.log.Infof("handle packet return closed, clientID: %d, PacketID:%d",
-						sc.clientID, pkt.ID())
-					goto CLOSED
-				case iodefine.IOErr:
-					sc.log.Infof("handle packet return err, clientID: %d, PacketID:%d",
-						sc.clientID, pkt.ID())
-					goto CLOSED
-				}
-				continue
-
-			case pkt, ok := <-sc.writeFromUpCh:
-				if !ok {
-					sc.log.Infof("write from up EOF, clientID: %d",
-						sc.clientID)
-					continue
-				}
-				sc.log.Tracef("to write down, PacketID: %d, clientID: %d, packetType: %s",
-					pkt.ID(), sc.clientID, pkt.Type().String())
-				err = packet.EncodeToWriter(pkt, sc.netconn)
-				if err != nil {
-					if err == io.EOF {
-						// eof means no need for graceful close
-						sc.fsm.EmitEvent(ET_EOF)
-						sc.log.Errorf("conn write down EOF, clientID: %d, PacketID: %d",
-							sc.clientID, pkt.ID())
-					} else {
-						sc.fsm.EmitEvent(ET_ERROR)
-						sc.log.Errorf("conn write down err: %s, clientID: %d, PacketID: %d",
-							err, sc.clientID, pkt.ID())
-					}
-					goto CLOSED
-				}
-				continue
-			}
-		}
-	}
-
-CLOSED:
-	if sc.dlgt != nil && sc.clientID != 0 {
-		sc.dlgt.Offline(sc.clientID, sc.meta, sc.RemoteAddr())
-	}
-	sc.fini()
-}
-
-func (sc *ClientConn) readPkt() {
-
-	for !sc.fsm.InStates(
-		CLOSE_SENT,
-		CLOSE_RECV,
-		CLOSED,
-		FINI) {
-
-		for {
-			pkt, err := packet.DecodeFromReader(sc.netconn)
-			if err != nil {
-				if err == io.EOF {
-					sc.fsm.EmitEvent(ET_EOF)
-					sc.log.Infof("conn read down EOF, clientID: %d", sc.clientID)
-				} else if iodefine.ErrUseOfClosedNetwork(err) {
-					sc.log.Infof("conn read down closed, clientID: %d", sc.clientID)
-				} else {
-					sc.log.Errorf("conn read down err: %s, clientID: %d", err, sc.clientID)
-				}
-				goto CLOSED
-			}
-			sc.log.Tracef("read %s, clientID: %d, PacketID: %d, packetType: %s",
-				pkt.Type().String(), sc.clientID, pkt.ID(), pkt.Type().String())
-			ie := sc.handlePkt(pkt, iodefine.IN)
-			switch ie {
-			case iodefine.IOSuccess:
-				continue
-			case iodefine.IOClosed:
-				sc.log.Debugf("handle packet return closed, clientID: %d, PacketID:%d",
-					sc.clientID, pkt.ID())
-				goto CLOSED
-			case iodefine.IOData:
-				sc.connMtx.RLock()
-				if !sc.connOK {
-					sc.connMtx.RUnlock()
-					goto CLOSED
-				}
-				sc.readToUpCh <- pkt
-				sc.connMtx.RUnlock()
-			case iodefine.IOExit:
-				// no more reading, but the underlay conn is still using
-				return
-			case iodefine.IOErr:
-				sc.fsm.EmitEvent(ET_ERROR)
-				sc.log.Errorf("handle packet return err, clientID: %d, PacketID:%d",
-					sc.clientID, pkt.ID())
-				goto CLOSED
-			}
-		}
-	}
-
-CLOSED:
-	if sc.dlgt != nil && sc.clientID != 0 {
-		sc.dlgt.Offline(sc.clientID, sc.meta, sc.RemoteAddr())
-	}
-	sc.fini()
-}
-
-func (sc *ClientConn) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
-	err := error(nil)
-	switch iotype {
-	case iodefine.OUT:
-		switch pkt.Type() {
-		case packet.TypeConnPacket:
-			// 发起连接
-			err = sc.fsm.EmitEvent(ET_CONNSENT)
-			if err != nil {
-
-				sc.log.Errorf("emit ET_CONNSENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-
-				sc.shub.Error(pkt.ID(), err)
-				return iodefine.IOErr
-			}
-			err = packet.EncodeToWriter(pkt, sc.netconn)
-			if err != nil {
-
-				sc.log.Errorf("encode CONN to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
-
-				sc.shub.Error(pkt.ID(), err)
-				return iodefine.IOErr
-			}
-			sc.log.Debugf("send connsucceed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-
-			return iodefine.IOSuccess
-
-		case packet.TypeDisConnPacket:
-			// the close request from client
-			err = sc.fsm.EmitEvent(ET_CLOSESENT)
-			if err != nil {
-				sc.log.Errorf("emit ET_CLOSESENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
-			}
-
-			err = packet.EncodeToWriter(pkt, sc.netconn)
-			if err != nil {
-				sc.log.Errorf("encode DISCONN to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
-
-				return iodefine.IOErr
-			}
-			sc.log.Debugf("send dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			return iodefine.IOSuccess
-
-		case packet.TypeDisConnAckPacket:
-			// the close ack from client
-			err = packet.EncodeToWriter(pkt, sc.netconn)
-			if err != nil {
-				sc.log.Errorf("encode DISCONNACK to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
-				return iodefine.IOErr
-			}
-			err = sc.fsm.EmitEvent(ET_CLOSEACK)
-			if err != nil {
-				sc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
-			}
-			sc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			if sc.fsm.State() == CLOSE_HALF {
-				return iodefine.IOSuccess
-			}
-			return iodefine.IOClosed
-
-		case packet.TypeHeartbeatPacket:
-			err = packet.EncodeToWriter(pkt, sc.netconn)
-			if err != nil {
-				sc.log.Errorf("encode HEARTBEAT to writer err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-					err, sc.clientID, pkt.ID(), sc.RemoteAddr().String(), string(sc.meta))
-				return iodefine.IOErr
-			}
-			sc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			return iodefine.IOSuccess
-		}
-
-	case iodefine.IN:
-		switch realPkt := pkt.(type) {
-		case *packet.ConnAckPacket:
-			// the connection ack from server
-			err = sc.fsm.EmitEvent(ET_CONNACK)
-			if err != nil {
-				sc.log.Errorf("emit ET_CONNACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				sc.shub.Error(realPkt.PacketID, err)
-				return iodefine.IOErr
-			}
-			sc.clientID = realPkt.ClientID
-
-			if realPkt.ConnData.Error != "" {
-				err := errors.New(realPkt.ConnData.Error)
-				sc.shub.Error(realPkt.PacketID, err)
-				return iodefine.IOClosed
-			}
-			sc.shub.Ack(realPkt.PacketID, nil)
-			sc.log.Debugf("recv conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			return iodefine.IOSuccess
-
-		case *packet.DisConnPacket:
-			// the close request from server
-			err = sc.fsm.EmitEvent(ET_CLOSERECV)
-			if err != nil {
-				sc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
-			}
-			retPkt := sc.pf.NewDisConnAckPacket(pkt.ID(), nil)
-			sc.connMtx.RLock()
-			if !sc.connOK {
-				sc.connMtx.RUnlock()
-				return iodefine.IOErr
-			}
-			sc.writeCh <- retPkt
-			sc.connMtx.RUnlock()
-			sc.log.Debugf("recv dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			sc.Close()
-			return iodefine.IOSuccess
-
-		case *packet.DisConnAckPacket:
-			// 服务端确认关闭连接
-			err = sc.fsm.EmitEvent(ET_CLOSEACK)
-			if err != nil {
-				sc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
-			}
-			sc.log.Debugf("recv dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-				sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
-			if sc.fsm.State() == CLOSE_HALF {
-				return iodefine.IOSuccess
-			}
-			return iodefine.IOClosed
-
-		case *packet.HeartbeatAckPacket:
-			// heart
-			ok := sc.fsm.InStates(CONNED)
+	for {
+		select {
+		case pkt, ok := <-writeOutCh:
 			if !ok {
-				sc.log.Errorf("heartbeat at non-CONNED state, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-					sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
-				return iodefine.IOErr
+				cc.log.Infof("conn write done, clientID: %d", cc.clientID)
+				return
 			}
-			return iodefine.IOSuccess
-
-		default:
-			return iodefine.IOData
+			cc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s",
+				cc.clientID, pkt.ID(), pkt.Type().String())
+			err = cc.dowritePkt(pkt, true)
+			if err != nil {
+				return
+			}
 		}
 	}
-	sc.log.Debugf("BUG! should not be here, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
-	return iodefine.IOErr
 }
 
-func (sc *ClientConn) sendHeartbeat(event *timer.Event) {
-	sc.connMtx.RLock()
-	if !sc.connOK {
-		sc.connMtx.RUnlock()
+func (cc *ClientConn) dowritePkt(pkt packet.Packet, record bool) error {
+	err := packet.EncodeToWriter(pkt, cc.netconn)
+	if err != nil {
+		cc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
+			err, cc.clientID, pkt.ID())
+		if record && cc.failedCh != nil {
+			cc.failedCh <- pkt
+		}
+	}
+	return err
+}
+
+func (cc *ClientConn) readPkt() {
+	readInCh := cc.readInCh
+	for {
+		pkt, err := packet.DecodeFromReader(cc.netconn)
+		if err != nil {
+			if iodefine.ErrUseOfClosedNetwork(err) {
+				cc.log.Infof("conn read down closed, clientID: %d", cc.clientID)
+			} else {
+				cc.log.Infof("conn read down err: %s, clientID: %d",
+					err, cc.clientID)
+			}
+			goto FINI
+		}
+		cc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
+			pkt.Type().String(), cc.clientID, pkt.ID(), pkt.Type().String())
+		readInCh <- pkt
+	}
+FINI:
+	close(readInCh)
+}
+
+func (cc *ClientConn) handlePkt() {
+	readInCh := cc.readInCh
+	writeInCh := cc.writeInCh
+	for {
+		select {
+		case pkt, ok := <-readInCh:
+			if !ok {
+				goto FINI
+			}
+			ret := cc.handleIn(pkt)
+			if ret == iodefine.IOErr {
+				cc.log.Errorf("handle in packet err, clientID: %d", cc.clientID)
+				goto FINI
+			}
+			if ret == iodefine.IOClosed {
+				cc.log.Infof("handle in packet done, clientID: %d", cc.clientID)
+				goto FINI
+			}
+		case pkt := <-writeInCh:
+			ret := cc.handleOut(pkt)
+			if ret == iodefine.IOErr {
+				cc.log.Errorf("handle out packet err, clientID: %d", cc.clientID)
+				goto FINI
+			}
+			if ret == iodefine.IOClosed {
+				cc.log.Infof("handle out packet done, clientID: %d", cc.clientID)
+				goto FINI
+			}
+		}
+	}
+FINI:
+	cc.log.Debugf("handle pkt done, clientID: %d", cc.clientID)
+	if cc.dlgt != nil && cc.clientID != 0 {
+		cc.offlineOnce.Do(func() { cc.dlgt.Offline(cc.clientID, cc.meta, cc.RemoteAddr()) })
+	}
+	// only handlePkt leads to close other channels
+	cc.fini()
+}
+
+func (cc *ClientConn) handleIn(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.ConnAckPacket:
+		return cc.handleInConnAckPacket(realPkt)
+	case *packet.DisConnPacket:
+		return cc.handleInDisConnPacket(realPkt)
+	case *packet.DisConnAckPacket:
+		return cc.handleInDisConnAckPacket(realPkt)
+	case *packet.HeartbeatAckPacket:
+		return cc.handleInHeartbeatAckPacket(realPkt)
+	default:
+		return cc.handleInDataPacket(pkt)
+	}
+}
+
+func (cc *ClientConn) handleOut(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.ConnPacket:
+		return cc.handleOutConnPacket(realPkt)
+	case *packet.DisConnPacket:
+		return cc.handleOutDisConnPacket(realPkt)
+	case *packet.DisConnAckPacket:
+		return cc.handleOutDisConnAckPacket(realPkt)
+	case *packet.HeartbeatPacket:
+		return cc.handleOutHeartbeatPacket(realPkt)
+	default:
+		return cc.handleOutDataPacket(pkt)
+	}
+}
+
+// input packet
+func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.IORet {
+	cc.log.Debugf("read conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
+		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(pkt.ConnData.Meta))
+
+	err := cc.fsm.EmitEvent(ET_CONNACK)
+	if err != nil {
+		cc.log.Errorf("emit ET_CONNACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		cc.shub.Error(pkt.PacketID, err)
+		return iodefine.IOErr
+	}
+	cc.clientID = pkt.ClientID
+
+	if pkt.ConnData.Error != "" {
+		cc.shub.Error(pkt.PacketID, errors.New(pkt.ConnData.Error))
+		// close the conn
+		retPkt := cc.pf.NewDisConnPacket()
+		cc.writeInCh <- retPkt
+		return iodefine.IOSuccess
+	}
+	cc.shub.Ack(pkt.PacketID, nil)
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleInDisConnPacket(pkt *packet.DisConnPacket) iodefine.IORet {
+	cc.log.Debugf("read dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
+		cc.clientID, pkt.ID(), pkt.Type().String())
+
+	err := cc.fsm.EmitEvent(ET_CLOSERECV)
+	if err != nil {
+		cc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		return iodefine.IOErr
+	}
+	retPkt := cc.pf.NewDisConnAckPacket(pkt.ID(), nil)
+	cc.writeInCh <- retPkt
+	// send our side close while receiving close packet
+	cc.Close()
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleInDisConnAckPacket(pkt *packet.DisConnAckPacket) iodefine.IORet {
+	cc.log.Debugf("read dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
+
+	err := cc.fsm.EmitEvent(ET_CLOSEACK)
+	if err != nil {
+		cc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		return iodefine.IOErr
+	}
+	if cc.fsm.State() == CLOSE_HALF {
+		return iodefine.IOSuccess
+	}
+	return iodefine.IOClosed
+}
+
+func (cc *ClientConn) handleInHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
+	cc.log.Debugf("read dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
+
+	ok := cc.fsm.InStates(CONNED)
+	if !ok {
+		cc.log.Errorf("heartbeat at non-CONNED state, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
+	ok := cc.fsm.InStates(CONNED)
+	if !ok {
+		cc.log.Debugf("data at non CONNED, clientID: %d, packetID: %d, remote: %s, meta: %s",
+			cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
+		return iodefine.IODiscard
+	}
+	cc.readOutCh <- pkt
+	return iodefine.IOSuccess
+}
+
+// output packet
+func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet {
+	err := cc.fsm.EmitEvent(ET_CONNSENT)
+	if err != nil {
+
+		cc.log.Errorf("emit ET_CONNSENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+
+		cc.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
+	cc.writeOutCh <- pkt
+	cc.log.Debugf("send connsucceed, clientID: %d, PacketID: %d, packetType: %s",
+		cc.clientID, pkt.ID(), pkt.Type().String())
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.IORet {
+	err := cc.fsm.EmitEvent(ET_CLOSESENT)
+	if err != nil {
+		cc.log.Errorf("emit ET_CLOSESENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		return iodefine.IOErr
+	}
+	cc.writeOutCh <- pkt
+	cc.log.Debugf("send dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
+		cc.clientID, pkt.ID(), pkt.Type().String())
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iodefine.IORet {
+	err := cc.fsm.EmitEvent(ET_CLOSEACK)
+	if err != nil {
+		cc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
+			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
+		return iodefine.IOErr
+	}
+	// make sure this packet is flushed before writeOutCh closed
+	err = cc.dowritePkt(pkt, false)
+	if err != nil {
+		return iodefine.IOErr
+	}
+	cc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
+		cc.clientID, pkt.ID(), pkt.Type().String())
+	if cc.fsm.State() == CLOSE_HALF {
+		return iodefine.IOSuccess
+	}
+	return iodefine.IOClosed
+}
+
+func (cc *ClientConn) handleOutHeartbeatPacket(pkt *packet.HeartbeatPacket) iodefine.IORet {
+	cc.writeOutCh <- pkt
+	cc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
+		cc.clientID, pkt.ID(), pkt.Type().String())
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
+	cc.writeOutCh <- pkt
+	return iodefine.IOSuccess
+}
+
+func (cc *ClientConn) sendHeartbeat(event *timer.Event) {
+	cc.connMtx.RLock()
+	if !cc.connOK {
+		cc.connMtx.RUnlock()
 		return
 	}
-	pkt := sc.pf.NewHeartbeatPacket()
-	sc.writeCh <- pkt
-	sc.connMtx.RUnlock()
+	pkt := cc.pf.NewHeartbeatPacket()
+	cc.writeInCh <- pkt
+	cc.connMtx.RUnlock()
 }
 
-func (sc *ClientConn) Close() {
-	sc.onceClose.Do(func() {
-		sc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
-			sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
-
-		sc.connMtx.RLock()
-		if !sc.connOK {
-			sc.connMtx.RUnlock()
+func (cc *ClientConn) Close() {
+	cc.closeOnce.Do(func() {
+		cc.connMtx.RLock()
+		defer cc.connMtx.RUnlock()
+		if !cc.connOK {
 			return
 		}
-		pkt := sc.pf.NewDisConnPacket()
-		sc.writeCh <- pkt
-		sc.connMtx.RUnlock()
+
+		cc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
+			cc.clientID, cc.netconn.RemoteAddr(), string(cc.meta))
+
+		pkt := cc.pf.NewDisConnPacket()
+		cc.writeInCh <- pkt
 	})
 }
 
-func (sc *ClientConn) fini() {
-	sc.onceFini.Do(func() {
-		remote := "unknown"
-		if sc.netconn != nil {
-			remote = sc.netconn.RemoteAddr().String()
+func (cc *ClientConn) fini() {
+	// collect shub
+	cc.shub.Close()
+	cc.shub = nil
+	// collect net.Conn
+	cc.netconn.Close()
+	cc.connMtx.Lock()
+	cc.connOK = false
+	close(cc.writeInCh)
+	cc.connMtx.Unlock()
+	for pkt := range cc.writeInCh {
+		if cc.failedCh != nil && !packet.ConnLayer(pkt) {
+			cc.failedCh <- pkt
 		}
-		sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
-			sc.clientID, remote, string(sc.meta))
+	}
+	// the outside should care about channel status
+	close(cc.readOutCh)
 
-		sc.connMtx.Lock()
-		sc.connOK = false
-		sc.hbTick.Cancel()
-		if sc.netconn != nil {
-			sc.netconn.Close()
+	close(cc.writeOutCh)
+	for pkt := range cc.writeOutCh {
+		if cc.failedCh != nil && !packet.ConnLayer(pkt) {
+			cc.failedCh <- pkt
 		}
-		sc.shub.Close()
-		close(sc.writeCh)
-		close(sc.writeFromUpCh)
-		close(sc.readToUpCh)
-		sc.connMtx.Unlock()
-		if !sc.tmrOutside {
-			sc.tmr.Close()
-		}
+	}
 
-		sc.fsm.EmitEvent(ET_FINI)
-		sc.fsm.Close()
-	})
+	// collect timer
+	if cc.hbTick != nil {
+		cc.hbTick.Cancel()
+		cc.hbTick = nil
+	}
+	if !cc.tmrOutside {
+		cc.tmr.Close()
+	}
+	cc.tmr = nil
+	// collect fsm
+	cc.fsm.EmitEvent(ET_FINI)
+	cc.fsm.Close()
+	cc.fsm = nil
+	// collect channels
+	cc.readInCh, cc.writeInCh, cc.writeOutCh = nil, nil, nil
+
+	remote := "unknown"
+	if cc.netconn != nil {
+		remote = cc.netconn.RemoteAddr().String()
+	}
+	cc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
+		cc.clientID, remote, string(cc.meta))
 }

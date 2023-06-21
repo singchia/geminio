@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"flag"
-	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -14,10 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
-	"github.com/sirupsen/logrus"
 )
 
 type server struct {
@@ -57,11 +56,14 @@ func main() {
 
 	network := flag.String("network", "tcp", "network to listen")
 	address := flag.String("address", "127.0.0.1:1202", "address to listen")
+	loglevel := flag.Int("loglevel", 3, "1: trace, 2: debug, 3: info, 4: warn, 5: error")
 	flag.Parse()
+
+	log.SetLevel(log.Level(*loglevel))
 
 	ln, err := net.Listen(*network, *address)
 	if err != nil {
-		log.Println(err)
+		log.Error(err)
 		return
 	}
 
@@ -83,12 +85,12 @@ func main() {
 				case "close":
 					clientID, err := strconv.ParseUint(text, 10, 64)
 					if err != nil {
-						log.Println("illegal id", err)
+						log.Error("illegal id", err)
 						continue
 					}
 					rc, ok := clients.Load(clientID)
 					if !ok {
-						log.Printf("clientID not found '%d'\n", clientID)
+						log.Error("clientID not found '%d'\n", clientID)
 						continue
 					}
 					rc.(*conn.ServerConn).Close()
@@ -100,19 +102,19 @@ func main() {
 					if index > -1 && index < len(text) {
 						clientID, err := strconv.ParseUint(text[:index], 10, 64)
 						if err != nil {
-							log.Println("illegal id", err)
+							log.Error("illegal id", err)
 							continue
 						}
 						text = text[index+1:]
 						rc, ok := clients.Load(clientID)
 						if !ok {
-							log.Println("clientID not found", clientID)
+							log.Error("clientID not found", clientID)
 							continue
 						}
 						pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
 						err = rc.(*conn.ServerConn).Write(pkt)
 						if err != nil {
-							log.Println("write err:", err)
+							log.Error("write err:", err)
 						}
 					}
 				}
@@ -120,14 +122,12 @@ func main() {
 		}
 	}()
 
-	logrusLog := logrus.New()
-	logrusLog.SetLevel(logrus.DebugLevel)
 	server := newServer()
 
 	for {
 		netconn, err := ln.Accept()
 		if err != nil {
-			log.Printf("accept err: %s", err)
+			log.Error("accept err: %s", err)
 			break
 		}
 		go func(netconn net.Conn) {
@@ -135,22 +135,22 @@ func main() {
 				conn.OptionServerConnPacketFactory(pf),
 				conn.OptionServerConnDelegate(server))
 			if err != nil {
-				log.Printf("new recvconn err: %s", err)
+				log.Error("new recvconn err: %s", err)
 				return
 			}
 			clients.Store(rc.ClientID(), rc)
 
 			go func(rc *conn.ServerConn) {
 				for {
-					defer clients.Delete(rc.ClientID())
+					//defer clients.Delete(rc.ClientID())
 					pkt, err := rc.Read()
 					if err != nil {
-						log.Println("read error", err)
+						log.Info("read error", err)
 						return
 					}
 					rc.Write(pkt)
 					msg := pkt.(*packet.MessagePacket)
-					log.Println(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
+					log.Debug(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
 				}
 			}(rc)
 		}(netconn)

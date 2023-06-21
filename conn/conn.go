@@ -88,7 +88,9 @@ type baseConn struct {
 	shub    *synchub.SyncHub
 	log     log.Logger
 
-	writeFromUpCh, readToUpCh chan packet.Packet
+	readInCh, writeOutCh chan packet.Packet // io neighbor channel
+	readOutCh, writeInCh chan packet.Packet // to outside
+	failedCh             chan packet.Packet
 
 	//delegate Delegate
 	tmr        timer.Timer
@@ -100,8 +102,9 @@ type baseConn struct {
 }
 
 func (bc *baseConn) Read() (packet.Packet, error) {
-	pkt, ok := <-bc.readToUpCh
+	pkt, ok := <-bc.readOutCh
 	if !ok {
+		bc.readOutCh = nil
 		return nil, io.EOF
 	}
 	return pkt, nil
@@ -110,11 +113,10 @@ func (bc *baseConn) Read() (packet.Packet, error) {
 func (bc *baseConn) Write(pkt packet.Packet) error {
 	bc.connMtx.RLock()
 	defer bc.connMtx.RUnlock()
-
 	if !bc.connOK {
 		return io.EOF
 	}
-	bc.writeFromUpCh <- pkt
+	bc.writeInCh <- pkt
 	return nil
 }
 

@@ -3,11 +3,11 @@ package main
 import (
 	"bufio"
 	"flag"
-	"log"
 	"net"
 	"os"
 	"time"
 
+	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
@@ -16,7 +16,10 @@ import (
 func main() {
 	network := flag.String("network", "tcp", "network to dial")
 	address := flag.String("address", "127.0.0.1:1202", "address to dial")
+	loglevel := flag.Int("loglevel", 3, "1: trace, 2: debug, 3: info, 4: warn, 5: error")
 	flag.Parse()
+
+	log.SetLevel(log.Level(*loglevel))
 
 	dialer := func() (net.Conn, error) {
 		return net.Dial(*network, *address)
@@ -25,7 +28,7 @@ func main() {
 	pf := packet.NewPacketFactory(id.NewIDCounter(id.Odd))
 	sc, err := conn.NewClientConnWithDialer(dialer, conn.OptionClientConnPacketFactory(pf))
 	if err != nil {
-		log.Println("new send conn err:", err)
+		log.Error("new send conn err:", err)
 		return
 	}
 
@@ -34,12 +37,12 @@ func main() {
 		for {
 			pkt, err := sc.Read()
 			if err != nil {
-				log.Println("read error", err)
+				log.Info("read error", err)
 				os.Stdin.Close()
 				return
 			}
 			msg := pkt.(*packet.MessagePacket)
-			log.Println(string(msg.MessageData.Key), string(msg.MessageData.Value))
+			log.Debug(string(msg.MessageData.Key), string(msg.MessageData.Value))
 		}
 	}()
 
@@ -52,9 +55,9 @@ func main() {
 		pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
 		err := sc.Write(pkt)
 		if err != nil {
-			log.Println("write err:", err)
+			log.Error("write err:", err)
 			break
 		}
 	}
-	time.Sleep(5 * time.Second)
+	time.Sleep(time.Second)
 }
