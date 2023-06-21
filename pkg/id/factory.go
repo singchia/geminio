@@ -5,4 +5,5 @@ type IDFactory interface {
 	GetID() uint64
 	GetIDByMeta(meta []byte) (uint64, error)
 	DelID(uint64)
+	Close()
 }

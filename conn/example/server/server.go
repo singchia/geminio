@@ -8,10 +8,11 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"runtime"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
@@ -38,9 +39,18 @@ func (s *server) GetClientIDByMeta(meta []byte) (uint64, error) {
 	return s.idFactory.GetID(), nil
 }
 
+func forceFree() {
+	for _ = range time.Tick(30 * time.Second) {
+		debug.FreeOSMemory()
+	}
+}
+
+func init() {
+	go forceFree()
+}
+
 func main() {
 
-	runtime.SetCPUProfileRate(10000)
 	go func() {
 		http.ListenAndServe("0.0.0.0:6061", nil)
 	}()
@@ -120,27 +130,29 @@ func main() {
 			log.Printf("accept err: %s", err)
 			break
 		}
-		rc, err := conn.NewServerConn(netconn,
-			conn.OptionServerConnPacketFactory(pf),
-			conn.OptionServerConnDelegate(server))
-		if err != nil {
-			log.Printf("new recvconn err: %s", err)
-			continue
-		}
-		clients.Store(rc.ClientID(), rc)
-
-		go func(rc *conn.ServerConn) {
-			for {
-				defer clients.Delete(rc.ClientID())
-				pkt, err := rc.Read()
-				if err != nil {
-					log.Println("read error", err)
-					return
-				}
-				rc.Write(pkt)
-				msg := pkt.(*packet.MessagePacket)
-				log.Println(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
+		go func(netconn net.Conn) {
+			rc, err := conn.NewServerConn(netconn,
+				conn.OptionServerConnPacketFactory(pf),
+				conn.OptionServerConnDelegate(server))
+			if err != nil {
+				log.Printf("new recvconn err: %s", err)
+				return
 			}
-		}(rc)
+			clients.Store(rc.ClientID(), rc)
+
+			go func(rc *conn.ServerConn) {
+				for {
+					defer clients.Delete(rc.ClientID())
+					pkt, err := rc.Read()
+					if err != nil {
+						log.Println("read error", err)
+						return
+					}
+					rc.Write(pkt)
+					msg := pkt.(*packet.MessagePacket)
+					log.Println(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
+				}
+			}(rc)
+		}(netconn)
 	}
 }

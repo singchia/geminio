@@ -22,7 +22,7 @@ type IDCounter struct {
 	once    *sync.Once
 
 	ids  map[uint64]struct{}
-	mtx  *sync.RWMutex
+	mtx  sync.RWMutex
 	mode Mode
 }
 
@@ -31,7 +31,6 @@ func NewIDCounter(mode Mode) *IDCounter {
 		counter: randomUint32(),
 		once:    new(sync.Once),
 		ids:     make(map[uint64]struct{}),
-		mtx:     new(sync.RWMutex),
 		mode:    mode,
 	}
 	return idCounter
@@ -80,6 +79,10 @@ func (idCounter *IDCounter) DelID(i uint64) {
 		delete(idCounter.ids, i)
 		idCounter.mtx.Unlock()
 	}
+}
+
+func (idCounter *IDCounter) Close() {
+	idCounter.ids = nil
 }
 
 func randomUint32() uint32 {
