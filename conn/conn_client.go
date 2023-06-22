@@ -195,60 +195,6 @@ func (cc *ClientConn) connect() error {
 	return nil
 }
 
-func (cc *ClientConn) writePkt() {
-	writeOutCh := cc.writeOutCh
-	err := error(nil)
-
-	for {
-		select {
-		case pkt, ok := <-writeOutCh:
-			if !ok {
-				cc.log.Infof("conn write done, clientID: %d", cc.clientID)
-				return
-			}
-			cc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s",
-				cc.clientID, pkt.ID(), pkt.Type().String())
-			err = cc.dowritePkt(pkt, true)
-			if err != nil {
-				return
-			}
-		}
-	}
-}
-
-func (cc *ClientConn) dowritePkt(pkt packet.Packet, record bool) error {
-	err := packet.EncodeToWriter(pkt, cc.netconn)
-	if err != nil {
-		cc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
-			err, cc.clientID, pkt.ID())
-		if record && cc.failedCh != nil {
-			cc.failedCh <- pkt
-		}
-	}
-	return err
-}
-
-func (cc *ClientConn) readPkt() {
-	readInCh := cc.readInCh
-	for {
-		pkt, err := packet.DecodeFromReader(cc.netconn)
-		if err != nil {
-			if iodefine.ErrUseOfClosedNetwork(err) {
-				cc.log.Infof("conn read down closed, clientID: %d", cc.clientID)
-			} else {
-				cc.log.Infof("conn read down err: %s, clientID: %d",
-					err, cc.clientID)
-			}
-			goto FINI
-		}
-		cc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
-			pkt.Type().String(), cc.clientID, pkt.ID(), pkt.Type().String())
-		readInCh <- pkt
-	}
-FINI:
-	close(readInCh)
-}
-
 func (cc *ClientConn) handlePkt() {
 	readInCh := cc.readInCh
 	writeInCh := cc.writeInCh
@@ -282,7 +228,7 @@ func (cc *ClientConn) handlePkt() {
 FINI:
 	cc.log.Debugf("handle pkt done, clientID: %d", cc.clientID)
 	if cc.dlgt != nil && cc.clientID != 0 {
-		cc.offlineOnce.Do(func() { cc.dlgt.Offline(cc.clientID, cc.meta, cc.RemoteAddr()) })
+		cc.dlgt.Offline(cc.clientID, cc.meta, cc.RemoteAddr())
 	}
 	// only handlePkt leads to close other channels
 	cc.fini()
@@ -343,39 +289,6 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 	return iodefine.IOSuccess
 }
 
-func (cc *ClientConn) handleInDisConnPacket(pkt *packet.DisConnPacket) iodefine.IORet {
-	cc.log.Debugf("read dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
-		cc.clientID, pkt.ID(), pkt.Type().String())
-
-	err := cc.fsm.EmitEvent(ET_CLOSERECV)
-	if err != nil {
-		cc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
-		return iodefine.IOErr
-	}
-	retPkt := cc.pf.NewDisConnAckPacket(pkt.ID(), nil)
-	cc.writeInCh <- retPkt
-	// send our side close while receiving close packet
-	cc.Close()
-	return iodefine.IOSuccess
-}
-
-func (cc *ClientConn) handleInDisConnAckPacket(pkt *packet.DisConnAckPacket) iodefine.IORet {
-	cc.log.Debugf("read dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
-		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
-
-	err := cc.fsm.EmitEvent(ET_CLOSEACK)
-	if err != nil {
-		cc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
-		return iodefine.IOErr
-	}
-	if cc.fsm.State() == CLOSE_HALF {
-		return iodefine.IOSuccess
-	}
-	return iodefine.IOClosed
-}
-
 func (cc *ClientConn) handleInHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
 	cc.log.Debugf("read dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
 		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
@@ -417,48 +330,10 @@ func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet
 	return iodefine.IOSuccess
 }
 
-func (cc *ClientConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.IORet {
-	err := cc.fsm.EmitEvent(ET_CLOSESENT)
-	if err != nil {
-		cc.log.Errorf("emit ET_CLOSESENT err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
-		return iodefine.IOErr
-	}
-	cc.writeOutCh <- pkt
-	cc.log.Debugf("send dis conn succeed, clientID: %d, PacketID: %d, packetType: %s",
-		cc.clientID, pkt.ID(), pkt.Type().String())
-	return iodefine.IOSuccess
-}
-
-func (cc *ClientConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iodefine.IORet {
-	err := cc.fsm.EmitEvent(ET_CLOSEACK)
-	if err != nil {
-		cc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-			err, cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta), cc.fsm.State())
-		return iodefine.IOErr
-	}
-	// make sure this packet is flushed before writeOutCh closed
-	err = cc.dowritePkt(pkt, false)
-	if err != nil {
-		return iodefine.IOErr
-	}
-	cc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
-		cc.clientID, pkt.ID(), pkt.Type().String())
-	if cc.fsm.State() == CLOSE_HALF {
-		return iodefine.IOSuccess
-	}
-	return iodefine.IOClosed
-}
-
 func (cc *ClientConn) handleOutHeartbeatPacket(pkt *packet.HeartbeatPacket) iodefine.IORet {
 	cc.writeOutCh <- pkt
 	cc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
 		cc.clientID, pkt.ID(), pkt.Type().String())
-	return iodefine.IOSuccess
-}
-
-func (cc *ClientConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
-	cc.writeOutCh <- pkt
 	return iodefine.IOSuccess
 }
 
