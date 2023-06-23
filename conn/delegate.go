@@ -3,9 +3,8 @@ package conn
 import "net"
 
 type Delegate interface {
-	Online(clientID uint64, meta []byte, addr net.Addr) error
-	Offline(clientID uint64, meta []byte, addr net.Addr) error
-	RemoteRegistration(method string, clientID uint64, sessionID uint64)
+	ConnOnline(clientID uint64, meta []byte, addr net.Addr) error
+	ConnOffline(clientID uint64, meta []byte, addr net.Addr) error
 }
 
 type ClientConnDelegate interface {
