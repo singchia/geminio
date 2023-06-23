@@ -1,7 +1,6 @@
 package conn
 
 import (
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -18,13 +17,14 @@ import (
 type ServerConn struct {
 	*baseConn
 
+	// delegation for who wants know the realtime event
+	// linke Online Offline, etc.
 	dlgt ServerConnDelegate
 
-	closeOnce *sync.Once
-	//finiOnce    *sync.Once
-	//offlineOnce *sync.Once
+	// global client ID factory
+	clientIDs id.IDFactory
 
-	clientIDs id.IDFactory // global IDs
+	closeOnce *sync.Once
 }
 
 type ServerConnOption func(*ServerConn)
@@ -60,6 +60,13 @@ func OptionServerConnFailedPacket(ch chan packet.Packet) ServerConnOption {
 	}
 }
 
+func OptionServerConnBufferSize(read, write int) ServerConnOption {
+	return func(sc *ServerConn) {
+		sc.readOutSize = read
+		sc.writeInSize = write
+	}
+}
+
 func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, error) {
 	err := error(nil)
 	sc := &ServerConn{
@@ -67,19 +74,17 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			connOpts: connOpts{
 				waitTimeout: 10,
 			},
-			fsm:        yafsm.NewFSM(),
-			netconn:    netconn,
-			side:       ServerSide,
-			connOK:     true,
-			readInCh:   make(chan packet.Packet, 16),
-			writeOutCh: make(chan packet.Packet, 16),
-			readOutCh:  make(chan packet.Packet, 16),
-			writeInCh:  make(chan packet.Packet, 16),
+			fsm:          yafsm.NewFSM(),
+			netconn:      netconn,
+			side:         ServerSide,
+			connOK:       true,
+			readInSize:   128,
+			writeOutSize: 128,
+			readOutSize:  128,
+			writeInSize:  128,
 		},
 
 		closeOnce: new(sync.Once),
-		//finiOnce:    new(sync.Once),
-		//offlineOnce: new(sync.Once),
 		clientIDs: id.NewIDCounter(id.Unique),
 	}
 	sc.cn = sc
@@ -87,6 +92,11 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	for _, opt := range opts {
 		opt(sc)
 	}
+	// io size
+	sc.readInCh = make(chan packet.Packet, sc.readInSize)
+	sc.writeOutCh = make(chan packet.Packet, sc.writeOutSize)
+	sc.readOutCh = make(chan packet.Packet, sc.readOutSize)
+	sc.writeInCh = make(chan packet.Packet, sc.writeInSize)
 	// timer
 	if !sc.tmrOutside {
 		sc.tmr = timer.NewTimer()
@@ -167,25 +177,6 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
-func (sc *ServerConn) Read() (packet.Packet, error) {
-	pkt, ok := <-sc.readOutCh
-	if !ok {
-		sc.readOutCh = nil
-		return nil, io.EOF
-	}
-	return pkt, nil
-}
-
-func (sc *ServerConn) Write(pkt packet.Packet) error {
-	sc.connMtx.RLock()
-	defer sc.connMtx.RUnlock()
-	if !sc.connOK {
-		return io.EOF
-	}
-	sc.writeInCh <- pkt
-	return nil
-}
-
 func (sc *ServerConn) handlePkt() {
 	readInCh := sc.readInCh
 	writeInCh := sc.writeInCh
@@ -219,8 +210,7 @@ func (sc *ServerConn) handlePkt() {
 FINI:
 	sc.log.Debugf("handle pkt done, clientID: %d", sc.clientID)
 	if sc.dlgt != nil && sc.clientID != 0 {
-		//sc.offlineOnce.Do(func() { sc.dlgt.Offline(sc.clientID, sc.meta, sc.RemoteAddr()) })
-		sc.dlgt.Offline(sc.clientID, sc.meta, sc.RemoteAddr())
+		sc.dlgt.ConnOffline(sc.clientID, sc.meta, sc.RemoteAddr())
 	}
 	// only handlePkt leads to close other channels
 	sc.fini()
@@ -286,7 +276,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	}
 
 	if sc.dlgt != nil {
-		err = sc.dlgt.Online(sc.clientID, sc.meta, sc.RemoteAddr())
+		err = sc.dlgt.ConnOnline(sc.clientID, sc.meta, sc.RemoteAddr())
 		if err != nil {
 			sc.log.Errorf("online err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))

@@ -36,48 +36,21 @@ const (
 	ET_FINI      = "fini"
 )
 
-type Reader interface {
-	Read() (packet.Packet, error)
-}
-
-type Writer interface {
-	Write(pkt packet.Packet) error
-}
-
-type Closer interface {
-	Close()
-}
-
-type Conn interface {
-	// row functions
-	Reader
-	Writer
-	Closer
-
-	// meta
-	ClientID() uint64
-	Meta() []byte
-	LocalAddr() net.Addr
-	RemoteAddr() net.Addr
-	Side() Side
-}
-
 type connOpts struct {
-	clientID    uint64
-	heartbeat   packet.Heartbeat
-	retain      bool
-	clear       bool
+	clientID uint64
+	// timer
+	tmr        timer.Timer
+	tmrOutside bool
+	heartbeat  packet.Heartbeat
+
 	waitTimeout uint64
 	meta        []byte
 	pf          *packet.PacketFactory
+	log         log.Logger
+	// options for future usage
+	retain bool
+	clear  bool
 }
-
-type Side int
-
-const (
-	ClientSide Side = 0
-	ServerSide Side = 1
-)
 
 type baseConn struct {
 	connOpts
@@ -86,17 +59,18 @@ type baseConn struct {
 	fsm     *yafsm.FSM
 	netconn net.Conn
 	side    Side
-	shub    *synchub.SyncHub
-	log     log.Logger
+	// sync hub
+	shub *synchub.SyncHub
 
-	readInCh, writeOutCh chan packet.Packet // io neighbor channel
-	readOutCh, writeInCh chan packet.Packet // to outside
-	failedCh             chan packet.Packet
+	// read write failed channel
+	readInCh, writeOutCh     chan packet.Packet // io neighbor channel
+	readOutCh, writeInCh     chan packet.Packet // to outside
+	readInSize, writeOutSize int
+	readOutSize, writeInSize int
+	failedCh                 chan packet.Packet
 
-	//delegate Delegate
-	tmr        timer.Timer
-	tmrOutside bool
-	hbTick     timer.Tick
+	// heartbeat
+	hbTick timer.Tick
 
 	connOK  bool
 	connMtx sync.RWMutex

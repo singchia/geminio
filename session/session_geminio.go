@@ -33,10 +33,10 @@ const (
 )
 
 // TODO 性能
-type Session struct {
+type session struct {
 	SessionID uint64
 	Meta      []byte
-	sm        *SessionMgr
+	sm        *sessionMgr
 	fsm       *yafsm.FSM
 	onceFini  *sync.Once
 
@@ -52,16 +52,16 @@ type Session struct {
 	writeCh chan packet.Packet
 }
 
-type SessionOption func(*Session)
+type SessionOption func(*session)
 
 func OptionSessionState(state string) SessionOption {
-	return func(sn *Session) {
+	return func(sn *session) {
 		sn.fsm.SetState(state)
 	}
 }
 
-func NewSession(sm *SessionMgr, opts ...SessionOption) *Session {
-	sn := &Session{
+func NewSession(sm *sessionMgr, opts ...SessionOption) *session {
+	sn := &session{
 		SessionID: packet.SessionIDNull,
 		Meta:      sm.cn.Meta(),
 		sm:        sm,
@@ -80,7 +80,7 @@ func NewSession(sm *SessionMgr, opts ...SessionOption) *Session {
 	return sn
 }
 
-func (sn *Session) Write(pkt packet.Packet) error {
+func (sn *session) Write(pkt packet.Packet) error {
 	// TODO 性能优化
 	sn.sessionMtx.RLock()
 	defer sn.sessionMtx.RUnlock()
@@ -92,7 +92,7 @@ func (sn *Session) Write(pkt packet.Packet) error {
 	return nil
 }
 
-func (sn *Session) Read() (packet.Packet, error) {
+func (sn *session) Read() (packet.Packet, error) {
 	pkt, ok := <-sn.readToUpCh
 	if !ok {
 		return nil, io.EOF
@@ -100,13 +100,13 @@ func (sn *Session) Read() (packet.Packet, error) {
 	return pkt, nil
 }
 
-func (sn *Session) init() error {
+func (sn *session) init() error {
 	sn.initFSM()
 	// TODO some session handshake works
 	return nil
 }
 
-func (sn *Session) initFSM() {
+func (sn *session) initFSM() {
 	init := sn.fsm.AddState(INIT)
 	sessionsent := sn.fsm.AddState(SESSION_SENT)
 	sessionrecv := sn.fsm.AddState(SESSION_RECV)
@@ -146,7 +146,7 @@ func (sn *Session) initFSM() {
 	sn.fsm.AddEvent(ET_FINI, dismissed, fini)
 }
 
-func (sn *Session) Open(meta []byte) error {
+func (sn *session) Open(meta []byte) error {
 	sn.sm.log.Debugf("session is opening, clientId: %d, sessionId: %d",
 		sn.sm.cn.ClientID(), sn.SessionID)
 
@@ -173,7 +173,7 @@ func (sn *Session) Open(meta []byte) error {
 }
 
 // 主动关闭，返回即关闭session
-func (sn *Session) Close() error {
+func (sn *session) Close() error {
 	sn.sessionMtx.RLock()
 	if !sn.sessionOK {
 		sn.sessionMtx.RUnlock()
@@ -203,7 +203,7 @@ func (sn *Session) Close() error {
 	return nil
 }
 
-func (sn *Session) Start() error {
+func (sn *session) Start() error {
 	err := sn.init()
 	if err != nil {
 		return err
@@ -213,7 +213,7 @@ func (sn *Session) Start() error {
 	return nil
 }
 
-func (sn *Session) writePkt() {
+func (sn *session) writePkt() {
 
 	for {
 		select {
@@ -270,7 +270,7 @@ CLOSED:
 	sn.fini()
 }
 
-func (sn *Session) readPkt() {
+func (sn *session) readPkt() {
 	for {
 		pkt, ok := <-sn.readDownCh
 		if !ok {
@@ -292,7 +292,7 @@ CLOSED:
 	sn.fini()
 }
 
-func (sn *Session) handlePktWrapper(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
+func (sn *session) handlePktWrapper(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
 	ie := sn.handlePkt(pkt, iodefine.IN)
 	switch ie {
 	case iodefine.IONewActive:
@@ -325,7 +325,7 @@ func (sn *Session) handlePktWrapper(pkt packet.Packet, iotype iodefine.IOType) i
 	}
 }
 
-func (sn *Session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
+func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
 
 	switch iotype {
 	case iodefine.OUT:
@@ -513,13 +513,13 @@ func (sn *Session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 	return iodefine.IOErr
 }
 
-func (sn *Session) close() {}
+func (sn *session) close() {}
 
-func (sn *Session) closeWrapper(_ *yafsm.Event) {
+func (sn *session) closeWrapper(_ *yafsm.Event) {
 	sn.Close()
 }
 
-func (sn *Session) fini() {
+func (sn *session) fini() {
 	sn.onceFini.Do(func() {
 		sn.sm.log.Debugf("session finished, clientId: %d, sessionId: %d", sn.sm.cn.ClientID(), sn.SessionID)
 		sn.sm.delSession(sn)
