@@ -157,14 +157,20 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_CONNACK, connrecv, conned)
 	sc.fsm.AddEvent(ET_ERROR, init, closed)
 	sc.fsm.AddEvent(ET_ERROR, connrecv, connrecv, sc.closeWrapper)
-	sc.fsm.AddEvent(ET_CLOSESENT, connrecv, closesent) // illegal conn
+	// illegal conn
+	sc.fsm.AddEvent(ET_CLOSESENT, connrecv, closesent)
 	sc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
-	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // illegal conn
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent)
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf)
+	// illegal conn
+	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
 	sc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
-	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf) // close and been closed at same time
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed)
@@ -374,8 +380,6 @@ func (sc *ServerConn) Close() {
 		sc.writeInCh <- pkt
 	})
 }
-
-func (sc *ServerConn) close() {}
 
 func (sc *ServerConn) closeWrapper(_ *yafsm.Event) {
 	sc.Close()

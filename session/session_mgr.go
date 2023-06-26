@@ -1,7 +1,6 @@
 package session
 
 import (
-	"errors"
 	"io"
 	"sync"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
-	"github.com/singchia/geminio/pkg/iodefine"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -21,6 +19,14 @@ type sessionMgrOpts struct {
 	pf *packet.PacketFactory
 	// logger
 	log log.Logger
+	// delegate
+	dlgt Delegate
+	// timer
+	tmr        timer.Timer
+	tmrOutside bool
+	// for outside usage
+	sessionAcceptCh        chan *session
+	sessionAcceptChOutsite bool
 }
 
 type sessionMgr struct {
@@ -28,9 +34,7 @@ type sessionMgr struct {
 	cn conn.Conn
 	// options
 	sessionMgrOpts
-	// timer
-	tmr        timer.Timer
-	tmrOutside bool
+
 	// sync hub
 	shub *synchub.SyncHub
 
@@ -42,9 +46,17 @@ type sessionMgr struct {
 
 	sessionMgrOK  bool
 	sessionMgrMtx sync.RWMutex
+}
 
-	sessionAcceptCh chan *session
-	sessionCloseCh  chan *session
+const (
+	sessionOpen = iota
+	sessionAccept
+	sessionClose
+)
+
+type sessionEvent struct {
+	sessionEventType int
+	session          *session
 }
 
 type SessionMgrOption func(*sessionMgr)
@@ -52,12 +64,6 @@ type SessionMgrOption func(*sessionMgr)
 func OptionSessionMgrAcceptCh() SessionMgrOption {
 	return func(sm *sessionMgr) {
 		sm.sessionAcceptCh = make(chan *session, 128)
-	}
-}
-
-func OptionSessionMgrCloseCh() SessionMgrOption {
-	return func(sm *sessionMgr) {
-		sm.sessionCloseCh = make(chan *session, 128)
 	}
 }
 
@@ -80,12 +86,17 @@ func OptionTimer(tmr timer.Timer) SessionMgrOption {
 	}
 }
 
+func OptionDelegate(dlgt Delegate) SessionMgrOption {
+	return func(sm *sessionMgr) {
+		sm.dlgt = dlgt
+	}
+}
+
 func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) {
 	sm := &sessionMgr{
 		cn:           cn,
 		sessionMgrOK: true,
 	}
-
 	// session id counter
 	if sm.cn.Side() == conn.ServerSide {
 		sm.sessionIDs = id.NewIDCounter(id.Even)
@@ -107,7 +118,7 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 	// add default session
 	sn := NewSession(sm,
 		OptionSessionState(SESSIONED))
-	sn.SessionID = packet.SessionID1
+	sn.sessionID = packet.SessionID1
 	err := sn.Start()
 	if err != nil {
 		sm.log.Errorf("session start err: %s, clientID: %d, sessionID: %d",
@@ -116,6 +127,7 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 	}
 	sm.defaultSession = sn
 	sm.addSession(sn, false)
+	go sm.readPkt()
 	return sm, nil
 }
 
@@ -124,11 +136,6 @@ func (sm *sessionMgr) getID() uint64 {
 		return packet.SessionIDNull
 	}
 	return sm.sessionIDs.GetID()
-}
-
-func (sm *sessionMgr) Start() error {
-	go sm.readPkt()
-	return nil
 }
 
 func (sm *sessionMgr) Close() error {
@@ -140,36 +147,6 @@ func (sm *sessionMgr) Close() error {
 	})
 	sm.log.Debugf("session manager closed, clientID: %d", sm.cn.ClientID)
 	return nil
-}
-
-// 回收资源
-func (sm *sessionMgr) fini() {
-	sm.inflightSessions.Range(func(key, value interface{}) bool {
-		sn := value.(*session)
-		sn.fini()
-		return true
-	})
-	sm.sessions.Range(func(key, value interface{}) bool {
-		sn := value.(*session)
-		sn.fini()
-		return true
-	})
-
-	// accept和close channel的关闭一定要在session能够接收到通知之后
-	sm.sessionMgrMtx.Lock()
-	sm.sessionMgrOK = false
-	if sm.sessionAcceptCh != nil {
-		close(sm.sessionAcceptCh)
-	}
-	if sm.sessionCloseCh != nil {
-		close(sm.sessionCloseCh)
-	}
-	sm.sessionMgrMtx.Unlock()
-	sm.shub.Close()
-	if !sm.tmrOutside {
-		sm.tmr.Close()
-	}
-	sm.log.Debugf("session manager finished, clientID: %d", sm.cn.ClientID)
 }
 
 func (sm *sessionMgr) OpenSession(meta []byte) (*session, error) {
@@ -186,29 +163,15 @@ func (sm *sessionMgr) OpenSession(meta []byte) (*session, error) {
 		sm.log.Errorf("session start err: %s", err, sn.sm.cn.ClientID, packet.SessionID1)
 		return nil, err
 	}
-	err = sn.Open(meta)
+	err = sn.Open()
 	if err != nil {
 		sm.log.Errorf("session open err: %s", err, sn.sm.cn.ClientID, packet.SessionID1)
 	}
 	return sn, err
 }
 
-func (sm *sessionMgr) AcceptSession() (*session, error) {
-	if sm.sessionAcceptCh == nil {
-		return nil, errors.New("uninitialized new session channel")
-	}
+func (sm *sessionMgr) AcceptSession() (Session, error) {
 	sn, ok := <-sm.sessionAcceptCh
-	if !ok {
-		return nil, io.EOF
-	}
-	return sn, nil
-}
-
-func (sm *sessionMgr) ClosedSession() (*session, error) {
-	if sm.sessionCloseCh == nil {
-		return nil, errors.New("uninitialized closed session channel")
-	}
-	sn, ok := <-sm.sessionCloseCh
 	if !ok {
 		return nil, io.EOF
 	}
@@ -243,18 +206,33 @@ func (sm *sessionMgr) delSession(sn *session) {
 	sm.log.Debugf("clientID: %d, del sessionID: %d", sm.cn.ClientID, sn.SessionID)
 	sm.sessions.Delete(sn.SessionID)
 
-	sm.sessionMgrMtx.RLock()
-	if !sm.sessionMgrOK {
-		sm.sessionMgrMtx.RUnlock()
-		return
+	if sm.dlgt != nil {
+		sm.dlgt.SessionOffline()
 	}
-	if sm.sessionCloseCh != nil {
-		sm.sessionCloseCh <- sn
-	}
-	sm.sessionMgrMtx.RUnlock()
 }
 
 func (sm *sessionMgr) readPkt() {
+	for {
+		select {
+		case _, ok := <-sm.cn.ChannelRead():
+			if !ok {
+				goto FINI
+			}
+		}
+	}
+FINI:
+}
+
+func (sm *sessionMgr) handleSession(event *sessionEvent) {
+	switch event.sessionEventType {
+	case sessionOpen:
+		event.session.Open()
+	case sessionAccept:
+	case sessionClose:
+	}
+}
+
+func (sm *sessionMgr) readPkt_old() {
 	for {
 		pkt, err := sm.cn.Read()
 		if err != nil {
@@ -263,21 +241,22 @@ func (sm *sessionMgr) readPkt() {
 			} else {
 				sm.log.Debugf("session mgr read down err: %s, clientID: %d", err, sm.cn.ClientID)
 			}
-			goto CLOSED
+			goto FINI
 		}
-		sm.handlePkt(pkt)
+		sm.handlePkt_old(pkt)
 	}
-CLOSED:
+FINI:
+	// if the session manager got an error, all session must be finished in time
 	sm.fini()
 }
 
-func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
+func (sm *sessionMgr) handlePkt_old(pkt packet.Packet) {
 	switch pkt.(type) {
 	case *packet.SessionPacket:
 		// new session
 		sn := NewSession(sm)
 		sn.Start()
-		sn.readDownCh <- pkt
+		sn.readInCh <- pkt
 
 	case *packet.SessionAckPacket:
 		sn, ok := sm.inflightSessions.Load(pkt.ID())
@@ -287,7 +266,7 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 			return
 		}
 		// 同步
-		sn.(*session).handlePktWrapper(pkt, iodefine.IN)
+		sn.(*session).readInCh <- pkt
 
 	default:
 		sessionor, ok := pkt.(packet.SessionLayer)
@@ -306,12 +285,32 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 
 		sm.log.Tracef("clientID: %d, sessionID: %d, packetId: %d, read %s",
 			sm.cn.ClientID, sessionID, pkt.ID(), pkt.Type().String())
-		sn.(*session).sessionMtx.RLock()
-		if !sn.(*session).sessionOK {
-			sn.(*session).sessionMtx.RUnlock()
-			return
-		}
-		sn.(*session).readDownCh <- pkt
-		sn.(*session).sessionMtx.RUnlock()
+		sn.(*session).readInCh <- pkt
 	}
+}
+
+func (sm *sessionMgr) fini() {
+	sm.inflightSessions.Range(func(key, value interface{}) bool {
+		sn := value.(*session)
+		sn.fini()
+		return true
+	})
+	sm.sessions.Range(func(key, value interface{}) bool {
+		sn := value.(*session)
+		sn.fini()
+		return true
+	})
+
+	// accept和close channel的关闭一定要在session能够接收到通知之后
+	sm.sessionMgrMtx.Lock()
+	sm.sessionMgrOK = false
+	if sm.sessionAcceptCh != nil {
+		close(sm.sessionAcceptCh)
+	}
+	sm.sessionMgrMtx.Unlock()
+	sm.shub.Close()
+	if !sm.tmrOutside {
+		sm.tmr.Close()
+	}
+	sm.log.Debugf("session manager finished, clientID: %d", sm.cn.ClientID)
 }
