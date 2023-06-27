@@ -33,14 +33,17 @@ const (
 )
 
 type session struct {
-	sessionID uint64
-	meta      []byte
-	sm        *sessionMgr
-	fsm       *yafsm.FSM
-	onceFini  *sync.Once
+	negotiatingID uint64
+	sessionID     uint64
+	meta          []byte
+	sm            *sessionMgr
+	fsm           *yafsm.FSM
+	onceFini      *sync.Once
 
 	sessionOK  bool
 	sessionMtx sync.RWMutex
+	// delegate
+	dlgt Delegate
 
 	// session data
 	// to conn layer
@@ -65,7 +68,19 @@ func OptionSessionMeta(meta []byte) SessionOption {
 	}
 }
 
-func NewSession(sm *sessionMgr, opts ...SessionOption) *session {
+func OptionSessionDelegate(dlgt Delegate) SessionOption {
+	return func(sn *session) {
+		sn.dlgt = dlgt
+	}
+}
+
+func OptionSessionNegotiatingID(negotiatingID uint64) SessionOption {
+	return func(sn *session) {
+		sn.negotiatingID = negotiatingID
+	}
+}
+
+func NewSession(sm *sessionMgr, opts ...SessionOption) (*session, error) {
 	sn := &session{
 		sessionID: packet.SessionIDNull,
 		meta:      sm.cn.Meta(),
@@ -82,7 +97,14 @@ func NewSession(sm *sessionMgr, opts ...SessionOption) *session {
 	sn.readInCh = make(chan packet.Packet, 128)
 	sn.writeFromUpCh = make(chan packet.Packet, 128)
 	sn.readToUpCh = make(chan packet.Packet, 128)
-	return sn
+	err := sn.init()
+	if err != nil {
+		// TODO
+		return nil, err
+	}
+	go sn.readPkt()
+	go sn.writePkt()
+	return sn, nil
 }
 
 func (sn *session) Meta() []byte {
@@ -170,7 +192,7 @@ func (sn *session) Open() error {
 	if sn.fsm.InStates(INIT) {
 		var pkt *packet.SessionPacket
 		pkt = sn.sm.pf.NewSessionPacket(sn.sm.getID(), sn.meta)
-		sn.sm.addInflightSession(pkt.PacketID, sn)
+		//sn.sm.addInflightSession(pkt.PacketID, sn)
 
 		sn.sessionMtx.RLock()
 		if !sn.sessionOK {
@@ -182,14 +204,13 @@ func (sn *session) Open() error {
 
 		sync := sn.sm.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		event := <-sync.C()
-		sn.sm.delInflightSession(pkt.PacketID)
+		//sn.sm.delInflightSession(pkt.PacketID)
 		return event.Error
 	}
 	// TODO
 	return nil
 }
 
-// 主动关闭，返回即关闭session
 func (sn *session) Close() {
 	sn.sessionMtx.RLock()
 	if !sn.sessionOK {
@@ -220,14 +241,8 @@ func (sn *session) Close() {
 	return
 }
 
-func (sn *session) Start() error {
-	err := sn.init()
-	if err != nil {
-		return err
-	}
-	go sn.readPkt()
-	go sn.writePkt()
-	return nil
+func (sn *session) CloseWait() {
+	// send close packet and wait for the end
 }
 
 func (sn *session) writePkt() {
@@ -351,17 +366,17 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			err := sn.fsm.EmitEvent(ET_SESSIONSENT)
 			if err != nil {
 				sn.sm.log.Errorf("emit ET_SESSIONSENT err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), realPkt.SessionID, pkt.ID())
+					err, sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 				return iodefine.IOErr
 			}
 			err = sn.sm.cn.Write(realPkt)
 			if err != nil {
 				sn.sm.log.Errorf("write SESSION err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), realPkt.SessionID, pkt.ID())
+					err, sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 				return iodefine.IOErr
 			}
 			sn.sm.log.Debugf("write session down succeed, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), realPkt.SessionID, pkt.ID())
+				sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 			return iodefine.IOSuccess
 
 		case *packet.DismissPacket:
@@ -423,8 +438,8 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 				return iodefine.IOErr
 			}
 			//  分配session id
-			sessionId := realPkt.SessionID
-			if realPkt.SessionID == packet.SessionIDNull {
+			sessionId := realPkt.NegotiateID
+			if realPkt.NegotiateID == packet.SessionIDNull {
 				sessionId = sn.sm.getID()
 			}
 			sn.sessionID = sessionId
@@ -449,7 +464,10 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			}
 			sn.sm.log.Debugf("write session ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
 				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
-			sn.sm.addSession(sn, true)
+			//sn.sm.addSession(sn, true)
+			if sn.dlgt != nil {
+				sn.dlgt.SessionOnline()
+			}
 			// accept session
 			// 被动打开，创建session
 			return iodefine.IONewPassive
@@ -467,7 +485,10 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			sn.meta = realPkt.SessionData.Meta
 			// 主动打开成功，创建session
 			sn.sm.shub.Ack(pkt.ID(), nil)
-			sn.sm.addSession(sn, false)
+			//sn.sm.addSession(sn, false)
+			if sn.dlgt != nil {
+				sn.dlgt.SessionOnline()
+			}
 
 			return iodefine.IONewActive
 
@@ -539,7 +560,7 @@ func (sn *session) closeWrapper(_ *yafsm.Event) {
 func (sn *session) fini() {
 	sn.onceFini.Do(func() {
 		sn.sm.log.Debugf("session finished, clientId: %d, sessionId: %d", sn.sm.cn.ClientID(), sn.sessionID)
-		sn.sm.delSession(sn)
+		//sn.sm.delSession(sn)
 
 		sn.sessionMtx.Lock()
 		sn.sessionOK = false

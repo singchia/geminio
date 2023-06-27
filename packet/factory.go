@@ -115,7 +115,7 @@ func (pf *PacketFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPac
 }
 
 // session layer packets
-func (pf *PacketFactory) NewSessionPacket(wantedSessionID uint64, meta []byte) *SessionPacket {
+func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, meta []byte) *SessionPacket {
 	packetID := pf.packetIDs.GetID()
 	snPkt := &SessionPacket{
 		PacketHeader: &PacketHeader{
@@ -124,7 +124,7 @@ func (pf *PacketFactory) NewSessionPacket(wantedSessionID uint64, meta []byte) *
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		SessionID: wantedSessionID,
+		NegotiateID: negotiateID,
 		SessionData: &SessionData{
 			Meta: meta,
 		},

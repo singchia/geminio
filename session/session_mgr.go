@@ -1,7 +1,6 @@
 package session
 
 import (
-	"io"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
@@ -39,24 +38,13 @@ type sessionMgr struct {
 	shub *synchub.SyncHub
 
 	// sessions
-	sessionIDs       id.IDFactory // set nil in client
-	defaultSession   *session
-	sessions         sync.Map // key: sessionID, value: session
-	inflightSessions sync.Map // key: packetId, value: session
-
-	sessionMgrOK  bool
-	sessionMgrMtx sync.RWMutex
-}
-
-const (
-	sessionOpen = iota
-	sessionAccept
-	sessionClose
-)
-
-type sessionEvent struct {
-	sessionEventType int
-	session          *session
+	sessionIDs     id.IDFactory // set nil in client
+	defaultSession *session
+	// mtx protect follows
+	mtx                 sync.RWMutex
+	mgrOK               bool
+	sessions            map[uint64]*session // key: sessionID, value: session
+	negotiatingSessions map[uint64]*session
 }
 
 type SessionMgrOption func(*sessionMgr)
@@ -94,8 +82,8 @@ func OptionDelegate(dlgt Delegate) SessionMgrOption {
 
 func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) {
 	sm := &sessionMgr{
-		cn:           cn,
-		sessionMgrOK: true,
+		cn:    cn,
+		mgrOK: true,
 	}
 	// session id counter
 	if sm.cn.Side() == conn.ServerSide {
@@ -116,19 +104,58 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 		sm.log = log.DefaultLog
 	}
 	// add default session
-	sn := NewSession(sm,
+	sn, err := NewSession(sm,
 		OptionSessionState(SESSIONED))
-	sn.sessionID = packet.SessionID1
-	err := sn.Start()
 	if err != nil {
-		sm.log.Errorf("session start err: %s, clientID: %d, sessionID: %d",
+		sm.log.Errorf("new session err: %s, clientID: %d, sessionID: %d",
 			err, cn.ClientID(), packet.SessionID1)
 		return nil, err
 	}
+	sn.sessionID = packet.SessionID1
 	sm.defaultSession = sn
-	sm.addSession(sn, false)
+	sm.sessions[packet.SessionID1] = sn
 	go sm.readPkt()
 	return sm, nil
+}
+
+func (sm *sessionMgr) SessionOnline(sn *session, meta []byte) error {
+	sm.mtx.Lock()
+	defer sm.mtx.Unlock()
+
+	if !sm.mgrOK {
+		return ErrOperationOnClosedSessionMgr
+	}
+	// remove from the negotiating sessions, and add to ready sessions.
+	_, ok := sm.negotiatingSessions[sn.negotiatingID]
+	if ok {
+		delete(sm.negotiatingSessions, sn.negotiatingID)
+	} else {
+		if sm.dlgt != nil {
+			sm.dlgt.SessionOnline(sn)
+		}
+		if sm.sessionAcceptCh != nil {
+			// this must not be blocked.
+			sm.sessionAcceptCh <- sn
+		}
+	}
+	sm.sessions[sn.sessionID] = sn
+	return nil
+}
+
+func (sm *sessionMgr) SessionOffline(sn *session, meta []byte) error {
+	sm.log.Debugf("clientID: %d, del sessionID: %d", sm.cn.ClientID, sn.SessionID)
+	sm.mtx.Lock()
+	defer sm.mtx.Unlock()
+
+	sn, ok := sm.sessions[sn.sessionID]
+	if ok {
+		delete(sm.sessions, sn.sessionID)
+		if sm.dlgt != nil {
+			sm.dlgt.SessionOffline(sn)
+		}
+	}
+	// unsucceed session
+	return ErrSessionNotFound
 }
 
 func (sm *sessionMgr) getID() uint64 {
@@ -141,173 +168,145 @@ func (sm *sessionMgr) getID() uint64 {
 func (sm *sessionMgr) Close() error {
 	sm.log.Debugf("session manager is closing, clientID: %d", sm.cn.ClientID())
 	sm.sessions.Range(func(key, value interface{}) bool {
-		sn := value.(*session)
-		sn.Close()
+		value.(*session).CloseWait()
+		return true
+	})
+	sm.negotiatingSessions.Range(func(key, value interface{}) bool {
+		value.(*session).CloseWait()
 		return true
 	})
 	sm.log.Debugf("session manager closed, clientID: %d", sm.cn.ClientID)
 	return nil
 }
 
-func (sm *sessionMgr) OpenSession(meta []byte) (*session, error) {
-	sm.sessionMgrMtx.RLock()
-	if !sm.sessionMgrOK {
-		sm.sessionMgrMtx.RUnlock()
-		return nil, io.EOF
+// OpenSession blocks until success or failed
+func (sm *sessionMgr) OpenSession(meta []byte) (Session, error) {
+	sm.mtx.RLock()
+	if !sm.mgrOK {
+		sm.mtx.RUnlock()
+		return nil, ErrOperationOnClosedSessionMgr
 	}
-	sm.sessionMgrMtx.RUnlock()
+	sm.mtx.RUnlock()
 
-	sn := NewSession(sm)
-	err := sn.Start()
+	negotiatingID := sm.sessionIDs.GetID()
+	sn, err := NewSession(sm, OptionSessionNegotiatingID(negotiatingID))
 	if err != nil {
-		sm.log.Errorf("session start err: %s", err, sn.sm.cn.ClientID, packet.SessionID1)
+		sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
 		return nil, err
 	}
+	sm.mtx.Lock()
+	sm.negotiatingSessions[negotiatingID] = sn
+	sm.mtx.Unlock()
+	// Open only happends at client side
+	// Open take times, shouldn't be locked
 	err = sn.Open()
 	if err != nil {
-		sm.log.Errorf("session open err: %s", err, sn.sm.cn.ClientID, packet.SessionID1)
+		sm.log.Errorf("session open err: %s, clientID: %d, negotiatingID: %d", err, sm.cn.ClientID(), sn.negotiatingID)
+		sm.mtx.Lock()
+		delete(sm.negotiatingSessions, negotiatingID)
+		sm.mtx.Unlock()
+		return nil, err
 	}
-	return sn, err
-}
-
-func (sm *sessionMgr) AcceptSession() (Session, error) {
-	sn, ok := <-sm.sessionAcceptCh
-	if !ok {
-		return nil, io.EOF
+	sm.mtx.Lock()
+	defer sm.mtx.Unlock()
+	if !sm.mgrOK {
+		// the logic on negotiatingSessions is tricky, take care of it.
+		delete(sm.negotiatingSessions, negotiatingID)
+		sn.Close()
+		return nil, ErrOperationOnClosedSessionMgr
 	}
 	return sn, nil
 }
 
-func (sm *sessionMgr) addInflightSession(packetId uint64, sn *session) {
-	sm.inflightSessions.Store(packetId, sn)
-}
-
-func (sm *sessionMgr) delInflightSession(packetId uint64) {
-	sm.inflightSessions.Delete(packetId)
-}
-
-func (sm *sessionMgr) addSession(sn *session, passive bool) {
-	sm.log.Debugf("clientID: %d, add sessionID: %d, passive: %v",
-		sm.cn.ClientID, sn.SessionID, passive)
-	sm.sessions.Store(sn.SessionID, sn)
-
-	sm.sessionMgrMtx.RLock()
-	if !sm.sessionMgrOK {
-		sm.sessionMgrMtx.RUnlock()
-		return
+// AcceptSession blocks until success or failed
+func (sm *sessionMgr) AcceptSession() (Session, error) {
+	sn, ok := <-sm.sessionAcceptCh
+	if !ok {
+		return nil, ErrOperationOnClosedSessionMgr
 	}
-	if passive && sm.sessionAcceptCh != nil {
-		sm.sessionAcceptCh <- sn
-	}
-	sm.sessionMgrMtx.RUnlock()
-}
-
-func (sm *sessionMgr) delSession(sn *session) {
-	sm.log.Debugf("clientID: %d, del sessionID: %d", sm.cn.ClientID, sn.SessionID)
-	sm.sessions.Delete(sn.SessionID)
-
-	if sm.dlgt != nil {
-		sm.dlgt.SessionOffline()
-	}
+	return sn, nil
 }
 
 func (sm *sessionMgr) readPkt() {
 	for {
-		select {
-		case _, ok := <-sm.cn.ChannelRead():
-			if !ok {
-				goto FINI
-			}
-		}
-	}
-FINI:
-}
-
-func (sm *sessionMgr) handleSession(event *sessionEvent) {
-	switch event.sessionEventType {
-	case sessionOpen:
-		event.session.Open()
-	case sessionAccept:
-	case sessionClose:
-	}
-}
-
-func (sm *sessionMgr) readPkt_old() {
-	for {
 		pkt, err := sm.cn.Read()
 		if err != nil {
-			if err == io.EOF {
-				sm.log.Debugf("session mgr read down EOF, clientID: %d", sm.cn.ClientID)
-			} else {
-				sm.log.Debugf("session mgr read down err: %s, clientID: %d", err, sm.cn.ClientID)
-			}
+			sm.log.Debugf("session mgr read down err: %s, clientID: %d", err, sm.cn.ClientID)
 			goto FINI
 		}
-		sm.handlePkt_old(pkt)
+		sm.handlePkt(pkt)
 	}
 FINI:
 	// if the session manager got an error, all session must be finished in time
 	sm.fini()
 }
 
-func (sm *sessionMgr) handlePkt_old(pkt packet.Packet) {
-	switch pkt.(type) {
+func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
+	switch realPkt := pkt.(type) {
 	case *packet.SessionPacket:
-		// new session
-		sn := NewSession(sm)
-		sn.Start()
+		// new negotiating session
+		negotiatingID := sm.sessionIDs.GetID()
+		sn, err := NewSession(sm, OptionSessionNegotiatingID(negotiatingID))
+		if err != nil {
+			sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
+			return
+		}
+		sm.mtx.Lock()
+		sm.negotiatingSessions[negotiatingID] = sn
+		sm.mtx.Unlock()
 		sn.readInCh <- pkt
 
 	case *packet.SessionAckPacket:
-		sn, ok := sm.inflightSessions.Load(pkt.ID())
+		sm.mtx.RLock()
+		sn, ok := sm.negotiatingSessions[realPkt.NegotiateID]
+		sm.mtx.RUnlock()
 		if !ok {
-			sm.log.Errorf("clientID: %d, unable to find inflight sessionID: %d",
+			// TODO we must warn the session initiator
+			sm.log.Errorf("clientID: %d, unable to find negotiating sessionID: %d",
 				sm.cn.ClientID, pkt.ID())
 			return
 		}
-		// 同步
-		sn.(*session).readInCh <- pkt
+		sn.readInCh <- pkt
 
 	default:
-		sessionor, ok := pkt.(packet.SessionLayer)
+		snPkt, ok := pkt.(packet.SessionLayer)
 		if !ok {
-			sm.log.Errorf("packet doesn't have sessionID, clientID: %d, packetId: %d, packetType: %s",
+			sm.log.Errorf("packet doesn't have sessionID, clientID: %d, negotiatingID: %d, packetType: %s",
 				sm.cn.ClientID, pkt.ID(), pkt.Type().String())
 			return
 		}
-		sessionID := sessionor.SessionID()
-		sn, ok := sm.sessions.Load(sessionID)
+		sessionID := snPkt.SessionID()
+		sm.mtx.RLock()
+		sn, ok := sm.negotiatingSessions[sessionID]
+		sm.mtx.RUnlock()
 		if !ok {
-			sm.log.Errorf("clientID: %d, unable to find sessionID: %d, packetId: %d, packetType: %s",
+			sm.log.Errorf("clientID: %d, unable to find sessionID: %d, negotiatingID: %d, packetType: %s",
 				sm.cn.ClientID, sessionID, pkt.ID(), pkt.Type().String())
 			return
 		}
 
-		sm.log.Tracef("clientID: %d, sessionID: %d, packetId: %d, read %s",
+		sm.log.Tracef("clientID: %d, sessionID: %d, negotiatingID: %d, read %s",
 			sm.cn.ClientID, sessionID, pkt.ID(), pkt.Type().String())
-		sn.(*session).readInCh <- pkt
+		sn.readInCh <- pkt
 	}
 }
 
 func (sm *sessionMgr) fini() {
-	sm.inflightSessions.Range(func(key, value interface{}) bool {
+	sm.negotiatingSessions.Range(func(key, value interface{}) bool {
 		sn := value.(*session)
-		sn.fini()
 		return true
 	})
 	sm.sessions.Range(func(key, value interface{}) bool {
 		sn := value.(*session)
-		sn.fini()
 		return true
 	})
 
 	// accept和close channel的关闭一定要在session能够接收到通知之后
 	sm.sessionMgrMtx.Lock()
-	sm.sessionMgrOK = false
-	if sm.sessionAcceptCh != nil {
-		close(sm.sessionAcceptCh)
-	}
+	sm.mgrOK = false
+	close(sm.sessionAcceptCh)
 	sm.sessionMgrMtx.Unlock()
+
 	sm.shub.Close()
 	if !sm.tmrOutside {
 		sm.tmr.Close()

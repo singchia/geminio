@@ -228,7 +228,7 @@ func (cc *ClientConn) handlePkt() {
 FINI:
 	cc.log.Debugf("handle pkt done, clientID: %d", cc.clientID)
 	if cc.dlgt != nil && cc.clientID != 0 {
-		cc.dlgt.ConnOffline(cc.clientID, cc.meta, cc.RemoteAddr())
+		cc.dlgt.ConnOffline(cc)
 	}
 	// only handlePkt leads to close other channels
 	cc.fini()
