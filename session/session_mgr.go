@@ -1,10 +1,10 @@
 package session
 
 import (
+	"io"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
@@ -26,6 +26,9 @@ type sessionMgrOpts struct {
 	// for outside usage
 	sessionAcceptCh        chan *session
 	sessionAcceptChOutsite bool
+
+	sessionClosedCh        chan *session
+	sessionClosedChOutsite bool
 }
 
 type sessionMgr struct {
@@ -34,8 +37,8 @@ type sessionMgr struct {
 	// options
 	sessionMgrOpts
 
-	// sync hub
-	shub *synchub.SyncHub
+	// close channel
+	closeCh chan struct{}
 
 	// sessions
 	sessionIDs     id.IDFactory // set nil in client
@@ -49,9 +52,17 @@ type sessionMgr struct {
 
 type SessionMgrOption func(*sessionMgr)
 
-func OptionSessionMgrAcceptCh() SessionMgrOption {
+func OptionSessionMgrAcceptSession() SessionMgrOption {
 	return func(sm *sessionMgr) {
 		sm.sessionAcceptCh = make(chan *session, 128)
+		sm.sessionAcceptChOutsite = false
+	}
+}
+
+func OptionSessionMgrClosedSession() SessionMgrOption {
+	return func(sm *sessionMgr) {
+		sm.sessionAcceptCh = make(chan *session, 128)
+		sm.sessionAcceptChOutsite = false
 	}
 }
 
@@ -98,7 +109,6 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 	if !sm.tmrOutside {
 		sm.tmr = timer.NewTimer()
 	}
-	sm.shub = synchub.NewSyncHub(synchub.OptionTimer(sm.tmr))
 	// log
 	if sm.log == nil {
 		sm.log = log.DefaultLog
@@ -134,7 +144,7 @@ func (sm *sessionMgr) SessionOnline(sn *session, meta []byte) error {
 			sm.dlgt.SessionOnline(sn)
 		}
 		if sm.sessionAcceptCh != nil {
-			// this must not be blocked.
+			// this must not be blocked, or else the whole system will stop
 			sm.sessionAcceptCh <- sn
 		}
 	}
@@ -167,14 +177,26 @@ func (sm *sessionMgr) getID() uint64 {
 
 func (sm *sessionMgr) Close() error {
 	sm.log.Debugf("session manager is closing, clientID: %d", sm.cn.ClientID())
-	sm.sessions.Range(func(key, value interface{}) bool {
-		value.(*session).CloseWait()
-		return true
-	})
-	sm.negotiatingSessions.Range(func(key, value interface{}) bool {
-		value.(*session).CloseWait()
-		return true
-	})
+	sm.mtx.RLock()
+	defer sm.mtx.RUnlock()
+
+	wg := sync.WaitGroup{}
+	wg.Add(len(sm.sessions))
+	wg.Add(len(sm.negotiatingSessions))
+
+	for _, sn := range sm.sessions {
+		go func(sn *session) {
+			defer wg.Done()
+			sn.CloseWait()
+		}(sn)
+	}
+	for _, sn := range sm.negotiatingSessions {
+		go func(sn *session) {
+			defer wg.Done()
+			sn.CloseWait()
+		}(sn)
+	}
+	close(sm.closeCh)
 	sm.log.Debugf("session manager closed, clientID: %d", sm.cn.ClientID)
 	return nil
 }
@@ -222,19 +244,23 @@ func (sm *sessionMgr) OpenSession(meta []byte) (Session, error) {
 func (sm *sessionMgr) AcceptSession() (Session, error) {
 	sn, ok := <-sm.sessionAcceptCh
 	if !ok {
-		return nil, ErrOperationOnClosedSessionMgr
+		return nil, io.EOF
 	}
 	return sn, nil
 }
 
 func (sm *sessionMgr) readPkt() {
 	for {
-		pkt, err := sm.cn.Read()
-		if err != nil {
-			sm.log.Debugf("session mgr read down err: %s, clientID: %d", err, sm.cn.ClientID)
+		select {
+		case pkt, ok := <-sm.cn.ChannelRead():
+			if !ok {
+				sm.log.Debugf("session mgr read done, clientID: %d", sm.cn.ClientID)
+				goto FINI
+			}
+			sm.handlePkt(pkt)
+		case <-sm.closeCh:
 			goto FINI
 		}
-		sm.handlePkt(pkt)
 	}
 FINI:
 	// if the session manager got an error, all session must be finished in time
@@ -292,24 +318,41 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 }
 
 func (sm *sessionMgr) fini() {
-	sm.negotiatingSessions.Range(func(key, value interface{}) bool {
-		sn := value.(*session)
-		return true
-	})
-	sm.sessions.Range(func(key, value interface{}) bool {
-		sn := value.(*session)
-		return true
-	})
+	sm.log.Debugf("session manager finishing, clientID: %d", sm.cn.ClientID)
 
-	// accept和close channel的关闭一定要在session能够接收到通知之后
-	sm.sessionMgrMtx.Lock()
+	sm.mtx.Lock()
+	defer sm.mtx.Unlock()
+
+	// collect conn status
 	sm.mgrOK = false
-	close(sm.sessionAcceptCh)
-	sm.sessionMgrMtx.Unlock()
+	// collect all sessions
+	for id, sn := range sm.sessions {
+		// cause the session io err
+		close(sn.readInCh)
+		delete(sm.sessions, id)
+	}
+	for id, sn := range sm.negotiatingSessions {
+		// cause the session io err
+		close(sn.readInCh)
+		delete(sm.sessions, id)
+	}
 
-	sm.shub.Close()
+	// collect timer
 	if !sm.tmrOutside {
 		sm.tmr.Close()
 	}
+	sm.tmr = nil
+	// collect id
+	sm.sessionIDs.Close()
+	sm.sessionIDs = nil
+	// collect channels
+	if !sm.sessionAcceptChOutsite {
+		close(sm.sessionAcceptCh)
+	}
+	if !sm.sessionClosedChOutsite {
+		close(sm.sessionClosedCh)
+	}
+	sm.sessionAcceptCh, sm.sessionClosedCh = nil, nil
+
 	sm.log.Debugf("session manager finished, clientID: %d", sm.cn.ClientID)
 }

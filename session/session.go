@@ -37,6 +37,12 @@ const (
 	ServerSide Side = 1
 )
 
+type SessionDescriber interface {
+	SessionID() uint64
+	Meta() []byte
+	Side() Side
+}
+
 type Session interface {
 	Reader
 	Writer

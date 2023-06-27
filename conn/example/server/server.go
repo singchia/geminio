@@ -30,9 +30,9 @@ func newServer() *server {
 	}
 }
 
-func (s *server) ConnOnline(clientID uint64, meta []byte, addr net.Addr) error  { return nil }
-func (s *server) ConnOffline(clientID uint64, meta []byte, addr net.Addr) error { return nil }
-func (s *server) Heartbeat(clientID uint64, meta []byte, addr net.Addr) error   { return nil }
+func (s *server) ConnOnline(_ conn.ConnDescriber) error  { return nil }
+func (s *server) ConnOffline(_ conn.ConnDescriber) error { return nil }
+func (s *server) Heartbeat(_ conn.ConnDescriber) error   { return nil }
 func (s *server) GetClientIDByMeta(meta []byte) (uint64, error) {
 	return s.idFactory.GetID(), nil
 }

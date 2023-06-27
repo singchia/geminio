@@ -1,8 +1,8 @@
 package conn
 
 type Delegate interface {
-	ConnOnline(Conn) error
-	ConnOffline(Conn) error
+	ConnOnline(ConnDescriber) error
+	ConnOffline(ConnDescriber) error
 }
 
 type ClientConnDelegate interface {
@@ -11,6 +11,6 @@ type ClientConnDelegate interface {
 
 type ServerConnDelegate interface {
 	Delegate
-	Heartbeat(Conn) error
+	Heartbeat(ConnDescriber) error
 	GetClientIDByMeta(meta []byte) (uint64, error)
 }

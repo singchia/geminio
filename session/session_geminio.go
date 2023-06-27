@@ -466,7 +466,7 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
 			//sn.sm.addSession(sn, true)
 			if sn.dlgt != nil {
-				sn.dlgt.SessionOnline()
+				sn.dlgt.SessionOnline(sn)
 			}
 			// accept session
 			// 被动打开，创建session
@@ -487,7 +487,7 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			sn.sm.shub.Ack(pkt.ID(), nil)
 			//sn.sm.addSession(sn, false)
 			if sn.dlgt != nil {
-				sn.dlgt.SessionOnline()
+				sn.dlgt.SessionOnline(sn)
 			}
 
 			return iodefine.IONewActive
