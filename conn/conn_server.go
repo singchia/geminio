@@ -255,7 +255,7 @@ func (sc *ServerConn) handleOut(pkt packet.Packet) iodefine.IORet {
 
 // input packet
 func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet {
-	sc.log.Debugf("read conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
+	sc.log.Debugf("read conn packet succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(pkt.ConnData.Meta))
 
 	err := sc.fsm.EmitEvent(ET_CONNRECV)
