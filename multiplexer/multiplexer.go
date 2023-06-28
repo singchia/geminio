@@ -1,4 +1,4 @@
-package session
+package multiplexer
 
 import (
 	"io"
@@ -11,7 +11,7 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
-type sessionMgrOpts struct {
+type multiplexerOpts struct {
 	// global client ID factory, set nil at client side
 	sessionIDs id.IDFactory
 	// packet factory
@@ -31,68 +31,68 @@ type sessionMgrOpts struct {
 	sessionClosedChOutsite bool
 }
 
-type sessionMgr struct {
+type multiplexer struct {
 	// under layer
 	cn conn.Conn
 	// options
-	sessionMgrOpts
+	multiplexerOpts
 
 	// close channel
 	closeCh chan struct{}
 
 	// sessions
-	sessionIDs     id.IDFactory // set nil in client
-	defaultSession *session
+	sessionIDs      id.IDFactory // set nil in client
+	defaultDialogue *session
 	// mtx protect follows
-	mtx                 sync.RWMutex
-	mgrOK               bool
-	sessions            map[uint64]*session // key: sessionID, value: session
-	negotiatingSessions map[uint64]*session
+	mtx                  sync.RWMutex
+	mgrOK                bool
+	sessions             map[uint64]*session // key: sessionID, value: session
+	negotiatingDialogues map[uint64]*session
 }
 
-type SessionMgrOption func(*sessionMgr)
+type MultiplexerOption func(*multiplexer)
 
-func OptionSessionMgrAcceptSession() SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionMultiplexerAcceptDialogue() MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.sessionAcceptCh = make(chan *session, 128)
 		sm.sessionAcceptChOutsite = false
 	}
 }
 
-func OptionSessionMgrClosedSession() SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionMultiplexerClosedDialogue() MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.sessionAcceptCh = make(chan *session, 128)
 		sm.sessionAcceptChOutsite = false
 	}
 }
 
-func OptionPacketFactory(pf *packet.PacketFactory) SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.pf = pf
 	}
 }
 
-func OptionLogger(log log.Logger) SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionLogger(log log.Logger) MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.log = log
 	}
 }
 
-func OptionTimer(tmr timer.Timer) SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionTimer(tmr timer.Timer) MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.tmr = tmr
 		sm.tmrOutside = true
 	}
 }
 
-func OptionDelegate(dlgt Delegate) SessionMgrOption {
-	return func(sm *sessionMgr) {
+func OptionDelegate(dlgt Delegate) MultiplexerOption {
+	return func(sm *multiplexer) {
 		sm.dlgt = dlgt
 	}
 }
 
-func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) {
-	sm := &sessionMgr{
+func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, error) {
+	sm := &multiplexer{
 		cn:    cn,
 		mgrOK: true,
 	}
@@ -114,34 +114,34 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 		sm.log = log.DefaultLog
 	}
 	// add default session
-	sn, err := NewSession(cn,
-		OptionSessionState(SESSIONED))
+	sn, err := NewDialogue(cn,
+		OptionDialogueState(SESSIONED))
 	if err != nil {
 		sm.log.Errorf("new session err: %s, clientID: %d, sessionID: %d",
 			err, cn.ClientID(), packet.SessionID1)
 		return nil, err
 	}
 	sn.sessionID = packet.SessionID1
-	sm.defaultSession = sn
+	sm.defaultDialogue = sn
 	sm.sessions[packet.SessionID1] = sn
 	go sm.readPkt()
 	return sm, nil
 }
 
-func (sm *sessionMgr) SessionOnline(sn *session, meta []byte) error {
+func (sm *multiplexer) DialogueOnline(sn *session, meta []byte) error {
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
 
 	if !sm.mgrOK {
-		return ErrOperationOnClosedSessionMgr
+		return ErrOperationOnClosedMultiplexer
 	}
 	// remove from the negotiating sessions, and add to ready sessions.
-	_, ok := sm.negotiatingSessions[sn.negotiatingID]
+	_, ok := sm.negotiatingDialogues[sn.negotiatingID]
 	if ok {
-		delete(sm.negotiatingSessions, sn.negotiatingID)
+		delete(sm.negotiatingDialogues, sn.negotiatingID)
 	} else {
 		if sm.dlgt != nil {
-			sm.dlgt.SessionOnline(sn)
+			sm.dlgt.DialogueOnline(sn)
 		}
 		if sm.sessionAcceptCh != nil {
 			// this must not be blocked, or else the whole system will stop
@@ -152,8 +152,8 @@ func (sm *sessionMgr) SessionOnline(sn *session, meta []byte) error {
 	return nil
 }
 
-func (sm *sessionMgr) SessionOffline(sn *session, meta []byte) error {
-	sm.log.Debugf("clientID: %d, del sessionID: %d", sm.cn.ClientID, sn.SessionID)
+func (sm *multiplexer) DialogueOffline(sn *session, meta []byte) error {
+	sm.log.Debugf("clientID: %d, del sessionID: %d", sm.cn.ClientID, sn.DialogueID)
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
 
@@ -161,28 +161,28 @@ func (sm *sessionMgr) SessionOffline(sn *session, meta []byte) error {
 	if ok {
 		delete(sm.sessions, sn.sessionID)
 		if sm.dlgt != nil {
-			sm.dlgt.SessionOffline(sn)
+			sm.dlgt.DialogueOffline(sn)
 		}
 	}
 	// unsucceed session
-	return ErrSessionNotFound
+	return ErrDialogueNotFound
 }
 
-func (sm *sessionMgr) getID() uint64 {
+func (sm *multiplexer) getID() uint64 {
 	if sm.cn.Side() == conn.ClientSide {
 		return packet.SessionIDNull
 	}
 	return sm.sessionIDs.GetID()
 }
 
-func (sm *sessionMgr) Close() error {
+func (sm *multiplexer) Close() error {
 	sm.log.Debugf("session manager is closing, clientID: %d", sm.cn.ClientID())
 	sm.mtx.RLock()
 	defer sm.mtx.RUnlock()
 
 	wg := sync.WaitGroup{}
 	wg.Add(len(sm.sessions))
-	wg.Add(len(sm.negotiatingSessions))
+	wg.Add(len(sm.negotiatingDialogues))
 
 	for _, sn := range sm.sessions {
 		go func(sn *session) {
@@ -190,7 +190,7 @@ func (sm *sessionMgr) Close() error {
 			sn.CloseWait()
 		}(sn)
 	}
-	for _, sn := range sm.negotiatingSessions {
+	for _, sn := range sm.negotiatingDialogues {
 		go func(sn *session) {
 			defer wg.Done()
 			sn.CloseWait()
@@ -201,24 +201,24 @@ func (sm *sessionMgr) Close() error {
 	return nil
 }
 
-// OpenSession blocks until success or failed
-func (sm *sessionMgr) OpenSession(meta []byte) (Session, error) {
+// OpenDialogue blocks until success or failed
+func (sm *multiplexer) OpenDialogue(meta []byte) (Dialogue, error) {
 	sm.mtx.RLock()
 	if !sm.mgrOK {
 		sm.mtx.RUnlock()
-		return nil, ErrOperationOnClosedSessionMgr
+		return nil, ErrOperationOnClosedMultiplexer
 	}
 	sm.mtx.RUnlock()
 
 	negotiatingID := sm.sessionIDs.GetID()
 	sessionIDPeersCall := sm.cn.Side() == conn.ClientSide
-	sn, err := NewSession(sm.cn, OptionSessionNegotiatingID(negotiatingID, sessionIDPeersCall))
+	sn, err := NewDialogue(sm.cn, OptionDialogueNegotiatingID(negotiatingID, sessionIDPeersCall))
 	if err != nil {
 		sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
 		return nil, err
 	}
 	sm.mtx.Lock()
-	sm.negotiatingSessions[negotiatingID] = sn
+	sm.negotiatingDialogues[negotiatingID] = sn
 	sm.mtx.Unlock()
 	// Open only happends at client side
 	// Open take times, shouldn't be locked
@@ -226,23 +226,23 @@ func (sm *sessionMgr) OpenSession(meta []byte) (Session, error) {
 	if err != nil {
 		sm.log.Errorf("session open err: %s, clientID: %d, negotiatingID: %d", err, sm.cn.ClientID(), sn.negotiatingID)
 		sm.mtx.Lock()
-		delete(sm.negotiatingSessions, negotiatingID)
+		delete(sm.negotiatingDialogues, negotiatingID)
 		sm.mtx.Unlock()
 		return nil, err
 	}
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
 	if !sm.mgrOK {
-		// the logic on negotiatingSessions is tricky, take care of it.
-		delete(sm.negotiatingSessions, negotiatingID)
+		// the logic on negotiatingDialogues is tricky, take care of it.
+		delete(sm.negotiatingDialogues, negotiatingID)
 		sn.Close()
-		return nil, ErrOperationOnClosedSessionMgr
+		return nil, ErrOperationOnClosedMultiplexer
 	}
 	return sn, nil
 }
 
-// AcceptSession blocks until success or failed
-func (sm *sessionMgr) AcceptSession() (Session, error) {
+// AcceptDialogue blocks until success or failed
+func (sm *multiplexer) AcceptDialogue() (Dialogue, error) {
 	sn, ok := <-sm.sessionAcceptCh
 	if !ok {
 		return nil, io.EOF
@@ -250,7 +250,7 @@ func (sm *sessionMgr) AcceptSession() (Session, error) {
 	return sn, nil
 }
 
-func (sm *sessionMgr) readPkt() {
+func (sm *multiplexer) readPkt() {
 	for {
 		select {
 		case pkt, ok := <-sm.cn.ChannelRead():
@@ -268,25 +268,25 @@ FINI:
 	sm.fini()
 }
 
-func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
+func (sm *multiplexer) handlePkt(pkt packet.Packet) {
 	switch realPkt := pkt.(type) {
 	case *packet.SessionPacket:
 		// new negotiating session
 		negotiatingID := sm.sessionIDs.GetID()
 		sessionIDPeersCall := sm.cn.Side() == conn.ClientSide
-		sn, err := NewSession(sm.cn, OptionSessionNegotiatingID(negotiatingID, sessionIDPeersCall))
+		sn, err := NewDialogue(sm.cn, OptionDialogueNegotiatingID(negotiatingID, sessionIDPeersCall))
 		if err != nil {
 			sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
 			return
 		}
 		sm.mtx.Lock()
-		sm.negotiatingSessions[negotiatingID] = sn
+		sm.negotiatingDialogues[negotiatingID] = sn
 		sm.mtx.Unlock()
 		sn.readInCh <- pkt
 
 	case *packet.SessionAckPacket:
 		sm.mtx.RLock()
-		sn, ok := sm.negotiatingSessions[realPkt.NegotiateID]
+		sn, ok := sm.negotiatingDialogues[realPkt.NegotiateID]
 		sm.mtx.RUnlock()
 		if !ok {
 			// TODO we must warn the session initiator
@@ -305,7 +305,7 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 		}
 		sessionID := snPkt.SessionID()
 		sm.mtx.RLock()
-		sn, ok := sm.negotiatingSessions[sessionID]
+		sn, ok := sm.negotiatingDialogues[sessionID]
 		sm.mtx.RUnlock()
 		if !ok {
 			sm.log.Errorf("clientID: %d, unable to find sessionID: %d, negotiatingID: %d, packetType: %s",
@@ -319,7 +319,7 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 	}
 }
 
-func (sm *sessionMgr) fini() {
+func (sm *multiplexer) fini() {
 	sm.log.Debugf("session manager finishing, clientID: %d", sm.cn.ClientID)
 
 	sm.mtx.Lock()
@@ -333,7 +333,7 @@ func (sm *sessionMgr) fini() {
 		close(sn.readInCh)
 		delete(sm.sessions, id)
 	}
-	for id, sn := range sm.negotiatingSessions {
+	for id, sn := range sm.negotiatingDialogues {
 		// cause the session io err
 		close(sn.readInCh)
 		delete(sm.sessions, id)

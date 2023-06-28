@@ -1,4 +1,4 @@
-package session
+package multiplexer
 
 import (
 	"io"
@@ -78,57 +78,57 @@ type session struct {
 	writeCh chan packet.Packet
 }
 
-type SessionOption func(*session)
+type DialogueOption func(*session)
 
 // For the default session which is ready for rolling
-func OptionSessionState(state string) SessionOption {
+func OptionDialogueState(state string) DialogueOption {
 	return func(sn *session) {
 		sn.fsm.SetState(state)
 	}
 }
 
 // Set the packet factory for packet generating
-func OptionSessionPacketFactory(pf *packet.PacketFactory) SessionOption {
+func OptionDialoguePacketFactory(pf *packet.PacketFactory) DialogueOption {
 	return func(sn *session) {
 		sn.pf = pf
 	}
 }
 
-func OptionSessionLogger(log log.Logger) SessionOption {
+func OptionDialogueLogger(log log.Logger) DialogueOption {
 	return func(sn *session) {
 		sn.log = log
 	}
 }
 
 // Set delegate to know online and offline events
-func OptionSessionDelegate(dlgt Delegate) SessionOption {
+func OptionDialogueDelegate(dlgt Delegate) DialogueOption {
 	return func(sn *session) {
 		sn.dlgt = dlgt
 	}
 }
 
-func OptionSessionTimer(tmr timer.Timer) SessionOption {
+func OptionDialogueTimer(tmr timer.Timer) DialogueOption {
 	return func(sn *session) {
 		sn.tmr = tmr
 		sn.tmrOutside = true
 	}
 }
 
-// OptionSessionMeta set the meta info for the session
-func OptionSessionMeta(meta []byte) SessionOption {
+// OptionDialogueMeta set the meta info for the session
+func OptionDialogueMeta(meta []byte) DialogueOption {
 	return func(sn *session) {
 		sn.meta = meta
 	}
 }
 
-func OptionSessionNegotiatingID(negotiatingID uint64, sessionIDPeersCall bool) SessionOption {
+func OptionDialogueNegotiatingID(negotiatingID uint64, sessionIDPeersCall bool) DialogueOption {
 	return func(sn *session) {
 		sn.negotiatingID = negotiatingID
 		sn.sessionIDPeersCall = sessionIDPeersCall
 	}
 }
 
-func NewSession(cn conn.Conn, opts ...SessionOption) (*session, error) {
+func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*session, error) {
 	sn := &session{
 		sessionOpts: sessionOpts{
 			meta: cn.Meta(),
@@ -173,7 +173,7 @@ func (sn *session) Meta() []byte {
 	return sn.meta
 }
 
-func (sn *session) SessionID() uint64 {
+func (sn *session) DialogueID() uint64 {
 	return sn.sessionID
 }
 
@@ -259,8 +259,6 @@ func (sn *session) Open() error {
 	sync := sn.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 	event := <-sync.C()
 	return event.Error
-
-	return nil
 }
 
 func (sn *session) Close() {
@@ -515,7 +513,7 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			sn.log.Debugf("write session ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
 				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			if sn.dlgt != nil {
-				sn.dlgt.SessionOnline(sn)
+				sn.dlgt.DialogueOnline(sn)
 			}
 			// accept session
 			// 被动打开，创建session
@@ -535,7 +533,7 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			// 主动打开成功，创建session
 			sn.shub.Ack(pkt.ID(), nil)
 			if sn.dlgt != nil {
-				sn.dlgt.SessionOnline(sn)
+				sn.dlgt.DialogueOnline(sn)
 			}
 
 			return iodefine.IONewActive
