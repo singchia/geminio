@@ -114,7 +114,7 @@ func NewSessionMgr(cn conn.Conn, opts ...SessionMgrOption) (*sessionMgr, error) 
 		sm.log = log.DefaultLog
 	}
 	// add default session
-	sn, err := NewSession(sm,
+	sn, err := NewSession(cn,
 		OptionSessionState(SESSIONED))
 	if err != nil {
 		sm.log.Errorf("new session err: %s, clientID: %d, sessionID: %d",
@@ -211,7 +211,8 @@ func (sm *sessionMgr) OpenSession(meta []byte) (Session, error) {
 	sm.mtx.RUnlock()
 
 	negotiatingID := sm.sessionIDs.GetID()
-	sn, err := NewSession(sm, OptionSessionNegotiatingID(negotiatingID))
+	sessionIDPeersCall := sm.cn.Side() == conn.ClientSide
+	sn, err := NewSession(sm.cn, OptionSessionNegotiatingID(negotiatingID, sessionIDPeersCall))
 	if err != nil {
 		sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
 		return nil, err
@@ -272,7 +273,8 @@ func (sm *sessionMgr) handlePkt(pkt packet.Packet) {
 	case *packet.SessionPacket:
 		// new negotiating session
 		negotiatingID := sm.sessionIDs.GetID()
-		sn, err := NewSession(sm, OptionSessionNegotiatingID(negotiatingID))
+		sessionIDPeersCall := sm.cn.Side() == conn.ClientSide
+		sn, err := NewSession(sm.cn, OptionSessionNegotiatingID(negotiatingID, sessionIDPeersCall))
 		if err != nil {
 			sm.log.Errorf("new session err: %s, clientID: %d", err, sm.cn.ClientID())
 			return

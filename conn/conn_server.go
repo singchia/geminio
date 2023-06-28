@@ -112,6 +112,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	}
 	// states
 	sc.initFSM()
+	// rolling up
 	go sc.readPkt()
 	go sc.writePkt()
 	go sc.handlePkt()
@@ -266,7 +267,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	}
 
 	sc.meta = pkt.ConnData.Meta
-	if pkt.ClientID == 0 {
+	if pkt.ClientIDAcquire() {
 		if sc.dlgt != nil {
 			sc.clientID, err = sc.dlgt.GetClientIDByMeta(sc.meta)
 		} else {
@@ -279,6 +280,9 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 			sc.writeInCh <- retPkt
 			return iodefine.IOSuccess
 		}
+	} else {
+		// TODO server must use this clientID, we should check if the clientID legal
+		sc.clientID = pkt.ClientID
 	}
 
 	if sc.dlgt != nil {

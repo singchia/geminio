@@ -180,7 +180,7 @@ func (cc *ClientConn) initFSM() {
 }
 
 func (cc *ClientConn) connect() error {
-	pkt := cc.pf.NewConnPacket(cc.clientID, cc.heartbeat, cc.meta)
+	pkt := cc.pf.NewConnPacket(cc.clientID, true, cc.heartbeat, cc.meta)
 	cc.writeInCh <- pkt
 	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
 	event := <-sync.C()

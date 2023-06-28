@@ -5,9 +5,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
+	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
 
@@ -32,20 +36,39 @@ const (
 	ET_FINI        = "fini"
 )
 
+type sessionOpts struct {
+	// packet factory
+	pf *packet.PacketFactory
+	// logger
+	log log.Logger
+	// delegate
+	dlgt Delegate
+	// timer
+	tmr        timer.Timer
+	tmrOutside bool
+	// meta
+	meta []byte
+}
+
 type session struct {
-	negotiatingID uint64
-	sessionID     uint64
-	meta          []byte
-	sm            *sessionMgr
-	fsm           *yafsm.FSM
-	onceFini      *sync.Once
+	// under layer
+	cn conn.Conn
+	// options
+	sessionOpts
+	// session id
+	negotiatingID      uint64
+	sessionIDPeersCall bool
+	sessionID          uint64
+	// synchub
+	shub *synchub.SyncHub
+
+	//sm       *sessionMgr
+	fsm      *yafsm.FSM
+	onceFini *sync.Once
 
 	sessionOK  bool
 	sessionMtx sync.RWMutex
-	// delegate
-	dlgt Delegate
 
-	// session data
 	// to conn layer
 	readInCh                  chan packet.Packet
 	writeFromUpCh, readToUpCh chan packet.Packet
@@ -56,52 +79,80 @@ type session struct {
 
 type SessionOption func(*session)
 
+// For the default session which is ready for rolling
 func OptionSessionState(state string) SessionOption {
 	return func(sn *session) {
 		sn.fsm.SetState(state)
 	}
 }
 
+// OptionSessionMeta set the meta info for the session
 func OptionSessionMeta(meta []byte) SessionOption {
 	return func(sn *session) {
 		sn.meta = meta
 	}
 }
 
+// Set the packet factory for packet generating
+func OptionSessionPacketFactory(pf *packet.PacketFactory) SessionOption {
+	return func(sn *session) {
+		sn.pf = pf
+	}
+}
+
+func OptionSessionLogger(log log.Logger) SessionOption {
+	return func(sn *session) {
+		sn.log = log
+	}
+}
+
+// Set delegate to know online and offline events
 func OptionSessionDelegate(dlgt Delegate) SessionOption {
 	return func(sn *session) {
 		sn.dlgt = dlgt
 	}
 }
 
-func OptionSessionNegotiatingID(negotiatingID uint64) SessionOption {
+func OptionSessionNegotiatingID(negotiatingID uint64, sessionIDPeersCall bool) SessionOption {
 	return func(sn *session) {
 		sn.negotiatingID = negotiatingID
+		sn.sessionIDPeersCall = sessionIDPeersCall
 	}
 }
 
-func NewSession(sm *sessionMgr, opts ...SessionOption) (*session, error) {
+func NewSession(cn conn.Conn, opts ...SessionOption) (*session, error) {
 	sn := &session{
 		sessionID: packet.SessionIDNull,
-		meta:      sm.cn.Meta(),
-		sm:        sm,
+		cn:        cn,
 		fsm:       yafsm.NewFSM(),
 		onceFini:  new(sync.Once),
-		// session control
 		sessionOK: true,
 		writeCh:   make(chan packet.Packet, 128),
 	}
+	// options
 	for _, opt := range opts {
 		opt(sn)
 	}
+	// io size
 	sn.readInCh = make(chan packet.Packet, 128)
 	sn.writeFromUpCh = make(chan packet.Packet, 128)
 	sn.readToUpCh = make(chan packet.Packet, 128)
-	err := sn.init()
-	if err != nil {
-		// TODO
-		return nil, err
+	// timer
+	if !sn.tmrOutside {
+		sn.tmr = timer.NewTimer()
 	}
+	sn.shub = synchub.NewSyncHub(synchub.OptionTimer(sn.tmr))
+	// packet factory
+	if sn.pf == nil {
+		sn.pf = packet.NewPacketFactory(id.NewIDCounter(id.Even))
+	}
+	// states
+	sn.initFSM()
+	// log
+	if sn.log == nil {
+		sn.log = log.DefaultLog
+	}
+	// rolling up
 	go sn.readPkt()
 	go sn.writePkt()
 	return sn, nil
@@ -137,12 +188,6 @@ func (sn *session) Read() (packet.Packet, error) {
 		return nil, io.EOF
 	}
 	return pkt, nil
-}
-
-func (sn *session) init() error {
-	sn.initFSM()
-	// TODO some session handshake works
-	return nil
 }
 
 func (sn *session) initFSM() {
@@ -186,28 +231,24 @@ func (sn *session) initFSM() {
 }
 
 func (sn *session) Open() error {
-	sn.sm.log.Debugf("session is opening, clientId: %d, sessionId: %d",
-		sn.sm.cn.ClientID(), sn.sessionID)
+	sn.log.Debugf("session is opening, clientId: %d, sessionId: %d",
+		sn.cn.ClientID(), sn.sessionID)
 
-	if sn.fsm.InStates(INIT) {
-		var pkt *packet.SessionPacket
-		pkt = sn.sm.pf.NewSessionPacket(sn.sm.getID(), sn.meta)
-		//sn.sm.addInflightSession(pkt.PacketID, sn)
+	var pkt *packet.SessionPacket
+	pkt = sn.pf.NewSessionPacket(sn.negotiatingID, sn.sessionIDPeersCall, sn.meta)
 
-		sn.sessionMtx.RLock()
-		if !sn.sessionOK {
-			sn.sessionMtx.RUnlock()
-			return io.EOF
-		}
-		sn.writeCh <- pkt
+	sn.sessionMtx.RLock()
+	if !sn.sessionOK {
 		sn.sessionMtx.RUnlock()
-
-		sync := sn.sm.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
-		event := <-sync.C()
-		//sn.sm.delInflightSession(pkt.PacketID)
-		return event.Error
+		return io.EOF
 	}
-	// TODO
+	sn.writeCh <- pkt
+	sn.sessionMtx.RUnlock()
+
+	sync := sn.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+	event := <-sync.C()
+	return event.Error
+
 	return nil
 }
 
@@ -218,23 +259,23 @@ func (sn *session) Close() {
 		return
 	}
 
-	sn.sm.log.Debugf("session is closing, clientId: %d, sessionId: %d",
-		sn.sm.cn.ClientID(), sn.sessionID)
+	sn.log.Debugf("session is closing, clientId: %d, sessionId: %d",
+		sn.cn.ClientID(), sn.sessionID)
 
 	if sn.fsm.InStates(SESSIONED) {
-		pkt := sn.sm.pf.NewDismissPacket(sn.sessionID)
+		pkt := sn.pf.NewDismissPacket(sn.sessionID)
 		sn.writeCh <- pkt
 		sn.sessionMtx.RUnlock()
 
-		sync := sn.sm.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+		sync := sn.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		event := <-sync.C()
 		if event.Error != nil {
-			sn.sm.log.Debugf("session close err: %s, clientId: %d, sessionId: %d",
-				event.Error, sn.sm.cn.ClientID(), sn.sessionID)
+			sn.log.Debugf("session close err: %s, clientId: %d, sessionId: %d",
+				event.Error, sn.cn.ClientID(), sn.sessionID)
 			return
 		}
-		sn.sm.log.Debugf("session closed, clientId: %d, sessionId: %d",
-			sn.sm.cn.ClientID(), sn.sessionID)
+		sn.log.Debugf("session closed, clientId: %d, sessionId: %d",
+			sn.cn.ClientID(), sn.sessionID)
 		return
 	}
 	sn.sessionMtx.RUnlock()
@@ -251,8 +292,8 @@ func (sn *session) writePkt() {
 		select {
 		case pkt, ok := <-sn.writeCh:
 			if !ok {
-				sn.sm.log.Debugf("write packet EOF, clientId: %d, sessionId: %d",
-					sn.sm.cn.ClientID(), sn.sessionID)
+				sn.log.Debugf("write packet EOF, clientId: %d, sessionId: %d",
+					sn.cn.ClientID(), sn.sessionID)
 				return
 			}
 			ie := sn.handlePkt(pkt, iodefine.OUT)
@@ -260,10 +301,10 @@ func (sn *session) writePkt() {
 			case iodefine.IOSuccess:
 				continue
 			case iodefine.IOData:
-				err := sn.sm.cn.Write(pkt)
+				err := sn.cn.Write(pkt)
 				if err != nil {
-					sn.sm.log.Debugf("write down err: %s, clientId: %d, sessionId: %d",
-						err, sn.sm.cn.ClientID(), sn.sessionID)
+					sn.log.Debugf("write down err: %s, clientId: %d, sessionId: %d",
+						err, sn.cn.ClientID(), sn.sessionID)
 					goto CLOSED
 				}
 			case iodefine.IOClosed:
@@ -271,26 +312,26 @@ func (sn *session) writePkt() {
 
 			case iodefine.IOErr:
 				sn.fsm.EmitEvent(ET_ERROR)
-				sn.sm.log.Errorf("handle packet return err, clientId: %d, sessionId: %d", sn.sm.cn.ClientID(), sn.sessionID)
+				sn.log.Errorf("handle packet return err, clientId: %d, sessionId: %d", sn.cn.ClientID(), sn.sessionID)
 				goto CLOSED
 			}
 		case pkt, ok := <-sn.writeFromUpCh:
 			if !ok {
-				sn.sm.log.Infof("write from up EOF, clientId: %d, sessionId: %d", sn.sm.cn.ClientID(), sn.sessionID)
+				sn.log.Infof("write from up EOF, clientId: %d, sessionId: %d", sn.cn.ClientID(), sn.sessionID)
 				continue
 			}
-			sn.sm.log.Tracef("to write down, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
-			err := sn.sm.cn.Write(pkt)
+			sn.log.Tracef("to write down, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
+			err := sn.cn.Write(pkt)
 			if err != nil {
 				if err == io.EOF {
 					sn.fsm.EmitEvent(ET_EOF)
-					sn.sm.log.Infof("write down EOF, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
-						sn.sm.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
+					sn.log.Infof("write down EOF, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
+						sn.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
 				} else {
 					sn.fsm.EmitEvent(ET_ERROR)
-					sn.sm.log.Infof("write down err: %s, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
-						err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
+					sn.log.Infof("write down err: %s, clientId: %d, sessionId: %d, packetId: %d, packetType: %s",
+						err, sn.cn.ClientID(), sn.sessionID, pkt.ID(), pkt.Type().String())
 
 				}
 				goto CLOSED
@@ -306,12 +347,12 @@ func (sn *session) readPkt() {
 	for {
 		pkt, ok := <-sn.readInCh
 		if !ok {
-			sn.sm.log.Debugf("read down EOF, clientId: %d, sessionId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID)
+			sn.log.Debugf("read down EOF, clientId: %d, sessionId: %d",
+				sn.cn.ClientID(), sn.sessionID)
 			return
 		}
-		sn.sm.log.Tracef("read %s, clientId: %d, sessionId: %d, packetId: %d",
-			pkt.Type().String(), sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+		sn.log.Tracef("read %s, clientId: %d, sessionId: %d, packetId: %d",
+			pkt.Type().String(), sn.cn.ClientID(), sn.sessionID, pkt.ID())
 		ie := sn.handlePktWrapper(pkt, iodefine.IN)
 		switch ie {
 		case iodefine.IOSuccess:
@@ -365,61 +406,61 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 		case *packet.SessionPacket:
 			err := sn.fsm.EmitEvent(ET_SESSIONSENT)
 			if err != nil {
-				sn.sm.log.Errorf("emit ET_SESSIONSENT err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
+				sn.log.Errorf("emit ET_SESSIONSENT err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 				return iodefine.IOErr
 			}
-			err = sn.sm.cn.Write(realPkt)
+			err = sn.cn.Write(realPkt)
 			if err != nil {
-				sn.sm.log.Errorf("write SESSION err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
+				sn.log.Errorf("write SESSION err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 				return iodefine.IOErr
 			}
-			sn.sm.log.Debugf("write session down succeed, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
+			sn.log.Debugf("write session down succeed, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
 			return iodefine.IOSuccess
 
 		case *packet.DismissPacket:
 
 			if sn.fsm.InStates(DISMISS_RECV, DISMISSED) {
 				// TODO 两边同时Close的场景
-				sn.sm.shub.Ack(realPkt.PacketID, nil)
-				sn.sm.log.Debugf("already been dismissed, clientId: %d, sessionId: %d, packetId: %d",
-					sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.shub.Ack(realPkt.PacketID, nil)
+				sn.log.Debugf("already been dismissed, clientId: %d, sessionId: %d, packetId: %d",
+					sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOSuccess
 			}
 
 			err := sn.fsm.EmitEvent(ET_DISMISSSENT)
 			if err != nil {
-				sn.sm.log.Errorf("emit ET_SESSIONSENT err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Errorf("emit ET_SESSIONSENT err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
-			err = sn.sm.cn.Write(realPkt)
+			err = sn.cn.Write(realPkt)
 			if err != nil {
-				sn.sm.log.Errorf("write DISMISS err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Errorf("write DISMISS err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
-			sn.sm.log.Debugf("write dismiss down succeed, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("write dismiss down succeed, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			return iodefine.IOSuccess
 
 		case *packet.DismissAckPacket:
 			err := sn.fsm.EmitEvent(ET_DISMISSACK)
 			if err != nil {
-				sn.sm.log.Errorf("emit ET_DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d, state: %s",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID(), sn.fsm.State())
+				sn.log.Errorf("emit ET_DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d, state: %s",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID(), sn.fsm.State())
 				return iodefine.IOErr
 			}
-			err = sn.sm.cn.Write(pkt)
+			err = sn.cn.Write(pkt)
 			if err != nil {
-				sn.sm.log.Errorf("write DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Errorf("write DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
-			sn.sm.log.Debugf("write dismiss ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("write dismiss ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			return iodefine.IOClosed
 
 		default:
@@ -429,41 +470,41 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 	case iodefine.IN:
 		switch realPkt := pkt.(type) {
 		case *packet.SessionPacket:
-			sn.sm.log.Debugf("read session packet, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("read session packet, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			err := sn.fsm.EmitEvent(ET_SESSIONRECV)
 			if err != nil {
-				sn.sm.log.Debugf("emit ET_SESSIONRECV err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Debugf("emit ET_SESSIONRECV err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
 			//  分配session id
 			sessionId := realPkt.NegotiateID
-			if realPkt.NegotiateID == packet.SessionIDNull {
-				sessionId = sn.sm.getID()
+			if realPkt.SessionIDAcquire() {
+				sessionId = sn.negotiatingID
 			}
 			sn.sessionID = sessionId
 			sn.meta = realPkt.SessionData.Meta
 			// TODO session冲突
 
 			// return
-			retPkt := sn.sm.pf.NewSessionAckPacket(realPkt.PacketID, sessionId, nil)
-			err = sn.sm.cn.Write(retPkt)
+			retPkt := sn.pf.NewSessionAckPacket(realPkt.PacketID, sessionId, nil)
+			err = sn.cn.Write(retPkt)
 			if err != nil {
-				sn.sm.log.Errorf("write SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Errorf("write SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
 
 			// TODO 端到端一致性
 			err = sn.fsm.EmitEvent(ET_SESSIONACK)
 			if err != nil {
-				sn.sm.log.Debugf("emit ET_SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Debugf("emit ET_SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
-			sn.sm.log.Debugf("write session ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("write session ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			//sn.sm.addSession(sn, true)
 			if sn.dlgt != nil {
 				sn.dlgt.SessionOnline(sn)
@@ -473,18 +514,18 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			return iodefine.IONewPassive
 
 		case *packet.SessionAckPacket:
-			sn.sm.log.Debugf("read session ack packet, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), realPkt.SessionID, pkt.ID())
+			sn.log.Debugf("read session ack packet, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), realPkt.SessionID, pkt.ID())
 			err := sn.fsm.EmitEvent(ET_SESSIONACK)
 			if err != nil {
-				sn.sm.log.Debugf("emit ET_SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Debugf("emit ET_SESSIONACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
 			sn.sessionID = realPkt.SessionID
 			sn.meta = realPkt.SessionData.Meta
 			// 主动打开成功，创建session
-			sn.sm.shub.Ack(pkt.ID(), nil)
+			sn.shub.Ack(pkt.ID(), nil)
 			//sn.sm.addSession(sn, false)
 			if sn.dlgt != nil {
 				sn.dlgt.SessionOnline(sn)
@@ -493,12 +534,12 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			return iodefine.IONewActive
 
 		case *packet.DismissPacket:
-			sn.sm.log.Debugf("read dismiss packet, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("read dismiss packet, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 
 			if sn.fsm.InStates(DISMISS_SENT, DISMISSED) {
 				// TODO 两端同时发起Close的场景
-				retPkt := sn.sm.pf.NewDismissAckPacket(realPkt.PacketID,
+				retPkt := sn.pf.NewDismissAckPacket(realPkt.PacketID,
 					realPkt.SessionID, nil)
 				sn.sessionMtx.RLock()
 				if !sn.sessionOK {
@@ -512,13 +553,13 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			}
 			err := sn.fsm.EmitEvent(ET_DISMISSRECV)
 			if err != nil {
-				sn.sm.log.Debugf("emit ET_DISMISSRECV err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Debugf("emit ET_DISMISSRECV err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
 
 			// return
-			retPkt := sn.sm.pf.NewDismissAckPacket(realPkt.PacketID,
+			retPkt := sn.pf.NewDismissAckPacket(realPkt.PacketID,
 				realPkt.SessionID, nil)
 			sn.sessionMtx.RLock()
 			if !sn.sessionOK {
@@ -532,15 +573,15 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			return iodefine.IOSuccess
 
 		case *packet.DismissAckPacket:
-			sn.sm.log.Debugf("read dismiss ack packet, clientId: %d, sessionId: %d, packetId: %d",
-				sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+			sn.log.Debugf("read dismiss ack packet, clientId: %d, sessionId: %d, packetId: %d",
+				sn.cn.ClientID(), sn.sessionID, pkt.ID())
 			err := sn.fsm.EmitEvent(ET_DISMISSACK)
 			if err != nil {
-				sn.sm.log.Debugf("emit ET_DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
-					err, sn.sm.cn.ClientID(), sn.sessionID, pkt.ID())
+				sn.log.Debugf("emit ET_DISMISSACK err: %s, clientId: %d, sessionId: %d, packetId: %d",
+					err, sn.cn.ClientID(), sn.sessionID, pkt.ID())
 				return iodefine.IOErr
 			}
-			sn.sm.shub.Ack(realPkt.PacketID, nil)
+			sn.shub.Ack(realPkt.PacketID, nil)
 			// 主动关闭成功，关闭session
 			return iodefine.IOClosed
 
@@ -559,7 +600,7 @@ func (sn *session) closeWrapper(_ *yafsm.Event) {
 
 func (sn *session) fini() {
 	sn.onceFini.Do(func() {
-		sn.sm.log.Debugf("session finished, clientId: %d, sessionId: %d", sn.sm.cn.ClientID(), sn.sessionID)
+		sn.log.Debugf("session finished, clientId: %d, sessionId: %d", sn.cn.ClientID(), sn.sessionID)
 		//sn.sm.delSession(sn)
 
 		sn.sessionMtx.Lock()
