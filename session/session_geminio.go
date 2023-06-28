@@ -66,8 +66,9 @@ type session struct {
 	fsm      *yafsm.FSM
 	onceFini *sync.Once
 
-	sessionOK  bool
-	sessionMtx sync.RWMutex
+	// mtx protect follows
+	mtx       sync.RWMutex
+	sessionOK bool
 
 	// to conn layer
 	readInCh                  chan packet.Packet
@@ -83,13 +84,6 @@ type SessionOption func(*session)
 func OptionSessionState(state string) SessionOption {
 	return func(sn *session) {
 		sn.fsm.SetState(state)
-	}
-}
-
-// OptionSessionMeta set the meta info for the session
-func OptionSessionMeta(meta []byte) SessionOption {
-	return func(sn *session) {
-		sn.meta = meta
 	}
 }
 
@@ -113,6 +107,20 @@ func OptionSessionDelegate(dlgt Delegate) SessionOption {
 	}
 }
 
+func OptionSessionTimer(tmr timer.Timer) SessionOption {
+	return func(sn *session) {
+		sn.tmr = tmr
+		sn.tmrOutside = true
+	}
+}
+
+// OptionSessionMeta set the meta info for the session
+func OptionSessionMeta(meta []byte) SessionOption {
+	return func(sn *session) {
+		sn.meta = meta
+	}
+}
+
 func OptionSessionNegotiatingID(negotiatingID uint64, sessionIDPeersCall bool) SessionOption {
 	return func(sn *session) {
 		sn.negotiatingID = negotiatingID
@@ -122,6 +130,9 @@ func OptionSessionNegotiatingID(negotiatingID uint64, sessionIDPeersCall bool) S
 
 func NewSession(cn conn.Conn, opts ...SessionOption) (*session, error) {
 	sn := &session{
+		sessionOpts: sessionOpts{
+			meta: cn.Meta(),
+		},
 		sessionID: packet.SessionIDNull,
 		cn:        cn,
 		fsm:       yafsm.NewFSM(),
@@ -146,12 +157,12 @@ func NewSession(cn conn.Conn, opts ...SessionOption) (*session, error) {
 	if sn.pf == nil {
 		sn.pf = packet.NewPacketFactory(id.NewIDCounter(id.Even))
 	}
-	// states
-	sn.initFSM()
 	// log
 	if sn.log == nil {
 		sn.log = log.DefaultLog
 	}
+	// states
+	sn.initFSM()
 	// rolling up
 	go sn.readPkt()
 	go sn.writePkt()
@@ -172,8 +183,8 @@ func (sn *session) Side() Side {
 }
 
 func (sn *session) Write(pkt packet.Packet) error {
-	sn.sessionMtx.RLock()
-	defer sn.sessionMtx.RUnlock()
+	sn.mtx.RLock()
+	defer sn.mtx.RUnlock()
 
 	if !sn.sessionOK {
 		return io.EOF
@@ -237,13 +248,13 @@ func (sn *session) Open() error {
 	var pkt *packet.SessionPacket
 	pkt = sn.pf.NewSessionPacket(sn.negotiatingID, sn.sessionIDPeersCall, sn.meta)
 
-	sn.sessionMtx.RLock()
+	sn.mtx.RLock()
 	if !sn.sessionOK {
-		sn.sessionMtx.RUnlock()
+		sn.mtx.RUnlock()
 		return io.EOF
 	}
 	sn.writeCh <- pkt
-	sn.sessionMtx.RUnlock()
+	sn.mtx.RUnlock()
 
 	sync := sn.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 	event := <-sync.C()
@@ -253,9 +264,9 @@ func (sn *session) Open() error {
 }
 
 func (sn *session) Close() {
-	sn.sessionMtx.RLock()
+	sn.mtx.RLock()
 	if !sn.sessionOK {
-		sn.sessionMtx.RUnlock()
+		sn.mtx.RUnlock()
 		return
 	}
 
@@ -265,7 +276,7 @@ func (sn *session) Close() {
 	if sn.fsm.InStates(SESSIONED) {
 		pkt := sn.pf.NewDismissPacket(sn.sessionID)
 		sn.writeCh <- pkt
-		sn.sessionMtx.RUnlock()
+		sn.mtx.RUnlock()
 
 		sync := sn.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		event := <-sync.C()
@@ -278,7 +289,7 @@ func (sn *session) Close() {
 			sn.cn.ClientID(), sn.sessionID)
 		return
 	}
-	sn.sessionMtx.RUnlock()
+	sn.mtx.RUnlock()
 	return
 }
 
@@ -378,14 +389,14 @@ func (sn *session) handlePktWrapper(pkt packet.Packet, iotype iodefine.IOType) i
 		return iodefine.IOClosed
 
 	case iodefine.IOData:
-		sn.sessionMtx.RLock()
+		sn.mtx.RLock()
 		// TODO
 		if !sn.sessionOK {
-			sn.sessionMtx.RUnlock()
+			sn.mtx.RUnlock()
 			return iodefine.IOSuccess
 		}
 		sn.readToUpCh <- pkt
-		sn.sessionMtx.RUnlock()
+		sn.mtx.RUnlock()
 		return iodefine.IOSuccess
 
 	case iodefine.IOErr:
@@ -485,9 +496,7 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			}
 			sn.sessionID = sessionId
 			sn.meta = realPkt.SessionData.Meta
-			// TODO session冲突
 
-			// return
 			retPkt := sn.pf.NewSessionAckPacket(realPkt.PacketID, sessionId, nil)
 			err = sn.cn.Write(retPkt)
 			if err != nil {
@@ -505,7 +514,6 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			}
 			sn.log.Debugf("write session ack down succeed, clientId: %d, sessionId: %d, packetId: %d",
 				sn.cn.ClientID(), sn.sessionID, pkt.ID())
-			//sn.sm.addSession(sn, true)
 			if sn.dlgt != nil {
 				sn.dlgt.SessionOnline(sn)
 			}
@@ -526,7 +534,6 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			sn.meta = realPkt.SessionData.Meta
 			// 主动打开成功，创建session
 			sn.shub.Ack(pkt.ID(), nil)
-			//sn.sm.addSession(sn, false)
 			if sn.dlgt != nil {
 				sn.dlgt.SessionOnline(sn)
 			}
@@ -541,13 +548,13 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 				// TODO 两端同时发起Close的场景
 				retPkt := sn.pf.NewDismissAckPacket(realPkt.PacketID,
 					realPkt.SessionID, nil)
-				sn.sessionMtx.RLock()
+				sn.mtx.RLock()
 				if !sn.sessionOK {
-					sn.sessionMtx.RUnlock()
+					sn.mtx.RUnlock()
 					return iodefine.IOErr
 				}
 				sn.writeCh <- retPkt
-				sn.sessionMtx.RUnlock()
+				sn.mtx.RUnlock()
 				return iodefine.IOSuccess
 
 			}
@@ -561,15 +568,14 @@ func (sn *session) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine
 			// return
 			retPkt := sn.pf.NewDismissAckPacket(realPkt.PacketID,
 				realPkt.SessionID, nil)
-			sn.sessionMtx.RLock()
+			sn.mtx.RLock()
 			if !sn.sessionOK {
-				sn.sessionMtx.RUnlock()
+				sn.mtx.RUnlock()
 				return iodefine.IOErr
 			}
 			sn.writeCh <- retPkt
-			sn.sessionMtx.RUnlock()
+			sn.mtx.RUnlock()
 
-			//return iodefine.IOClosed
 			return iodefine.IOSuccess
 
 		case *packet.DismissAckPacket:
@@ -601,9 +607,8 @@ func (sn *session) closeWrapper(_ *yafsm.Event) {
 func (sn *session) fini() {
 	sn.onceFini.Do(func() {
 		sn.log.Debugf("session finished, clientId: %d, sessionId: %d", sn.cn.ClientID(), sn.sessionID)
-		//sn.sm.delSession(sn)
 
-		sn.sessionMtx.Lock()
+		sn.mtx.Lock()
 		sn.sessionOK = false
 		close(sn.writeCh)
 
@@ -611,7 +616,7 @@ func (sn *session) fini() {
 		close(sn.writeFromUpCh)
 		close(sn.readToUpCh)
 
-		sn.sessionMtx.Unlock()
+		sn.mtx.Unlock()
 
 		sn.fsm.EmitEvent(ET_FINI)
 		sn.fsm.Close()
