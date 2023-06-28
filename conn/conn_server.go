@@ -112,6 +112,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	}
 	// states
 	sc.initFSM()
+	// rolling up
 	go sc.readPkt()
 	go sc.writePkt()
 	go sc.handlePkt()
@@ -157,14 +158,20 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_CONNACK, connrecv, conned)
 	sc.fsm.AddEvent(ET_ERROR, init, closed)
 	sc.fsm.AddEvent(ET_ERROR, connrecv, connrecv, sc.closeWrapper)
-	sc.fsm.AddEvent(ET_CLOSESENT, connrecv, closesent) // illegal conn
+	// illegal conn
+	sc.fsm.AddEvent(ET_CLOSESENT, connrecv, closesent)
 	sc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
-	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // illegal conn
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent)
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf)
+	// illegal conn
+	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
 	sc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
-	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv) // close and been closed at same time
-	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf) // close and been closed at same time
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
+	// close and been closed at same time
+	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed)
@@ -210,7 +217,7 @@ func (sc *ServerConn) handlePkt() {
 FINI:
 	sc.log.Debugf("handle pkt done, clientID: %d", sc.clientID)
 	if sc.dlgt != nil && sc.clientID != 0 {
-		sc.dlgt.ConnOffline(sc.clientID, sc.meta, sc.RemoteAddr())
+		sc.dlgt.ConnOffline(sc)
 	}
 	// only handlePkt leads to close other channels
 	sc.fini()
@@ -260,7 +267,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	}
 
 	sc.meta = pkt.ConnData.Meta
-	if pkt.ClientID == 0 {
+	if pkt.ClientIDAcquire() {
 		if sc.dlgt != nil {
 			sc.clientID, err = sc.dlgt.GetClientIDByMeta(sc.meta)
 		} else {
@@ -273,10 +280,13 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 			sc.writeInCh <- retPkt
 			return iodefine.IOSuccess
 		}
+	} else {
+		// TODO server must use this clientID, we should check if the clientID legal
+		sc.clientID = pkt.ClientID
 	}
 
 	if sc.dlgt != nil {
-		err = sc.dlgt.ConnOnline(sc.clientID, sc.meta, sc.RemoteAddr())
+		err = sc.dlgt.ConnOnline(sc)
 		if err != nil {
 			sc.log.Errorf("online err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
@@ -311,7 +321,7 @@ func (sc *ServerConn) handleInHeartbeatPacket(pkt *packet.HeartbeatPacket) iodef
 	retPkt := sc.pf.NewHeartbeatAckPacket(pkt.PacketID)
 	sc.writeInCh <- retPkt
 	if sc.dlgt != nil {
-		sc.dlgt.Heartbeat(sc.clientID, sc.meta, sc.netconn.RemoteAddr())
+		sc.dlgt.Heartbeat(sc)
 	}
 	return iodefine.IOSuccess
 }
@@ -375,8 +385,6 @@ func (sc *ServerConn) Close() {
 	})
 }
 
-func (sc *ServerConn) close() {}
-
 func (sc *ServerConn) closeWrapper(_ *yafsm.Event) {
 	sc.Close()
 }
@@ -388,10 +396,12 @@ func (sc *ServerConn) fini() {
 	sc.shub = nil
 	// collect net.Conn
 	sc.netconn.Close()
+	// lock protect conn status and input resource
 	sc.connMtx.Lock()
 	sc.connOK = false
 	close(sc.writeInCh)
 	sc.connMtx.Unlock()
+
 	for pkt := range sc.writeInCh {
 		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
 			sc.failedCh <- pkt

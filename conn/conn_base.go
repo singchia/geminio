@@ -85,6 +85,10 @@ func (bc *baseConn) Read() (packet.Packet, error) {
 	return pkt, nil
 }
 
+func (bc *baseConn) ChannelRead() <-chan packet.Packet {
+	return bc.readOutCh
+}
+
 func (bc *baseConn) Write(pkt packet.Packet) error {
 	bc.connMtx.RLock()
 	defer bc.connMtx.RUnlock()

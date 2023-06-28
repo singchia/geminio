@@ -11,7 +11,7 @@ func NewPacketFactory(packetIDs *id.IDCounter) *PacketFactory {
 }
 
 // connection layer packets
-func (pf *PacketFactory) NewConnPacket(wantedClientID uint64,
+func (pf *PacketFactory) NewConnPacket(wantedClientID uint64, clientIDPeersCall bool,
 	heartbeat Heartbeat, meta []byte) *ConnPacket {
 	packetID := pf.packetIDs.GetID()
 	connPkt := &ConnPacket{
@@ -29,10 +29,7 @@ func (pf *PacketFactory) NewConnPacket(wantedClientID uint64,
 			Meta: meta,
 		},
 	}
-	connPkt.clientIDAcquire = true
-	if wantedClientID != ClientIDNull {
-		connPkt.clientIDAcquire = false
-	}
+	connPkt.clientIDAcquire = clientIDPeersCall
 	return connPkt
 }
 
@@ -115,7 +112,7 @@ func (pf *PacketFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPac
 }
 
 // session layer packets
-func (pf *PacketFactory) NewSessionPacket(wantedSessionID uint64, meta []byte) *SessionPacket {
+func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket {
 	packetID := pf.packetIDs.GetID()
 	snPkt := &SessionPacket{
 		PacketHeader: &PacketHeader{
@@ -124,7 +121,10 @@ func (pf *PacketFactory) NewSessionPacket(wantedSessionID uint64, meta []byte) *
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		SessionID: wantedSessionID,
+		SessionFlags: SessionFlags{
+			sessionIDAcquire: sessionIDPeersCall,
+		},
+		NegotiateID: negotiateID,
 		SessionData: &SessionData{
 			Meta: meta,
 		},

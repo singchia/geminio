@@ -180,7 +180,7 @@ func (cc *ClientConn) initFSM() {
 }
 
 func (cc *ClientConn) connect() error {
-	pkt := cc.pf.NewConnPacket(cc.clientID, cc.heartbeat, cc.meta)
+	pkt := cc.pf.NewConnPacket(cc.clientID, true, cc.heartbeat, cc.meta)
 	cc.writeInCh <- pkt
 	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
 	event := <-sync.C()
@@ -228,7 +228,7 @@ func (cc *ClientConn) handlePkt() {
 FINI:
 	cc.log.Debugf("handle pkt done, clientID: %d", cc.clientID)
 	if cc.dlgt != nil && cc.clientID != 0 {
-		cc.dlgt.ConnOffline(cc.clientID, cc.meta, cc.RemoteAddr())
+		cc.dlgt.ConnOffline(cc)
 	}
 	// only handlePkt leads to close other channels
 	cc.fini()

@@ -18,8 +18,8 @@ const (
 )
 
 type ConnFlags struct {
-	Heartbeat       Heartbeat // 自定义心跳 2 bits
-	clientIDAcquire bool      // 是否云端分配clientID 1 bit
+	Heartbeat       Heartbeat // heartbeat define 2 bits
+	clientIDAcquire bool      // If peer's call to assign clientID 1 bit
 	packetIDAcquire bool      // 是否云端分配packetID 1 bit
 	Retain          bool      // 是否保留连接上下文 1 bit，TODO
 	Clear           bool      // 是否清除连接上下文 1 bit，TODO
