@@ -368,7 +368,6 @@ func (sc *ServerConn) handleOutHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket
 	return iodefine.IOSuccess
 }
 
-// TODO 优雅关闭
 func (sc *ServerConn) Close() {
 	sc.closeOnce.Do(func() {
 		sc.connMtx.RLock()
@@ -389,7 +388,7 @@ func (sc *ServerConn) closeWrapper(_ *yafsm.Event) {
 	sc.Close()
 }
 
-// 回收资源
+// finish and reclaim resources
 func (sc *ServerConn) fini() {
 	// collect shub
 	sc.shub.Close()

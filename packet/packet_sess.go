@@ -105,6 +105,10 @@ type SessionAckPacket struct {
 	SessionData  *SessionData
 }
 
+func (snAckPkt *SessionAckPacket) SetError(err error) {
+	snAckPkt.SessionData.Error = err.Error()
+}
+
 func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
 	hdr, err := snAckPkt.PacketHeader.Encode()
 	if err != nil {

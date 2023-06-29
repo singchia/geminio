@@ -132,7 +132,7 @@ func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall
 	return snPkt
 }
 
-func (pf *PacketFactory) NewSessionAckPacket(packetID uint64,
+func (pf *PacketFactory) NewSessionAckPacket(packetID uint64, negotiateID uint64,
 	confirmedSessionID uint64, err error) *SessionAckPacket {
 	snAckPkt := &SessionAckPacket{
 		PacketHeader: &PacketHeader{
@@ -141,6 +141,7 @@ func (pf *PacketFactory) NewSessionAckPacket(packetID uint64,
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
+		NegotiateID: negotiateID,
 		SessionID:   confirmedSessionID,
 		SessionData: &SessionData{},
 	}
