@@ -297,7 +297,7 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 		dg.readInCh <- pkt
 
 	default:
-		dgPkt, ok := pkt.(packet.SessionLayer)
+		dgPkt, ok := pkt.(packet.SessionAbove)
 		if !ok {
 			mp.log.Errorf("packet doedg't have dialogueID, clientID: %d, negotiatingID: %d, packetType: %s",
 				mp.cn.ClientID, pkt.ID(), pkt.Type().String())

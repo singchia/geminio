@@ -30,7 +30,6 @@ const (
 	ET_SESSIONRECV = "sessionrecv"
 	ET_SESSIONACK  = "sessionrecv"
 	ET_ERROR       = "error"
-	ET_EOF         = "eof"
 	ET_DISMISSSENT = "dismisssent"
 	ET_DISMISSRECV = "dismissrecv"
 	ET_DISMISSACK  = "dismissack"
@@ -56,6 +55,8 @@ type dialogue struct {
 	cn conn.Conn
 	// options
 	dialogueOpts
+	onlined   bool
+	closewait synchub.Sync
 	// session id
 	negotiatingID       uint64
 	dialogueIDPeersCall bool
@@ -169,7 +170,7 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 	// states
 	dg.initFSM()
 	// rolling up
-	go dg.readPkt()
+	go dg.handlePkt()
 	go dg.writePkt()
 	return dg, nil
 }
@@ -212,6 +213,7 @@ func (dg *dialogue) initFSM() {
 	sessioned := dg.fsm.AddState(SESSIONED)
 	dismisssent := dg.fsm.AddState(DISMISS_SENT)
 	dismissrecv := dg.fsm.AddState(DISMISS_RECV)
+	dismisshalf := dg.fsm.AddState(DISMISS_HALF)
 	dismissed := dg.fsm.AddState(DISMISSED)
 	fini := dg.fsm.AddState(FINI)
 	dg.fsm.SetState(INIT)
@@ -219,29 +221,36 @@ func (dg *dialogue) initFSM() {
 	// sender
 	dg.fsm.AddEvent(ET_SESSIONSENT, init, sessionsent)
 	dg.fsm.AddEvent(ET_SESSIONACK, sessionsent, sessioned)
-	dg.fsm.AddEvent(ET_ERROR, sessionsent, dismissed, dg.closeWrapper)
-	dg.fsm.AddEvent(ET_EOF, sessionsent, dismissed)
 
 	// receiver
 	dg.fsm.AddEvent(ET_SESSIONRECV, init, sessionrecv)
 	dg.fsm.AddEvent(ET_SESSIONACK, sessionrecv, sessioned)
-	dg.fsm.AddEvent(ET_ERROR, sessionrecv, dismissed, dg.closeWrapper)
-	dg.fsm.AddEvent(ET_EOF, sessionrecv, dismissed)
+	dg.fsm.AddEvent(ET_ERROR, sessionrecv, sessionrecv, dg.closeWrapper)
 
 	// both
-	dg.fsm.AddEvent(ET_ERROR, sessioned, dismissed, dg.closeWrapper)
-	dg.fsm.AddEvent(ET_EOF, sessioned, dismissed)
+	dg.fsm.AddEvent(ET_DISMISSSENT, sessionrecv, dismisssent)
 	dg.fsm.AddEvent(ET_DISMISSSENT, sessioned, dismisssent)
+	dg.fsm.AddEvent(ET_DISMISSSENT, dismissrecv, dismisssent)
+	dg.fsm.AddEvent(ET_DISMISSSENT, dismisshalf, dismisshalf)
+
+	dg.fsm.AddEvent(ET_DISMISSRECV, sessionsent, dismissrecv)
 	dg.fsm.AddEvent(ET_DISMISSRECV, sessioned, dismissrecv)
-	dg.fsm.AddEvent(ET_DISMISSACK, dismisssent, dismissed)
+	dg.fsm.AddEvent(ET_DISMISSRECV, dismisssent, dismissrecv)
+	dg.fsm.AddEvent(ET_DISMISSRECV, dismisshalf, dismisshalf)
+
+	// the 4-way handshake
+	dg.fsm.AddEvent(ET_DISMISSACK, dismisssent, dismisshalf)
+	dg.fsm.AddEvent(ET_DISMISSACK, dismissrecv, dismisshalf)
 	dg.fsm.AddEvent(ET_DISMISSACK, dismissrecv, dismissed)
 
 	// fini
 	dg.fsm.AddEvent(ET_FINI, init, fini)
 	dg.fsm.AddEvent(ET_FINI, sessionsent, fini)
+	dg.fsm.AddEvent(ET_FINI, sessionrecv, fini)
 	dg.fsm.AddEvent(ET_FINI, sessioned, fini)
 	dg.fsm.AddEvent(ET_FINI, dismisssent, fini)
 	dg.fsm.AddEvent(ET_FINI, dismissrecv, fini)
+	dg.fsm.AddEvent(ET_FINI, dismisshalf, fini)
 	dg.fsm.AddEvent(ET_FINI, dismissed, fini)
 }
 
@@ -300,305 +309,84 @@ func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 	return err
 }
 
-func (dg *dialogue) writePkt_old() {
+func (dg *dialogue) handlePkt() {
+	readInCh := dg.readInCh
+	writeInCh := dg.writeInCh
 
 	for {
 		select {
-		case pkt, ok := <-dg.writeCh:
+		case pkt, ok := <-readInCh:
 			if !ok {
-				dg.log.Debugf("write packet EOF, clientID: %d, dialogueID: %d",
-					dg.cn.ClientID(), dg.dialogueID)
-				return
+				goto FINI
 			}
-			ie := dg.handlePkt(pkt, iodefine.OUT)
-			switch ie {
-			case iodefine.IOSuccess:
+			ret := dg.handleIn(pkt)
+			switch ret {
+			case iodefine.IONewActive, iodefine.IOSuccess:
 				continue
-			case iodefine.IOData:
-				err := dg.cn.Write(pkt)
-				if err != nil {
-					dg.log.Debugf("write down err: %s, clientID: %d, dialogueID: %d",
-						err, dg.cn.ClientID(), dg.dialogueID)
-					goto CLOSED
-				}
 			case iodefine.IOClosed:
-				goto CLOSED
-
+				goto FINI
 			case iodefine.IOErr:
-				dg.fsm.EmitEvent(ET_ERROR)
-				dg.log.Errorf("handle packet return err, clientID: %d, dialogueID: %d", dg.cn.ClientID(), dg.dialogueID)
-				goto CLOSED
+				goto FINI
 			}
-		case pkt, ok := <-dg.writeInCh:
+		case pkt, ok := <-writeInCh:
 			if !ok {
-				dg.log.Infof("write from up EOF, clientID: %d, dialogueID: %d", dg.cn.ClientID(), dg.dialogueID)
+				// BUG! shoud never be here.
+				goto FINI
+			}
+			ret := dg.handleOut(pkt)
+			switch ret {
+			case iodefine.IONewPassive, iodefine.IOSuccess:
 				continue
+			case iodefine.IOClosed:
+				goto FINI
+			case iodefine.IOErr:
+				goto FINI
 			}
-			dg.log.Tracef("to write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-			err := dg.cn.Write(pkt)
-			if err != nil {
-				if err == io.EOF {
-					dg.fsm.EmitEvent(ET_EOF)
-					dg.log.Infof("write down EOF, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-						dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-				} else {
-					dg.fsm.EmitEvent(ET_ERROR)
-					dg.log.Infof("write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-						err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-
-				}
-				goto CLOSED
-			}
-			continue
 		}
 	}
-CLOSED:
+FINI:
+	dg.log.Debugf("handle pkt done, clientID: %d, dialogueID: %d",
+		dg.cn.ClientID(), dg.dialogueID)
+	if dg.closewait != nil {
+		// and CloseWait is waiting for the completion.
+		dg.closewait.Done()
+	}
+	// only onlined Dialogue need to be notified
+	if dg.dlgt != nil && dg.onlined {
+		dg.dlgt.DialogueOffline(dg)
+	}
+	// only handlePkt leads to this fini, and reclaims all channels and other resources
 	dg.fini()
 }
 
-func (dg *dialogue) readPkt() {
-	for {
-		pkt, ok := <-dg.readInCh
-		if !ok {
-			dg.log.Debugf("read down EOF, clientID: %d, dialogueID: %d",
-				dg.cn.ClientID(), dg.dialogueID)
-			return
-		}
-		dg.log.Tracef("read %s, clientID: %d, dialogueID: %d, packetID: %d",
-			pkt.Type().String(), dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-		ie := dg.handlePktWrapper(pkt, iodefine.IN)
-		switch ie {
-		case iodefine.IOSuccess:
-			continue
-		case iodefine.IOClosed:
-			goto CLOSED
-		}
-	}
-CLOSED:
-	dg.fini()
-}
-
-func (dg *dialogue) handlePktWrapper(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
-	ie := dg.handlePkt(pkt, iodefine.IN)
-	switch ie {
-	case iodefine.IONewActive:
-		return iodefine.IOSuccess
-
-	case iodefine.IONewPassive:
-		return iodefine.IOSuccess
-
-	case iodefine.IOClosed:
-		return iodefine.IOClosed
-
-	case iodefine.IOData:
-		dg.mtx.RLock()
-		// TODO
-		if !dg.sessionOK {
-			dg.mtx.RUnlock()
-			return iodefine.IOSuccess
-		}
-		dg.readOutCh <- pkt
-		dg.mtx.RUnlock()
-		return iodefine.IOSuccess
-
-	case iodefine.IOErr:
-		// TODO 在遇到IOErr之后，还有必要发送Close吗，需要区分情况
-		dg.fsm.EmitEvent(ET_ERROR)
-		return iodefine.IOClosed
-
+func (dg *dialogue) handleIn(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.SessionPacket:
+		return dg.handleInSessionPacket(realPkt)
+	case *packet.SessionAckPacket:
+		return dg.handleInSessionAckPacket(realPkt)
+	case *packet.DismissPacket:
+		return dg.handleInDismissPacket(realPkt)
+	case *packet.DismissAckPacket:
+		return dg.handleInDimssAckPacket(realPkt)
 	default:
-		return iodefine.IOSuccess
+		return dg.handleInDataPacket(pkt)
 	}
 }
 
-func (dg *dialogue) handlePkt(pkt packet.Packet, iotype iodefine.IOType) iodefine.IORet {
-
-	switch iotype {
-	case iodefine.OUT:
-		switch realPkt := pkt.(type) {
-		case *packet.SessionPacket:
-			err := dg.fsm.EmitEvent(ET_SESSIONSENT)
-			if err != nil {
-				dg.log.Errorf("emit ET_SESSIONSENT err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
-				return iodefine.IOErr
-			}
-			err = dg.cn.Write(realPkt)
-			if err != nil {
-				dg.log.Errorf("write SESSION err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.log.Debugf("write session down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), realPkt.NegotiateID, pkt.ID())
-			return iodefine.IOSuccess
-
-		case *packet.DismissPacket:
-
-			if dg.fsm.InStates(DISMISS_RECV, DISMISSED) {
-				// TODO 两边同时Close的场景
-				dg.shub.Ack(realPkt.PacketID, nil)
-				dg.log.Debugf("already been dismissed, clientID: %d, dialogueID: %d, packetID: %d",
-					dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOSuccess
-			}
-
-			err := dg.fsm.EmitEvent(ET_DISMISSSENT)
-			if err != nil {
-				dg.log.Errorf("emit ET_SESSIONSENT err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			err = dg.cn.Write(realPkt)
-			if err != nil {
-				dg.log.Errorf("write DISMISS err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.log.Debugf("write dismiss down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-			return iodefine.IOSuccess
-
-		case *packet.DismissAckPacket:
-			err := dg.fsm.EmitEvent(ET_DISMISSACK)
-			if err != nil {
-				dg.log.Errorf("emit ET_DISMISSACK err: %s, clientID: %d, dialogueID: %d, packetID: %d, state: %s",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
-				return iodefine.IOErr
-			}
-			err = dg.cn.Write(pkt)
-			if err != nil {
-				dg.log.Errorf("write DISMISSACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.log.Debugf("write dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-			return iodefine.IOClosed
-
-		default:
-			return iodefine.IOData
-		}
-
-	case iodefine.IN:
-		switch realPkt := pkt.(type) {
-		case *packet.SessionPacket:
-			dg.log.Debugf("read session packet, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-			err := dg.fsm.EmitEvent(ET_SESSIONRECV)
-			if err != nil {
-				dg.log.Debugf("emit ET_SESSIONRECV err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			//  分配session id
-			dialogueID := realPkt.NegotiateID
-			if realPkt.SessionIDAcquire() {
-				dialogueID = dg.negotiatingID
-			}
-			dg.dialogueID = dialogueID
-			dg.meta = realPkt.SessionData.Meta
-
-			retPkt := dg.pf.NewSessionAckPacket(realPkt.PacketID, 0, dialogueID, nil)
-			err = dg.cn.Write(retPkt)
-			if err != nil {
-				dg.log.Errorf("write SESSIONACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-
-			// TODO 端到端一致性
-			err = dg.fsm.EmitEvent(ET_SESSIONACK)
-			if err != nil {
-				dg.log.Debugf("emit ET_SESSIONACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.log.Debugf("write session ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-			if dg.dlgt != nil {
-				dg.dlgt.DialogueOnline(dg)
-			}
-			// accept session
-			// 被动打开，创建session
-			return iodefine.IONewPassive
-
-		case *packet.SessionAckPacket:
-			dg.log.Debugf("read session ack packet, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), realPkt.SessionID, pkt.ID())
-			err := dg.fsm.EmitEvent(ET_SESSIONACK)
-			if err != nil {
-				dg.log.Debugf("emit ET_SESSIONACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.dialogueID = realPkt.SessionID
-			dg.meta = realPkt.SessionData.Meta
-			// 主动打开成功，创建session
-			dg.shub.Ack(pkt.ID(), nil)
-			if dg.dlgt != nil {
-				dg.dlgt.DialogueOnline(dg)
-			}
-
-			return iodefine.IONewActive
-
-		case *packet.DismissPacket:
-			dg.log.Debugf("read dismiss packet, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-
-			if dg.fsm.InStates(DISMISS_SENT, DISMISSED) {
-				// TODO 两端同时发起Close的场景
-				retPkt := dg.pf.NewDismissAckPacket(realPkt.PacketID,
-					realPkt.SessionID, nil)
-				dg.mtx.RLock()
-				if !dg.sessionOK {
-					dg.mtx.RUnlock()
-					return iodefine.IOErr
-				}
-				dg.writeCh <- retPkt
-				dg.mtx.RUnlock()
-				return iodefine.IOSuccess
-
-			}
-			err := dg.fsm.EmitEvent(ET_DISMISSRECV)
-			if err != nil {
-				dg.log.Debugf("emit ET_DISMISSRECV err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-
-			// return
-			retPkt := dg.pf.NewDismissAckPacket(realPkt.PacketID,
-				realPkt.SessionID, nil)
-			dg.mtx.RLock()
-			if !dg.sessionOK {
-				dg.mtx.RUnlock()
-				return iodefine.IOErr
-			}
-			dg.writeCh <- retPkt
-			dg.mtx.RUnlock()
-
-			return iodefine.IOSuccess
-
-		case *packet.DismissAckPacket:
-			dg.log.Debugf("read dismiss ack packet, clientID: %d, dialogueID: %d, packetID: %d",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-			err := dg.fsm.EmitEvent(ET_DISMISSACK)
-			if err != nil {
-				dg.log.Debugf("emit ET_DISMISSACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-				return iodefine.IOErr
-			}
-			dg.shub.Ack(realPkt.PacketID, nil)
-			// 主动关闭成功，关闭session
-			return iodefine.IOClosed
-
-		default:
-			return iodefine.IOData
-		}
+func (dg *dialogue) handleOut(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.SessionPacket:
+		return dg.handleOutSessionPacket(realPkt)
+	case *packet.SessionAckPacket:
+		return dg.handleOutSessionAckPacket(realPkt)
+	case *packet.DismissPacket:
+		return dg.handleOutDismissPacket(realPkt)
+	case *packet.DismissAckPacket:
+		return dg.handleOutDismissAckPacket(realPkt)
+	default:
+		return dg.handleOutDataPacket(pkt)
 	}
-	return iodefine.IOErr
 }
 
 // input packet
@@ -633,6 +421,7 @@ func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodef
 	if err != nil {
 		dg.log.Debugf("emit ET_SESSIONACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
 			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+		dg.shub.Error(pkt.ID(), err)
 		return iodefine.IOErr
 	}
 	dg.dialogueID = pkt.SessionID
@@ -650,6 +439,7 @@ func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodef
 	// the packetID is assigned by SessionPacket, originally from function open,
 	// and open is waiting for the completion.
 	dg.shub.Done(pkt.ID())
+	dg.onlined = true
 	return iodefine.IONewActive
 }
 
@@ -682,10 +472,22 @@ func (dg *dialogue) handleInDimssAckPacket(pkt *packet.DismissAckPacket) iodefin
 	if dg.fsm.State() == DISMISS_HALF {
 		return iodefine.IOSuccess
 	}
-	// the packetID is assigned by DismissPacket, originally from function CloseWait,
-	// and CloseWait is waiting for the completion.
-	dg.shub.Done(pkt.PacketID)
+
 	return iodefine.IOClosed
+}
+
+func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
+	ok := dg.fsm.InStates(SESSIONED)
+	if !ok {
+		dg.log.Debugf("data at non SESSIONED, clientID: %d, dialogueID: %d, packetID: %d",
+			dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+		if dg.failedCh != nil {
+			dg.failedCh <- pkt
+		}
+		return iodefine.IODiscard
+	}
+	dg.readOutCh <- pkt
+	return iodefine.IOSuccess
 }
 
 // output packet
@@ -716,6 +518,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 			}
 			dg.writeOutCh <- pkt
 			// to tell peer the session handshake is error, and peer should dismiss the session.
+			// this situation shouldn't be seen as connected, so don't set onlined.
 			return iodefine.IOSuccess
 		}
 	}
@@ -728,6 +531,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 	dg.writeOutCh <- pkt
 	dg.log.Debugf("send session ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+	dg.onlined = true
 	return iodefine.IONewPassive
 }
 
@@ -799,8 +603,8 @@ func (dg *dialogue) CloseWait() {
 		dg.writeCh <- pkt
 		dg.mtx.RUnlock()
 		// the synchub shouldn't be locked
-		sync := dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
-		event := <-sync.C()
+		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+		event := <-dg.closewait.C()
 		if event.Error != nil {
 			dg.log.Debugf("session close err: %s, clientID: %d, dialogueID: %d",
 				event.Error, dg.cn.ClientID(), dg.dialogueID)
@@ -818,20 +622,40 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 
 // finish and reclaim resources
 func (dg *dialogue) fini() {
-	dg.onceFini.Do(func() {
-		dg.log.Debugf("session finished, clientID: %d, dialogueID: %d", dg.cn.ClientID(), dg.dialogueID)
+	dg.log.Debugf("session finishing, clientID: %d, dialogueID: %d",
+		dg.cn.ClientID(), dg.dialogueID)
+	// clooect shub
+	dg.shub.Close()
+	dg.shub = nil
 
-		dg.mtx.Lock()
-		dg.sessionOK = false
-		close(dg.writeCh)
+	dg.mtx.Lock()
+	dg.sessionOK = false
+	close(dg.writeInCh)
+	dg.mtx.Unlock()
 
-		close(dg.readInCh)
-		close(dg.writeInCh)
-		close(dg.readOutCh)
+	for pkt := range dg.writeInCh {
+		if dg.failedCh != nil && !packet.SessionLayer(pkt) {
+			dg.failedCh <- pkt
+		}
+	}
+	// the outside should care about channel status
+	close(dg.readOutCh)
+	// writeOutCh must be cared since writhPkt might quit first
+	close(dg.writeOutCh)
+	for pkt := range dg.writeOutCh {
+		if dg.failedCh != nil && !packet.SessionLayer(pkt) {
+			dg.failedCh <- pkt
+		}
+	}
+	// collect timer
+	if !dg.tmrOutside {
+		dg.tmr.Close()
+	}
+	dg.tmr = nil
+	// collect fsm
+	dg.fsm.EmitEvent(ET_FINI)
+	dg.fsm.Close()
+	dg.log.Debugf("session finished, clientID: %d, dialogueID: %d",
+		dg.cn.ClientID(), dg.dialogueID)
 
-		dg.mtx.Unlock()
-
-		dg.fsm.EmitEvent(ET_FINI)
-		dg.fsm.Close()
-	})
 }

@@ -228,6 +228,7 @@ func (cc *ClientConn) handlePkt() {
 FINI:
 	cc.log.Debugf("handle pkt done, clientID: %d", cc.clientID)
 	if cc.dlgt != nil && cc.clientID != 0 {
+		// not that delegate is different from server's delegate
 		cc.dlgt.ConnOffline(cc)
 	}
 	// only handlePkt leads to close other channels
@@ -285,7 +286,8 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 		cc.writeInCh <- retPkt
 		return iodefine.IOSuccess
 	}
-	cc.shub.Ack(pkt.PacketID, nil)
+	cc.shub.Done(pkt.PacketID)
+	cc.onlined = true
 	return iodefine.IOSuccess
 }
 
@@ -365,6 +367,12 @@ func (cc *ClientConn) Close() {
 }
 
 func (cc *ClientConn) fini() {
+	remote := "unknown"
+	if cc.netconn != nil {
+		remote = cc.netconn.RemoteAddr().String()
+	}
+	cc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
+		cc.clientID, remote, string(cc.meta))
 	// collect shub
 	cc.shub.Close()
 	cc.shub = nil
@@ -405,10 +413,6 @@ func (cc *ClientConn) fini() {
 	// collect channels
 	cc.readInCh, cc.writeInCh, cc.writeOutCh = nil, nil, nil
 
-	remote := "unknown"
-	if cc.netconn != nil {
-		remote = cc.netconn.RemoteAddr().String()
-	}
 	cc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))
 }

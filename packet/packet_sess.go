@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-type SessionLayer interface {
+type SessionAbove interface {
 	SessionID() uint64
 }
 
@@ -27,6 +27,16 @@ type SessionPacket struct {
 type SessionData struct {
 	Meta  []byte `json:"meta,omitempty"`
 	Error string `json:"error,omitempty"`
+}
+
+func SessionLayer(pkt Packet) bool {
+	if pkt.Type() == TypeSessionPacket ||
+		pkt.Type() == TypeSessionAckPacket ||
+		pkt.Type() == TypeDismissPacket ||
+		pkt.Type() == TypeDismissAckPacket {
+		return true
+	}
+	return false
 }
 
 func (snPkt *SessionPacket) SessionIDAcquire() bool {

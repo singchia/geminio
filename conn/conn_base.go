@@ -57,6 +57,7 @@ type baseConn struct {
 	fsm     *yafsm.FSM
 	netconn net.Conn
 	side    Side
+	onlined bool
 	// sync hub
 	shub *synchub.SyncHub
 
@@ -135,6 +136,7 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 
 func (bc *baseConn) readPkt() {
 	readInCh := bc.readInCh
+
 	for {
 		pkt, err := packet.DecodeFromReader(bc.netconn)
 		if err != nil {
