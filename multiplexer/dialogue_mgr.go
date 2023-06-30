@@ -66,6 +66,12 @@ func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	}
 }
 
+func OptionDelegate(dlgt Delegate) MultiplexerOption {
+	return func(mp *multiplexer) {
+		mp.dlgt = dlgt
+	}
+}
+
 func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
 	return func(mp *multiplexer) {
 		mp.pf = pf
@@ -82,12 +88,6 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	return func(mp *multiplexer) {
 		mp.tmr = tmr
 		mp.tmrOutside = true
-	}
-}
-
-func OptionDelegate(dlgt Delegate) MultiplexerOption {
-	return func(mp *multiplexer) {
-		mp.dlgt = dlgt
 	}
 }
 
@@ -243,7 +243,22 @@ func (mp *multiplexer) OpenDialogue(meta []byte) (Dialogue, error) {
 
 // AcceptDialogue blocks until success or failed
 func (mp *multiplexer) AcceptDialogue() (Dialogue, error) {
+	if mp.dialogueAcceptCh == nil {
+		return nil, ErrAcceptChNotEnabled
+	}
 	dg, ok := <-mp.dialogueAcceptCh
+	if !ok {
+		return nil, io.EOF
+	}
+	return dg, nil
+}
+
+// ClosedDialogue blocks until success or failed
+func (mp *multiplexer) ClosedDialogue() (Dialogue, error) {
+	if mp.dialogueClosedCh == nil {
+		return nil, ErrClosedChNotEnabled
+	}
+	dg, ok := <-mp.dialogueClosedCh
 	if !ok {
 		return nil, io.EOF
 	}

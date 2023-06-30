@@ -64,7 +64,6 @@ type dialogue struct {
 	// synchub
 	shub *synchub.SyncHub
 
-	//sm       *sessionMgr
 	fsm      *yafsm.FSM
 	onceFini *sync.Once
 
@@ -80,8 +79,6 @@ type dialogue struct {
 	failedCh                 chan packet.Packet
 
 	closeOnce *sync.Once
-	// session control
-	writeCh chan packet.Packet
 }
 
 type DialogueOption func(*dialogue)
@@ -139,21 +136,26 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 		dialogueOpts: dialogueOpts{
 			meta: cn.Meta(),
 		},
-		dialogueID: packet.SessionIDNull,
-		cn:         cn,
-		fsm:        yafsm.NewFSM(),
-		onceFini:   new(sync.Once),
-		sessionOK:  true,
-		writeCh:    make(chan packet.Packet, 128),
+		dialogueID:   packet.SessionIDNull,
+		cn:           cn,
+		fsm:          yafsm.NewFSM(),
+		onceFini:     new(sync.Once),
+		sessionOK:    true,
+		readInSize:   128,
+		writeOutSize: 128,
+		readOutSize:  128,
+		writeInSize:  128,
 	}
 	// options
 	for _, opt := range opts {
 		opt(dg)
 	}
 	// io size
-	dg.readInCh = make(chan packet.Packet, 128)
-	dg.writeInCh = make(chan packet.Packet, 128)
-	dg.readOutCh = make(chan packet.Packet, 128)
+	// io size
+	dg.readInCh = make(chan packet.Packet, dg.readInSize)
+	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
+	dg.readOutCh = make(chan packet.Packet, dg.readOutSize)
+	dg.writeInCh = make(chan packet.Packet, dg.writeInSize)
 	// timer
 	if !dg.tmrOutside {
 		dg.tmr = timer.NewTimer()
@@ -266,7 +268,7 @@ func (dg *dialogue) open() error {
 		dg.mtx.RUnlock()
 		return io.EOF
 	}
-	dg.writeCh <- pkt
+	dg.writeInCh <- pkt
 	dg.mtx.RUnlock()
 
 	sync := dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
@@ -583,7 +585,7 @@ func (dg *dialogue) Close() {
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
-		dg.writeCh <- pkt
+		dg.writeInCh <- pkt
 	})
 }
 
@@ -600,7 +602,7 @@ func (dg *dialogue) CloseWait() {
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
-		dg.writeCh <- pkt
+		dg.writeInCh <- pkt
 		dg.mtx.RUnlock()
 		// the synchub shouldn't be locked
 		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
@@ -655,6 +657,10 @@ func (dg *dialogue) fini() {
 	// collect fsm
 	dg.fsm.EmitEvent(ET_FINI)
 	dg.fsm.Close()
+	dg.fsm = nil
+	// collect channels
+	dg.writeInCh, dg.writeOutCh = nil, nil
+
 	dg.log.Debugf("session finished, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 

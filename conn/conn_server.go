@@ -435,7 +435,6 @@ func (sc *ServerConn) fini() {
 			sc.failedCh <- pkt
 		}
 	}
-
 	// collect timer
 	if sc.hbTick != nil {
 		sc.hbTick.Cancel()

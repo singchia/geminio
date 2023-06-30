@@ -396,7 +396,6 @@ func (cc *ClientConn) fini() {
 			cc.failedCh <- pkt
 		}
 	}
-
 	// collect timer
 	if cc.hbTick != nil {
 		cc.hbTick.Cancel()
