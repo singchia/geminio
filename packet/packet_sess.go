@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+
+	"github.com/jumboframes/armorigo/log"
 )
 
 type SessionAbove interface {
@@ -80,6 +82,7 @@ func (snPkt *SessionPacket) Decode(data []byte) (uint32, error) {
 	snData := &SessionData{}
 	err := json.Unmarshal(data[10:length], snData)
 	if err != nil {
+		log.Errorf("session packet decode err: %s", err)
 		return 0, err
 	}
 	snPkt.SessionData = snData
@@ -101,6 +104,7 @@ func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
 	snData := &SessionData{}
 	err = json.Unmarshal(data[10:length], snData)
 	if err != nil {
+		log.Errorf("session packet decode from reader err: %s", err)
 		return err
 	}
 	snPkt.SessionData = snData
@@ -128,7 +132,7 @@ func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	length := len(data) + 24
+	length := len(data) + 18
 	pkt := make([]byte, length)
 	// session id
 	binary.BigEndian.PutUint64(pkt[2:10], snAckPkt.NegotiateID)
@@ -151,6 +155,7 @@ func (snAckPkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
 	snData := &SessionData{}
 	err := json.Unmarshal(data[18:length], snData)
 	if err != nil {
+		log.Errorf("session ack packet decode err: %s", err)
 		return 0, err
 	}
 	snAckPkt.SessionData = snData
@@ -170,6 +175,7 @@ func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
 	snData := &SessionData{}
 	err = json.Unmarshal(data[18:length], snData)
 	if err != nil {
+		log.Errorf("session ack packet decode from reader err: %s", err)
 		return err
 	}
 	snAckPkt.SessionData = snData
@@ -213,6 +219,7 @@ func (disPkt *DismissPacket) Decode(data []byte) (uint32, error) {
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
 	if err != nil {
+		log.Errorf("dismiss packet decode err: %s", err)
 		return 0, err
 	}
 	disPkt.SessionData = disData
@@ -224,6 +231,7 @@ func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
+		log.Errorf("dismiss packet decode from reader err: %s", err)
 		return err
 	}
 	// session id

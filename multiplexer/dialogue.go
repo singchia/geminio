@@ -151,7 +151,6 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 		opt(dg)
 	}
 	// io size
-	// io size
 	dg.readInCh = make(chan packet.Packet, dg.readInSize)
 	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
 	dg.readOutCh = make(chan packet.Packet, dg.readOutSize)

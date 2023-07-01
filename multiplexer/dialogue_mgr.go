@@ -93,12 +93,17 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 
 func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, error) {
 	mp := &multiplexer{
-		cn:    cn,
-		mgrOK: true,
+		cn:                   cn,
+		mgrOK:                true,
+		dialogues:            make(map[uint64]*dialogue),
+		negotiatingDialogues: make(map[uint64]*dialogue),
 	}
 	// dialogue id counter
 	if mp.cn.Side() == conn.ServerSide {
 		mp.dialogueIDs = id.NewIDCounter(id.Even)
+		mp.dialogueIDs.ReserveID(packet.SessionID1)
+	} else {
+		mp.dialogueIDs = id.NewIDCounter(id.Odd)
 		mp.dialogueIDs.ReserveID(packet.SessionID1)
 	}
 	// options
@@ -363,10 +368,10 @@ func (mp *multiplexer) fini() {
 	mp.dialogueIDs.Close()
 	mp.dialogueIDs = nil
 	// collect channels
-	if !mp.dialogueAcceptChOutsite {
+	if mp.dialogueAcceptChOutsite {
 		close(mp.dialogueAcceptCh)
 	}
-	if !mp.dialogueClosedChOutsite {
+	if mp.dialogueClosedChOutsite {
 		close(mp.dialogueClosedCh)
 	}
 	mp.dialogueAcceptCh, mp.dialogueClosedCh = nil, nil

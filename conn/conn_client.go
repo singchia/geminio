@@ -292,7 +292,7 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 }
 
 func (cc *ClientConn) handleInHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
-	cc.log.Debugf("read dis conn ack succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
+	cc.log.Debugf("read heartbeat succeed, clientID: %d, PacketID: %d, remote: %s, meta: %s",
 		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
 
 	ok := cc.fsm.InStates(CONNED)
