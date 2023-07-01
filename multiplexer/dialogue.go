@@ -57,7 +57,7 @@ type dialogue struct {
 	dialogueOpts
 	onlined   bool
 	closewait synchub.Sync
-	// session id
+	// dialogue id
 	negotiatingID       uint64
 	dialogueIDPeersCall bool
 	dialogueID          uint64
@@ -83,7 +83,7 @@ type dialogue struct {
 
 type DialogueOption func(*dialogue)
 
-// For the default session which is ready for rolling
+// For the default dialogue which is ready for rolling
 func OptionDialogueState(state string) DialogueOption {
 	return func(dg *dialogue) {
 		dg.fsm.SetState(state)
@@ -117,7 +117,7 @@ func OptionDialogueTimer(tmr timer.Timer) DialogueOption {
 	}
 }
 
-// OptionDialogueMeta set the meta info for the session
+// OptionDialogueMeta set the meta info for the dialogue
 func OptionDialogueMeta(meta []byte) DialogueOption {
 	return func(dg *dialogue) {
 		dg.meta = meta
@@ -146,6 +146,8 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 		readOutSize:  128,
 		writeInSize:  128,
 	}
+	// states
+	dg.initFSM()
 	// options
 	for _, opt := range opts {
 		opt(dg)
@@ -168,8 +170,7 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 	if dg.log == nil {
 		dg.log = log.DefaultLog
 	}
-	// states
-	dg.initFSM()
+
 	// rolling up
 	go dg.handlePkt()
 	go dg.writePkt()
@@ -178,6 +179,10 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 
 func (dg *dialogue) Meta() []byte {
 	return dg.meta
+}
+
+func (dg *dialogue) ClientID() uint64 {
+	return dg.cn.ClientID()
 }
 
 func (dg *dialogue) DialogueID() uint64 {
@@ -256,7 +261,7 @@ func (dg *dialogue) initFSM() {
 }
 
 func (dg *dialogue) open() error {
-	dg.log.Debugf("session is opening, clientID: %d, dialogueID: %d",
+	dg.log.Debugf("dialogue is opening, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
 	var pkt *packet.SessionPacket
@@ -283,11 +288,11 @@ func (dg *dialogue) writePkt() {
 		select {
 		case pkt, ok := <-writeOutCh:
 			if !ok {
-				dg.log.Debugf("session write done, clientID: %d, dialogueID: %d",
+				dg.log.Debugf("dialogue write done, clientID: %d, dialogueID: %d",
 					dg.cn.ClientID(), dg.dialogueID)
 				return
 			}
-			dg.log.Tracef("session write down, clientID: %d, dialogueID: %d, packetType: %s",
+			dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.Type().String())
 			err = dg.dowritePkt(pkt, true)
 			if err != nil {
@@ -320,6 +325,8 @@ func (dg *dialogue) handlePkt() {
 			if !ok {
 				goto FINI
 			}
+			dg.log.Tracef("read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			ret := dg.handleIn(pkt)
 			switch ret {
 			case iodefine.IONewActive, iodefine.IOSuccess:
@@ -334,6 +341,8 @@ func (dg *dialogue) handlePkt() {
 				// BUG! shoud never be here.
 				goto FINI
 			}
+			dg.log.Tracef("write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			ret := dg.handleOut(pkt)
 			switch ret {
 			case iodefine.IONewPassive, iodefine.IOSuccess:
@@ -392,7 +401,7 @@ func (dg *dialogue) handleOut(pkt packet.Packet) iodefine.IORet {
 
 // input packet
 func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IORet {
-	dg.log.Debugf("read session packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("read dialogue packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONRECV)
 	if err != nil {
@@ -403,20 +412,20 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 	// negotiate sessionID
 	// if under conn is client, asking for a sessionID
 	// if under conn is server, return prepared negotiatingID
-	dialogueID := pkt.NegotiateID
+	dialogueID := pkt.NegotiateID()
 	if pkt.SessionIDAcquire() {
 		dialogueID = dg.negotiatingID
 	}
 	dg.dialogueID = dialogueID
 	dg.meta = pkt.SessionData.Meta
 
-	retPkt := dg.pf.NewSessionAckPacket(pkt.PacketID, pkt.NegotiateID, dialogueID, nil)
+	retPkt := dg.pf.NewSessionAckPacket(pkt.PacketID, pkt.NegotiateID(), dialogueID, nil)
 	dg.writeInCh <- retPkt
 	return iodefine.IOSuccess
 }
 
 func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodefine.IORet {
-	dg.log.Debugf("read session ack packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("read dialogue ack packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), pkt.SessionID, pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONACK)
 	if err != nil {
@@ -425,14 +434,14 @@ func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodef
 		dg.shub.Error(pkt.ID(), err)
 		return iodefine.IOErr
 	}
-	dg.dialogueID = pkt.SessionID
+	dg.dialogueID = pkt.SessionID()
 	dg.meta = pkt.SessionData.Meta
-	// open session active
+	// open dialogue active
 	if dg.dlgt != nil {
 		// notify delegation the online event
 		err = dg.dlgt.DialogueOnline(dg)
 		if err != nil {
-			// if delegate says err, then delete the session.
+			// if delegate says err, then delete the dialogue.
 			dg.shub.Error(pkt.ID(), err)
 			return iodefine.IOErr
 		}
@@ -454,7 +463,7 @@ func (dg *dialogue) handleInDismissPacket(pkt *packet.DismissPacket) iodefine.IO
 		return iodefine.IOErr
 	}
 	retPkt := dg.pf.NewDismissAckPacket(pkt.ID(),
-		pkt.SessionID, nil)
+		pkt.SessionID(), nil)
 	dg.writeInCh <- retPkt
 	// send out side dismiss while receiving dismiss packet
 	dg.Close()
@@ -500,7 +509,7 @@ func (dg *dialogue) handleOutSessionPacket(pkt *packet.SessionPacket) iodefine.I
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
-	dg.log.Debugf("send session down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("send dialogue down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), pkt.NegotiateID, pkt.ID())
 	return iodefine.IOSuccess
 }
@@ -518,7 +527,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 				return iodefine.IOErr
 			}
 			dg.writeOutCh <- pkt
-			// to tell peer the session handshake is error, and peer should dismiss the session.
+			// to tell peer the dialogue handshake is error, and peer should dismiss the dialogue.
 			// this situation shouldn't be seen as connected, so don't set onlined.
 			return iodefine.IOSuccess
 		}
@@ -530,7 +539,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
-	dg.log.Debugf("send session ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("send dialogue ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	dg.onlined = true
 	return iodefine.IONewPassive
@@ -580,7 +589,7 @@ func (dg *dialogue) Close() {
 			return
 		}
 
-		dg.log.Debugf("session is closing, clientID: %d, dialogueID: %d",
+		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
@@ -597,7 +606,7 @@ func (dg *dialogue) CloseWait() {
 			return
 		}
 
-		dg.log.Debugf("session is closing, clientID: %d, dialogueID: %d",
+		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
@@ -607,11 +616,11 @@ func (dg *dialogue) CloseWait() {
 		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		event := <-dg.closewait.C()
 		if event.Error != nil {
-			dg.log.Debugf("session close err: %s, clientID: %d, dialogueID: %d",
+			dg.log.Debugf("dialogue close err: %s, clientID: %d, dialogueID: %d",
 				event.Error, dg.cn.ClientID(), dg.dialogueID)
 			return
 		}
-		dg.log.Debugf("session closed, clientID: %d, dialogueID: %d",
+		dg.log.Debugf("dialogue closed, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 		return
 	})
@@ -623,7 +632,7 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 
 // finish and reclaim resources
 func (dg *dialogue) fini() {
-	dg.log.Debugf("session finishing, clientID: %d, dialogueID: %d",
+	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 	// clooect shub
 	dg.shub.Close()
@@ -660,7 +669,7 @@ func (dg *dialogue) fini() {
 	// collect channels
 	dg.writeInCh, dg.writeOutCh = nil, nil
 
-	dg.log.Debugf("session finished, clientID: %d, dialogueID: %d",
+	dg.log.Debugf("dialogue finished, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
 }

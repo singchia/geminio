@@ -51,6 +51,9 @@ func main() {
 	}
 
 	sns := sync.Map{}
+	dialogues := sm.ListDialogues()
+	log.Printf("ready dialogues: %d\n", len(dialogues))
+	sns.Store(uint64(1), dialogues[0])
 
 	go func() {
 		for {
@@ -59,18 +62,8 @@ func main() {
 				break
 			}
 			sns.Store(sn.DialogueID(), sn)
-			log.Printf("accepted session: %d\n", sn.DialogueID())
-			go func() {
-				for {
-					pkt, err := sn.Read()
-					if err != nil {
-						log.Println("read session err", err)
-						return
-					}
-					msg := pkt.(*packet.MessagePacket)
-					log.Println("> ", cc.ClientID(), msg.SessionID, string(msg.MessageData.Value))
-				}
-			}()
+			log.Printf("accepted dialogue: %d\n", sn.DialogueID())
+			handleInput(sn)
 		}
 	}()
 
@@ -80,15 +73,15 @@ func main() {
 			if err != nil {
 				break
 			}
-			log.Printf("closed session: %d\n", sn.DialogueID())
+			log.Printf("closed dialogue: %d\n", sn.DialogueID())
 			sns.Delete(sn.DialogueID())
 		}
 	}()
 
 	// open
 	// close
-	// close sessionId
-	// sendto sessionId msg
+	// close sessionID
+	// sendto sessionID msg
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		text := scanner.Text()
@@ -112,18 +105,18 @@ func main() {
 		text = text[index+1:]
 		switch command {
 		case "close":
-			sessionId, err := strconv.ParseUint(text, 10, 64)
+			sessionID, err := strconv.ParseUint(text, 10, 64)
 			if err != nil {
 				log.Println("illegal id", err, text)
 				continue
 			}
-			sn, ok := sns.Load(sessionId)
+			sn, ok := sns.Load(sessionID)
 			if !ok {
-				log.Printf("sessionId not found '%d'\n", sessionId)
+				log.Printf("sessionID not found '%d'\n", sessionID)
 				continue
 			}
 			sn.(multiplexer.Dialogue).Close()
-			sns.Delete(sessionId)
+			sns.Delete(sessionID)
 			continue
 
 		case "sendto":
@@ -134,22 +127,37 @@ func main() {
 			}
 			//text = text[index+1:]
 			// session
-			sessionId, err := strconv.ParseUint(text[:index], 10, 64)
+			sessionID, err := strconv.ParseUint(text[:index], 10, 64)
 			if err != nil {
 				log.Println("illegal id", err, text)
 				continue
 			}
-			sn, ok := sns.Load(sessionId)
+			sn, ok := sns.Load(sessionID)
 			if !ok {
-				log.Printf("sessionId not found '%d'\n", sessionId)
+				log.Printf("sessionID not found '%d'\n", sessionID)
 				continue
 			}
-			pkt := pf.NewMessagePacket([]byte{}, []byte(text[index+1:]), []byte{})
-			pkt.SessionID = sn.(multiplexer.Dialogue).DialogueID()
+			pkt := pf.NewMessagePacketWithSessionID(
+				sn.(multiplexer.Dialogue).DialogueID(),
+				[]byte{}, []byte(text[index+1:]), []byte{})
 			sn.(multiplexer.Dialogue).Write(pkt)
 			continue
 		}
 	}
 END:
 	time.Sleep(time.Second)
+}
+
+func handleInput(sn multiplexer.Dialogue) {
+	go func() {
+		for {
+			pkt, err := sn.Read()
+			if err != nil {
+				log.Println("read session err", err)
+				return
+			}
+			msg := pkt.(*packet.MessagePacket)
+			log.Println(">", sn.ClientID(), msg.SessionID(), string(msg.MessageData.Value))
+		}
+	}()
 }

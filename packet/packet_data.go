@@ -17,7 +17,7 @@ type ResponsePacket struct {
 
 type MessagePacket struct {
 	*PacketHeader
-	SessionID   uint64
+	sessionID   uint64
 	MessageData *MessageData
 }
 
@@ -27,6 +27,10 @@ type MessageData struct {
 	Value  []byte `json:"value,omitempty"`
 	Custom []byte `json:"custom,omitempty"`
 	Error  string `json:"error,omitempty"`
+}
+
+func (msgPkt *MessagePacket) SessionID() uint64 {
+	return msgPkt.sessionID
 }
 
 func (msgPkt *MessagePacket) Encode() ([]byte, error) {
@@ -41,7 +45,7 @@ func (msgPkt *MessagePacket) Encode() ([]byte, error) {
 	length := len(data) + 8
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], msgPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[:8], msgPkt.sessionID)
 	// data
 	copy(pkt[8:length], data)
 	// set pkt length
@@ -54,7 +58,7 @@ func (msgPkt *MessagePacket) Decode(data []byte) (uint32, error) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	msgPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
 	err := json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
@@ -75,7 +79,7 @@ func (msgPkt *MessagePacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	msgPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
 	err = json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
@@ -88,8 +92,12 @@ func (msgPkt *MessagePacket) DecodeFromReader(reader io.Reader) error {
 
 type MessageAckPacket struct {
 	*PacketHeader
-	SessionID   uint64
+	sessionID   uint64
 	MessageData *MessageData
+}
+
+func (msgPkt *MessageAckPacket) SessionID() uint64 {
+	return msgPkt.sessionID
 }
 
 func (msgPkt *MessageAckPacket) Encode() ([]byte, error) {
@@ -104,7 +112,7 @@ func (msgPkt *MessageAckPacket) Encode() ([]byte, error) {
 	length := len(data) + 8
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], msgPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[:8], msgPkt.sessionID)
 	// data
 	copy(pkt[8:length], data)
 
@@ -118,7 +126,7 @@ func (msgPkt *MessageAckPacket) Decode(data []byte) (uint32, error) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	msgPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
 	err := json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
@@ -139,7 +147,7 @@ func (msgPkt *MessageAckPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	msgPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
 	err = json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
@@ -152,8 +160,12 @@ func (msgPkt *MessageAckPacket) DecodeFromReader(reader io.Reader) error {
 
 type StreamPacket struct {
 	*PacketHeader
-	SessionID uint64
+	sessionID uint64
 	Data      []byte
+}
+
+func (streamPkt *StreamPacket) SessionID() uint64 {
+	return streamPkt.sessionID
 }
 
 func (streamPkt *StreamPacket) Encode() ([]byte, error) {
@@ -164,7 +176,7 @@ func (streamPkt *StreamPacket) Encode() ([]byte, error) {
 	length := len(streamPkt.Data) + 8
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], streamPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[:8], streamPkt.sessionID)
 	// data
 	copy(pkt[8:length], streamPkt.Data)
 	// set pkt length
@@ -178,7 +190,7 @@ func (streamPkt *StreamPacket) Decode(data []byte) (uint32, error) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	streamPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	streamPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	streamPkt.Data = data[8:length]
 	return uint32(length), nil
@@ -195,7 +207,7 @@ func (streamPkt *StreamPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	streamPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	streamPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	streamPkt.Data = data[8:length]
 	return nil

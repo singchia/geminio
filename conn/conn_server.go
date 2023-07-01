@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -294,6 +295,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 		}
 	} else {
 		// TODO server must use this clientID, we should check if the clientID legal
+		fmt.Println("singchia watching")
 		sc.clientID = pkt.ClientID
 	}
 
