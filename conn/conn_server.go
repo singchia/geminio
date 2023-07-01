@@ -156,8 +156,9 @@ func (sc *ServerConn) initFSM() {
 	// events
 	sc.fsm.AddEvent(ET_CONNRECV, init, connrecv)
 	sc.fsm.AddEvent(ET_CONNACK, connrecv, conned)
-	sc.fsm.AddEvent(ET_ERROR, init, closed)
 	sc.fsm.AddEvent(ET_ERROR, connrecv, connrecv, sc.closeWrapper)
+
+	// possible 4 case of close sent
 	// illegal conn
 	sc.fsm.AddEvent(ET_CLOSESENT, connrecv, closesent)
 	sc.fsm.AddEvent(ET_CLOSESENT, conned, closesent)
@@ -165,6 +166,8 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_CLOSESENT, closerecv, closesent)
 	// close and been closed at same time
 	sc.fsm.AddEvent(ET_CLOSESENT, closehalf, closehalf)
+
+	// possible 4 case of close recv
 	// illegal conn
 	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
 	sc.fsm.AddEvent(ET_CLOSERECV, conned, closerecv)
@@ -172,9 +175,12 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_CLOSERECV, closesent, closerecv)
 	// close and been closed at same time
 	sc.fsm.AddEvent(ET_CLOSERECV, closehalf, closehalf)
+
+	// the 4-way handshake
 	sc.fsm.AddEvent(ET_CLOSEACK, closesent, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closerecv, closehalf)
 	sc.fsm.AddEvent(ET_CLOSEACK, closehalf, closed)
+	// fini at any time is possible
 	sc.fsm.AddEvent(ET_FINI, init, fini)
 	sc.fsm.AddEvent(ET_FINI, connrecv, fini)
 	sc.fsm.AddEvent(ET_FINI, conned, fini)
@@ -202,7 +208,11 @@ func (sc *ServerConn) handlePkt() {
 				sc.log.Infof("handle in packet done, clientID: %d", sc.clientID)
 				goto FINI
 			}
-		case pkt := <-writeInCh:
+		case pkt, ok := <-writeInCh:
+			if !ok {
+				// BUG! should never be here.
+				goto FINI
+			}
 			ret := sc.handleOut(pkt)
 			if ret == iodefine.IOErr {
 				sc.log.Errorf("handle out packet err, clientID: %d", sc.clientID)
@@ -216,10 +226,12 @@ func (sc *ServerConn) handlePkt() {
 	}
 FINI:
 	sc.log.Debugf("handle pkt done, clientID: %d", sc.clientID)
-	if sc.dlgt != nil && sc.clientID != 0 {
+	// only onlined Conn need to be notified
+	if sc.dlgt != nil && sc.onlined {
+		// not that delegate is different from client's delegate
 		sc.dlgt.ConnOffline(sc)
 	}
-	// only handlePkt leads to close other channels
+	// only handlePkt leads this fini, and reclaims all channels and other resources
 	sc.fini()
 }
 
@@ -331,6 +343,9 @@ func (sc *ServerConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 	if !ok {
 		sc.log.Debugf("data at non CONNED, clientID: %d, packetID: %d, remote: %s, meta: %s",
 			sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
+		if sc.failedCh != nil {
+			sc.failedCh <- pkt
+		}
 		return iodefine.IODiscard
 	}
 	sc.readOutCh <- pkt
@@ -347,6 +362,7 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 			return iodefine.IOErr
 		}
 		sc.writeOutCh <- pkt
+		// this situation shouldn't be seen as connected, so don't set onlined.
 		return iodefine.IOSuccess
 	}
 	err := sc.fsm.EmitEvent(ET_CONNACK)
@@ -358,6 +374,7 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 	sc.writeOutCh <- pkt
 	sc.log.Debugf("send conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
+	sc.onlined = true
 	return iodefine.IOSuccess
 }
 
@@ -368,7 +385,6 @@ func (sc *ServerConn) handleOutHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket
 	return iodefine.IOSuccess
 }
 
-// TODO 优雅关闭
 func (sc *ServerConn) Close() {
 	sc.closeOnce.Do(func() {
 		sc.connMtx.RLock()
@@ -389,8 +405,11 @@ func (sc *ServerConn) closeWrapper(_ *yafsm.Event) {
 	sc.Close()
 }
 
-// 回收资源
+// finish and reclaim resources
 func (sc *ServerConn) fini() {
+	sc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
+		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+
 	// collect shub
 	sc.shub.Close()
 	sc.shub = nil
@@ -401,7 +420,7 @@ func (sc *ServerConn) fini() {
 	sc.connOK = false
 	close(sc.writeInCh)
 	sc.connMtx.Unlock()
-
+	// writeInCh must be cared since buffer might still has data
 	for pkt := range sc.writeInCh {
 		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
 			sc.failedCh <- pkt
@@ -409,14 +428,13 @@ func (sc *ServerConn) fini() {
 	}
 	// the outside should care about channel status
 	close(sc.readOutCh)
-
+	// writeOutCh must be cared since writhPkt might quit first
 	close(sc.writeOutCh)
 	for pkt := range sc.writeOutCh {
 		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
 			sc.failedCh <- pkt
 		}
 	}
-
 	// collect timer
 	if sc.hbTick != nil {
 		sc.hbTick.Cancel()

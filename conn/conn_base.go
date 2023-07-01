@@ -57,6 +57,7 @@ type baseConn struct {
 	fsm     *yafsm.FSM
 	netconn net.Conn
 	side    Side
+	onlined bool
 	// sync hub
 	shub *synchub.SyncHub
 
@@ -111,7 +112,8 @@ func (bc *baseConn) writePkt() {
 			}
 			bc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s",
 				bc.clientID, pkt.ID(), pkt.Type().String())
-			err = bc.dowritePkt(pkt, true)
+			record := !packet.ConnLayer(pkt)
+			err = bc.dowritePkt(pkt, record)
 			if err != nil {
 				return
 			}
@@ -125,6 +127,7 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 		bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
 			err, bc.clientID, pkt.ID())
 		if record && bc.failedCh != nil {
+			// only upper layer packet need to be notified
 			bc.failedCh <- pkt
 		}
 	}
@@ -133,6 +136,7 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 
 func (bc *baseConn) readPkt() {
 	readInCh := bc.readInCh
+
 	for {
 		pkt, err := packet.DecodeFromReader(bc.netconn)
 		if err != nil {
@@ -195,7 +199,7 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 		return iodefine.IOErr
 	}
 	bc.writeOutCh <- pkt
-	bc.log.Debugf("send dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
+	bc.log.Debugf("send dis conn down succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
 }
@@ -227,6 +231,7 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	return iodefine.IOSuccess
 }
 
+// meta related functions
 func (bc *baseConn) LocalAddr() net.Addr {
 	return bc.netconn.LocalAddr()
 }
@@ -239,14 +244,14 @@ func (bc *baseConn) Side() Side {
 	return bc.side
 }
 
-func (bc *baseConn) Close() {
-	bc.cn.Close()
-}
-
 func (bc *baseConn) Meta() []byte {
 	return bc.meta
 }
 
 func (bc *baseConn) ClientID() uint64 {
 	return bc.clientID
+}
+
+func (bc *baseConn) Close() {
+	bc.cn.Close()
 }

@@ -66,6 +66,12 @@ func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	}
 }
 
+func OptionDelegate(dlgt Delegate) MultiplexerOption {
+	return func(mp *multiplexer) {
+		mp.dlgt = dlgt
+	}
+}
+
 func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
 	return func(mp *multiplexer) {
 		mp.pf = pf
@@ -85,20 +91,19 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	}
 }
 
-func OptionDelegate(dlgt Delegate) MultiplexerOption {
-	return func(mp *multiplexer) {
-		mp.dlgt = dlgt
-	}
-}
-
 func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, error) {
 	mp := &multiplexer{
-		cn:    cn,
-		mgrOK: true,
+		cn:                   cn,
+		mgrOK:                true,
+		dialogues:            make(map[uint64]*dialogue),
+		negotiatingDialogues: make(map[uint64]*dialogue),
 	}
 	// dialogue id counter
 	if mp.cn.Side() == conn.ServerSide {
 		mp.dialogueIDs = id.NewIDCounter(id.Even)
+		mp.dialogueIDs.ReserveID(packet.SessionID1)
+	} else {
+		mp.dialogueIDs = id.NewIDCounter(id.Odd)
 		mp.dialogueIDs.ReserveID(packet.SessionID1)
 	}
 	// options
@@ -243,7 +248,22 @@ func (mp *multiplexer) OpenDialogue(meta []byte) (Dialogue, error) {
 
 // AcceptDialogue blocks until success or failed
 func (mp *multiplexer) AcceptDialogue() (Dialogue, error) {
+	if mp.dialogueAcceptCh == nil {
+		return nil, ErrAcceptChNotEnabled
+	}
 	dg, ok := <-mp.dialogueAcceptCh
+	if !ok {
+		return nil, io.EOF
+	}
+	return dg, nil
+}
+
+// ClosedDialogue blocks until success or failed
+func (mp *multiplexer) ClosedDialogue() (Dialogue, error) {
+	if mp.dialogueClosedCh == nil {
+		return nil, ErrClosedChNotEnabled
+	}
+	dg, ok := <-mp.dialogueClosedCh
 	if !ok {
 		return nil, io.EOF
 	}
@@ -297,7 +317,7 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 		dg.readInCh <- pkt
 
 	default:
-		dgPkt, ok := pkt.(packet.SessionLayer)
+		dgPkt, ok := pkt.(packet.SessionAbove)
 		if !ok {
 			mp.log.Errorf("packet doedg't have dialogueID, clientID: %d, negotiatingID: %d, packetType: %s",
 				mp.cn.ClientID, pkt.ID(), pkt.Type().String())
@@ -348,10 +368,10 @@ func (mp *multiplexer) fini() {
 	mp.dialogueIDs.Close()
 	mp.dialogueIDs = nil
 	// collect channels
-	if !mp.dialogueAcceptChOutsite {
+	if mp.dialogueAcceptChOutsite {
 		close(mp.dialogueAcceptCh)
 	}
-	if !mp.dialogueClosedChOutsite {
+	if mp.dialogueClosedChOutsite {
 		close(mp.dialogueClosedCh)
 	}
 	mp.dialogueAcceptCh, mp.dialogueClosedCh = nil, nil

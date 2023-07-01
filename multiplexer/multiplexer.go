@@ -9,12 +9,15 @@ import (
 var (
 	ErrOperationOnClosedMultiplexer = errors.New("operation on closed multiplexer")
 	ErrDialogueNotFound             = errors.New("dialogue not found")
+	ErrAcceptChNotEnabled           = errors.New("accept channel not enabled")
+	ErrClosedChNotEnabled           = errors.New("closed channel not enabled")
 )
 
 // dialogue manager
 type Multiplexer interface {
 	OpenDialogue(meta []byte) (Dialogue, error)
 	AcceptDialogue(Dialogue, error)
+	ClosedDialogue() (Dialogue, error)
 }
 
 // dialogue

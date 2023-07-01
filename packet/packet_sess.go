@@ -4,9 +4,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"io"
+
+	"github.com/jumboframes/armorigo/log"
 )
 
-type SessionLayer interface {
+type SessionAbove interface {
 	SessionID() uint64
 }
 
@@ -27,6 +29,16 @@ type SessionPacket struct {
 type SessionData struct {
 	Meta  []byte `json:"meta,omitempty"`
 	Error string `json:"error,omitempty"`
+}
+
+func SessionLayer(pkt Packet) bool {
+	if pkt.Type() == TypeSessionPacket ||
+		pkt.Type() == TypeSessionAckPacket ||
+		pkt.Type() == TypeDismissPacket ||
+		pkt.Type() == TypeDismissAckPacket {
+		return true
+	}
+	return false
 }
 
 func (snPkt *SessionPacket) SessionIDAcquire() bool {
@@ -70,6 +82,7 @@ func (snPkt *SessionPacket) Decode(data []byte) (uint32, error) {
 	snData := &SessionData{}
 	err := json.Unmarshal(data[10:length], snData)
 	if err != nil {
+		log.Errorf("session packet decode err: %s", err)
 		return 0, err
 	}
 	snPkt.SessionData = snData
@@ -91,6 +104,7 @@ func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
 	snData := &SessionData{}
 	err = json.Unmarshal(data[10:length], snData)
 	if err != nil {
+		log.Errorf("session packet decode from reader err: %s", err)
 		return err
 	}
 	snPkt.SessionData = snData
@@ -105,6 +119,10 @@ type SessionAckPacket struct {
 	SessionData  *SessionData
 }
 
+func (snAckPkt *SessionAckPacket) SetError(err error) {
+	snAckPkt.SessionData.Error = err.Error()
+}
+
 func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
 	hdr, err := snAckPkt.PacketHeader.Encode()
 	if err != nil {
@@ -114,7 +132,7 @@ func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	length := len(data) + 24
+	length := len(data) + 18
 	pkt := make([]byte, length)
 	// session id
 	binary.BigEndian.PutUint64(pkt[2:10], snAckPkt.NegotiateID)
@@ -137,6 +155,7 @@ func (snAckPkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
 	snData := &SessionData{}
 	err := json.Unmarshal(data[18:length], snData)
 	if err != nil {
+		log.Errorf("session ack packet decode err: %s", err)
 		return 0, err
 	}
 	snAckPkt.SessionData = snData
@@ -156,6 +175,7 @@ func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
 	snData := &SessionData{}
 	err = json.Unmarshal(data[18:length], snData)
 	if err != nil {
+		log.Errorf("session ack packet decode from reader err: %s", err)
 		return err
 	}
 	snAckPkt.SessionData = snData
@@ -199,6 +219,7 @@ func (disPkt *DismissPacket) Decode(data []byte) (uint32, error) {
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
 	if err != nil {
+		log.Errorf("dismiss packet decode err: %s", err)
 		return 0, err
 	}
 	disPkt.SessionData = disData
@@ -210,6 +231,7 @@ func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
+		log.Errorf("dismiss packet decode from reader err: %s", err)
 		return err
 	}
 	// session id
