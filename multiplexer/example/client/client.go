@@ -78,13 +78,33 @@ func main() {
 		}
 	}()
 
-	// open
-	// close
-	// close sessionID
-	// sendto sessionID msg
+	// the cli protocol
+	// 1. open
+	// 2. close
+	// 3. close sessionID
+	// 4. sendto sessionID msg
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		text := scanner.Text()
+		parts := strings.Split(text, " ")
+		switch len(parts) {
+		case 1:
+			if parts[0] == "quit" || parts[0] == "close" {
+				sm.Close()
+				cc.Close()
+				goto END
+			}
+			if parts[0] == "open" {
+				sn, err := sm.OpenDialogue([]byte("auztin zhai"))
+				if err != nil {
+					log.Println("open session err:", err)
+					continue
+				}
+				sns.Store(sn.DialogueID(), sn)
+			}
+		case 2:
+			// close sessionID
+		}
 		index := strings.Index(text, " ")
 		if index == -1 {
 			switch text {

@@ -18,6 +18,12 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
+var (
+	clients sync.Map
+	sms     sync.Map
+	sns     sync.Map
+)
+
 func main() {
 	network := flag.String("network", "tcp", "network to listen")
 	address := flag.String("address", "127.0.0.1:1202", "address to listen")
@@ -31,9 +37,9 @@ func main() {
 
 	tmr := timer.NewTimer()
 
-	clients := sync.Map{}
-	sms := sync.Map{}
-	sns := sync.Map{}
+	clients = sync.Map{}
+	sms = sync.Map{}
+	sns = sync.Map{}
 
 	// the cli protocol
 	// 1. open clientID
@@ -165,33 +171,37 @@ func main() {
 			snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + "1"
 			sns.Store(snID, sn)
 			handleInput(sn)
-
-			go func() {
-				for {
-					sn, err := sm.AcceptDialogue()
-					if err != nil {
-						break
-					}
-					snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + "1"
-					sns.Store(snID, sn)
-					log.Printf("accepted dialogue: %d\n", sn.DialogueID())
-					handleInput(sn)
-				}
-			}()
-
-			go func() {
-				for {
-					sn, err := sm.ClosedDialogue()
-					if err != nil {
-						break
-					}
-					log.Printf("closed dialogue: %d\n", sn.DialogueID())
-					sns.Delete(sn.DialogueID())
-				}
-			}()
+			// handle multiplexer
+			handleAcceptClosedDialogue(sm)
 		}
 	}
 	time.Sleep(time.Second)
+}
+
+func handleAcceptClosedDialogue(sm multiplexer.Multiplexer) {
+	go func() {
+		for {
+			sn, err := sm.AcceptDialogue()
+			if err != nil {
+				break
+			}
+			snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + "1"
+			sns.Store(snID, sn)
+			log.Printf("accepted dialogue: %d\n", sn.DialogueID())
+			handleInput(sn)
+		}
+	}()
+
+	go func() {
+		for {
+			sn, err := sm.ClosedDialogue()
+			if err != nil {
+				break
+			}
+			log.Printf("closed dialogue: %d\n", sn.DialogueID())
+			sns.Delete(sn.DialogueID())
+		}
+	}()
 }
 
 func handleInput(sn multiplexer.Dialogue) {
