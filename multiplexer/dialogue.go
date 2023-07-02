@@ -11,6 +11,7 @@ import (
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
+	gsync "github.com/singchia/geminio/pkg/sync"
 	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
@@ -64,8 +65,7 @@ type dialogue struct {
 	// synchub
 	shub *synchub.SyncHub
 
-	fsm      *yafsm.FSM
-	onceFini *sync.Once
+	fsm *yafsm.FSM
 
 	// mtx protect follows
 	mtx       sync.RWMutex
@@ -78,7 +78,7 @@ type dialogue struct {
 	readOutSize, writeInSize int
 	failedCh                 chan packet.Packet
 
-	closeOnce *sync.Once
+	closeOnce *gsync.Once
 }
 
 type DialogueOption func(*dialogue)
@@ -139,7 +139,7 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 		dialogueID:   packet.SessionIDNull,
 		cn:           cn,
 		fsm:          yafsm.NewFSM(),
-		onceFini:     new(sync.Once),
+		closeOnce:    new(gsync.Once),
 		sessionOK:    true,
 		readInSize:   128,
 		writeOutSize: 128,
@@ -247,7 +247,7 @@ func (dg *dialogue) initFSM() {
 	// the 4-way handshake
 	dg.fsm.AddEvent(ET_DISMISSACK, dismisssent, dismisshalf)
 	dg.fsm.AddEvent(ET_DISMISSACK, dismissrecv, dismisshalf)
-	dg.fsm.AddEvent(ET_DISMISSACK, dismissrecv, dismissed)
+	dg.fsm.AddEvent(ET_DISMISSACK, dismisshalf, dismissed)
 
 	// fini
 	dg.fsm.AddEvent(ET_FINI, init, fini)
@@ -292,10 +292,12 @@ func (dg *dialogue) writePkt() {
 					dg.cn.ClientID(), dg.dialogueID)
 				return
 			}
-			dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetType: %s",
-				dg.cn.ClientID(), dg.dialogueID, pkt.Type().String())
+			dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			err = dg.dowritePkt(pkt, true)
 			if err != nil {
+				dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 				return
 			}
 		}
@@ -565,6 +567,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		return iodefine.IOErr
 	}
+	dg.dowritePkt(pkt, false)
 	// make sure this packet is flushed before writeOutCh closed
 	dg.log.Debugf("send dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
@@ -634,7 +637,8 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 func (dg *dialogue) fini() {
 	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
-	// clooect shub
+
+	// collect shub
 	dg.shub.Close()
 	dg.shub = nil
 
@@ -657,6 +661,7 @@ func (dg *dialogue) fini() {
 			dg.failedCh <- pkt
 		}
 	}
+
 	// collect timer
 	if !dg.tmrOutside {
 		dg.tmr.Close()

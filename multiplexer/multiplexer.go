@@ -20,6 +20,7 @@ type Multiplexer interface {
 	ClosedDialogue() (Dialogue, error)
 	// list
 	ListDialogues() []Dialogue
+	Close()
 }
 
 // dialogue

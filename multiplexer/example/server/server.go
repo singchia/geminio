@@ -45,7 +45,7 @@ func main() {
 	// 1. open clientID
 	// 2. close clientID
 	// 3. close clientID dialogueID
-	// 4. sendto clientID dialogueID msg
+	// 4. send clientID dialogueID msg
 	// 5. quit
 	pf := packet.NewPacketFactory(id.NewIDCounter(id.Even))
 	go func() {
@@ -73,7 +73,15 @@ func main() {
 					continue
 				}
 				if parts[0] == "close" {
-					// close client
+					// close session manager
+					sm, ok := sms.Load(clientID)
+					if !ok {
+						log.Printf("dialogue manager: %d not found\n", clientID)
+						continue
+					}
+					sm.(multiplexer.Multiplexer).Close()
+					sms.Delete(clientID)
+					// close conn
 					client, ok := clients.Load(clientID)
 					if !ok {
 						log.Printf("client id: %d not found\n", clientID)
@@ -96,7 +104,7 @@ func main() {
 						log.Printf("client id: %d open dialogue err: %s\n", clientID, err)
 						continue
 					}
-					snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + "1"
+					snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + strconv.FormatUint(sn.DialogueID(), 10)
 					sns.Store(snID, sn)
 					continue
 				}
@@ -116,11 +124,11 @@ func main() {
 					continue
 				}
 			case 4:
-				// sendto clientID dialogueID xxx
+				// send clientID dialogueID xxx
 				client := parts[1]
 				dialogue := parts[2]
 				msg := parts[3]
-				if parts[0] == "sendto" {
+				if parts[0] == "send" {
 					snID := client + "-" + dialogue
 					sn, ok := sns.Load(snID)
 					if !ok {
@@ -134,6 +142,7 @@ func main() {
 					continue
 				}
 			}
+			log.Println("illegal operation")
 		}
 	}()
 
@@ -172,13 +181,13 @@ func main() {
 			sns.Store(snID, sn)
 			handleInput(sn)
 			// handle multiplexer
-			handleAcceptClosedDialogue(sm)
+			handleAcceptClosedDialogue(sm, sns)
 		}
 	}
 	time.Sleep(time.Second)
 }
 
-func handleAcceptClosedDialogue(sm multiplexer.Multiplexer) {
+func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns sync.Map) {
 	go func() {
 		for {
 			sn, err := sm.AcceptDialogue()
