@@ -124,7 +124,7 @@ func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall
 		SessionFlags: SessionFlags{
 			sessionIDAcquire: sessionIDPeersCall,
 		},
-		NegotiateID: negotiateID,
+		negotiateID: negotiateID,
 		SessionData: &SessionData{
 			Meta: meta,
 		},
@@ -141,8 +141,8 @@ func (pf *PacketFactory) NewSessionAckPacket(packetID uint64, negotiateID uint64
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		NegotiateID: negotiateID,
-		SessionID:   confirmedSessionID,
+		negotiateID: negotiateID,
+		sessionID:   confirmedSessionID,
 		SessionData: &SessionData{},
 	}
 	if err != nil {
@@ -160,7 +160,7 @@ func (pf *PacketFactory) NewDismissPacket(sessionID uint64) *DismissPacket {
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		SessionID:   sessionID,
+		sessionID:   sessionID,
 		SessionData: &SessionData{},
 	}
 	return disPkt
@@ -175,7 +175,7 @@ func (pf *PacketFactory) NewDismissAckPacket(packetID uint64,
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		SessionID:   sessionID,
+		sessionID:   sessionID,
 		SessionData: &SessionData{},
 	}
 	if err != nil {
@@ -194,6 +194,26 @@ func (pf *PacketFactory) NewMessagePacket(key, value, custom []byte) *MessagePac
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
+		MessageData: &MessageData{
+			Key:    key,
+			Value:  value,
+			Custom: custom,
+		},
+	}
+	return msgPkt
+}
+
+func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
+	key, value, custom []byte) *MessagePacket {
+	packetID := pf.packetIDs.GetID()
+	msgPkt := &MessagePacket{
+		PacketHeader: &PacketHeader{
+			Version:  V01,
+			Typ:      TypeMessagePacket,
+			PacketID: packetID,
+			Cnss:     CnssAtLeastOnce,
+		},
+		sessionID: sessionID,
 		MessageData: &MessageData{
 			Key:    key,
 			Value:  value,

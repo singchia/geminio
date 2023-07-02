@@ -51,26 +51,100 @@ func main() {
 	}
 
 	sns := sync.Map{}
+	dialogues := sm.ListDialogues()
+	sns.Store("1", dialogues[0])
+	// handle multiplexer
+	handleAcceptClosedDialogue(sm, sns)
 
+	// the cli protocol
+	// 1. open
+	// 2. close
+	// 3. close sessionID
+	// 4. send sessionID msg
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		text := scanner.Text()
+		parts := strings.Split(text, " ")
+		switch len(parts) {
+		case 1:
+			// 1. open
+			// 2. close
+			if parts[0] == "quit" || parts[0] == "close" {
+				sm.Close()
+				cc.Close()
+				goto END
+			}
+			if parts[0] == "open" {
+				sn, err := sm.OpenDialogue([]byte("auztin zhai"))
+				if err != nil {
+					log.Println("open session err:", err)
+					continue
+				}
+				sns.Store(strconv.FormatUint(sn.DialogueID(), 10), sn)
+				continue
+			}
+		case 2:
+			// 1. close sessionID
+			// 2. send msg, to default session
+			if parts[0] == "close" {
+				// close sessionID
+				session := parts[1]
+				sn, ok := sns.Load(session)
+				if !ok {
+					log.Printf("session id: %s not found \n", session)
+					continue
+				}
+				sn.(multiplexer.Dialogue).Close()
+				sns.Delete(session)
+				continue
+			}
+			if parts[0] == "send" {
+				msg := parts[1]
+				sn, ok := sns.Load("1")
+				if !ok {
+					log.Printf("session id: %s not found\n", "1")
+					continue
+				}
+				pkt := pf.NewMessagePacketWithSessionID(
+					sn.(multiplexer.Dialogue).DialogueID(),
+					[]byte{}, []byte(msg), []byte{})
+				sn.(multiplexer.Dialogue).Write(pkt)
+				continue
+			}
+		case 3:
+			// send sessionID msg
+			session := parts[1]
+			msg := parts[2]
+			if parts[0] == "send" {
+				sn, ok := sns.Load(session)
+				if !ok {
+					log.Printf("session id: %s not found\n", session)
+					continue
+				}
+				pkt := pf.NewMessagePacketWithSessionID(
+					sn.(multiplexer.Dialogue).DialogueID(),
+					[]byte{}, []byte(msg), []byte{})
+				sn.(multiplexer.Dialogue).Write(pkt)
+				continue
+			}
+		}
+		log.Println("illegal operation")
+	}
+END:
+	time.Sleep(time.Second)
+}
+
+func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns sync.Map) {
 	go func() {
 		for {
 			sn, err := sm.AcceptDialogue()
 			if err != nil {
 				break
 			}
-			sns.Store(sn.DialogueID(), sn)
-			log.Printf("accepted session: %d\n", sn.DialogueID())
-			go func() {
-				for {
-					pkt, err := sn.Read()
-					if err != nil {
-						log.Println("read session err", err)
-						return
-					}
-					msg := pkt.(*packet.MessagePacket)
-					log.Println("> ", cc.ClientID(), msg.SessionID, string(msg.MessageData.Value))
-				}
-			}()
+			snID := strconv.FormatUint(sn.ClientID(), 10) + "-" + "1"
+			sns.Store(snID, sn)
+			log.Printf("accepted dialogue: %d\n", sn.DialogueID())
+			handleInput(sn)
 		}
 	}()
 
@@ -80,76 +154,22 @@ func main() {
 			if err != nil {
 				break
 			}
-			log.Printf("closed session: %d\n", sn.DialogueID())
+			log.Printf("closed dialogue: %d\n", sn.DialogueID())
 			sns.Delete(sn.DialogueID())
 		}
 	}()
+}
 
-	// open
-	// close
-	// close sessionId
-	// sendto sessionId msg
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		text := scanner.Text()
-		index := strings.Index(text, " ")
-		if index == -1 {
-			switch text {
-			case "open":
-				sn, err := sm.OpenDialogue([]byte("austin zhai 1"))
-				if err != nil {
-					log.Println("open session err:", err)
-					continue
-				}
-				sns.Store(sn.DialogueID(), sn)
-			case "close":
-				cc.Close()
-				goto END
-			}
-			continue
-		}
-		command := text[:index]
-		text = text[index+1:]
-		switch command {
-		case "close":
-			sessionId, err := strconv.ParseUint(text, 10, 64)
+func handleInput(sn multiplexer.Dialogue) {
+	go func() {
+		for {
+			pkt, err := sn.Read()
 			if err != nil {
-				log.Println("illegal id", err, text)
-				continue
+				log.Println("read session err", err)
+				return
 			}
-			sn, ok := sns.Load(sessionId)
-			if !ok {
-				log.Printf("sessionId not found '%d'\n", sessionId)
-				continue
-			}
-			sn.(multiplexer.Dialogue).Close()
-			sns.Delete(sessionId)
-			continue
-
-		case "sendto":
-			index = strings.Index(text, " ")
-			if index == -1 {
-				log.Println("msg not found")
-				continue
-			}
-			//text = text[index+1:]
-			// session
-			sessionId, err := strconv.ParseUint(text[:index], 10, 64)
-			if err != nil {
-				log.Println("illegal id", err, text)
-				continue
-			}
-			sn, ok := sns.Load(sessionId)
-			if !ok {
-				log.Printf("sessionId not found '%d'\n", sessionId)
-				continue
-			}
-			pkt := pf.NewMessagePacket([]byte{}, []byte(text[index+1:]), []byte{})
-			pkt.SessionID = sn.(multiplexer.Dialogue).DialogueID()
-			sn.(multiplexer.Dialogue).Write(pkt)
-			continue
+			msg := pkt.(*packet.MessagePacket)
+			log.Println(">", sn.ClientID(), msg.SessionID(), string(msg.MessageData.Value))
 		}
-	}
-END:
-	time.Sleep(time.Second)
+	}()
 }

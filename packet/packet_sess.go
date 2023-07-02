@@ -22,7 +22,7 @@ type SessionFlags struct {
 type SessionPacket struct {
 	*PacketHeader
 	SessionFlags              // 16 bits
-	NegotiateID  uint64       // 64 bits
+	negotiateID  uint64       // 64 bits
 	SessionData  *SessionData // elastic fields
 }
 
@@ -39,6 +39,14 @@ func SessionLayer(pkt Packet) bool {
 		return true
 	}
 	return false
+}
+
+func (snPkt *SessionPacket) NegotiateID() uint64 {
+	return snPkt.negotiateID
+}
+
+func (snPkt *SessionPacket) SessionID() uint64 {
+	return snPkt.negotiateID
 }
 
 func (snPkt *SessionPacket) SessionIDAcquire() bool {
@@ -61,7 +69,7 @@ func (snPkt *SessionPacket) Encode() ([]byte, error) {
 	if snPkt.SessionFlags.sessionIDAcquire {
 		pkt[1] |= 0x10
 	}
-	binary.BigEndian.PutUint64(pkt[2:10], snPkt.NegotiateID)
+	binary.BigEndian.PutUint64(pkt[2:10], snPkt.negotiateID)
 	copy(pkt[10:length], data)
 
 	// set pkt length
@@ -76,8 +84,8 @@ func (snPkt *SessionPacket) Decode(data []byte) (uint32, error) {
 	}
 	snPkt.SessionFlags.Priority = data[0]
 	snPkt.SessionFlags.Qos = int8(data[1] & 0x0F)
-	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) == 1
-	snPkt.NegotiateID = binary.BigEndian.Uint64(data[2:10])
+	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
+	snPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
 	// data
 	snData := &SessionData{}
 	err := json.Unmarshal(data[10:length], snData)
@@ -98,8 +106,8 @@ func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
 	}
 	snPkt.SessionFlags.Priority = data[0]
 	snPkt.SessionFlags.Qos = int8(data[1] & 0x0F)
-	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) == 1
-	snPkt.NegotiateID = binary.BigEndian.Uint64(data[2:10])
+	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
+	snPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
 	// data
 	snData := &SessionData{}
 	err = json.Unmarshal(data[10:length], snData)
@@ -114,9 +122,17 @@ func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
 type SessionAckPacket struct {
 	*PacketHeader
 	SessionFlags        // 16 bits, unused now
-	NegotiateID  uint64 // 8 bytes
-	SessionID    uint64 // 8 bytes
+	negotiateID  uint64 // 8 bytes
+	sessionID    uint64 // 8 bytes
 	SessionData  *SessionData
+}
+
+func (snAckPkt *SessionAckPacket) NegotiateID() uint64 {
+	return snAckPkt.negotiateID
+}
+
+func (snAckPkt *SessionAckPacket) SessionID() uint64 {
+	return snAckPkt.sessionID
 }
 
 func (snAckPkt *SessionAckPacket) SetError(err error) {
@@ -135,8 +151,8 @@ func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
 	length := len(data) + 18
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[2:10], snAckPkt.NegotiateID)
-	binary.BigEndian.PutUint64(pkt[10:18], snAckPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[2:10], snAckPkt.negotiateID)
+	binary.BigEndian.PutUint64(pkt[10:18], snAckPkt.sessionID)
 	copy(pkt[18:length], data)
 
 	// set pkt length
@@ -149,8 +165,8 @@ func (snAckPkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
-	snAckPkt.NegotiateID = binary.BigEndian.Uint64(data[2:10])
-	snAckPkt.SessionID = binary.BigEndian.Uint64(data[10:18])
+	snAckPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	snAckPkt.sessionID = binary.BigEndian.Uint64(data[10:18])
 	// data
 	snData := &SessionData{}
 	err := json.Unmarshal(data[18:length], snData)
@@ -169,8 +185,8 @@ func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
 	if err != nil {
 		return err
 	}
-	snAckPkt.NegotiateID = binary.BigEndian.Uint64(data[2:10])
-	snAckPkt.SessionID = binary.BigEndian.Uint64(data[10:18])
+	snAckPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	snAckPkt.sessionID = binary.BigEndian.Uint64(data[10:18])
 	// data
 	snData := &SessionData{}
 	err = json.Unmarshal(data[18:length], snData)
@@ -184,8 +200,12 @@ func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
 
 type DismissPacket struct {
 	*PacketHeader
-	SessionID   uint64
+	sessionID   uint64
 	SessionData *SessionData
+}
+
+func (disPkt *DismissPacket) SessionID() uint64 {
+	return disPkt.sessionID
 }
 
 func (disPkt *DismissPacket) Encode() ([]byte, error) {
@@ -200,7 +220,7 @@ func (disPkt *DismissPacket) Encode() ([]byte, error) {
 	length := len(data) + 8
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], disPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[:8], disPkt.sessionID)
 	// data
 	copy(pkt[8:length], data)
 	// set pkt length
@@ -214,7 +234,7 @@ func (disPkt *DismissPacket) Decode(data []byte) (uint32, error) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	disPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	disPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
@@ -235,7 +255,7 @@ func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	disPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	disPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err = json.Unmarshal(data[8:length], disData)
@@ -248,8 +268,12 @@ func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
 
 type DismissAckPacket struct {
 	*PacketHeader
-	SessionID   uint64
+	sessionID   uint64
 	SessionData *SessionData
+}
+
+func (disAckPkt *DismissAckPacket) SessionID() uint64 {
+	return disAckPkt.sessionID
 }
 
 func (disAckPkt *DismissAckPacket) Encode() ([]byte, error) {
@@ -264,7 +288,7 @@ func (disAckPkt *DismissAckPacket) Encode() ([]byte, error) {
 	length := len(data) + 8
 	pkt := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], disAckPkt.SessionID)
+	binary.BigEndian.PutUint64(pkt[:8], disAckPkt.sessionID)
 	copy(pkt[8:length], data)
 
 	// set pkt length
@@ -278,7 +302,7 @@ func (disAckPkt *DismissAckPacket) Decode(data []byte) (uint32, error) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	disAckPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	disAckPkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
@@ -297,7 +321,7 @@ func (disAckPkt *DismissAckPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	disAckPkt.SessionID = binary.BigEndian.Uint64(data[0:8])
+	disAckPkt.sessionID = binary.BigEndian.Uint64(data[0:8])
 	// data
 	disData := &SessionData{}
 	err = json.Unmarshal(data[8:length], disData)

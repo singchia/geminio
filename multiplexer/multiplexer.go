@@ -16,8 +16,11 @@ var (
 // dialogue manager
 type Multiplexer interface {
 	OpenDialogue(meta []byte) (Dialogue, error)
-	AcceptDialogue(Dialogue, error)
+	AcceptDialogue() (Dialogue, error)
 	ClosedDialogue() (Dialogue, error)
+	// list
+	ListDialogues() []Dialogue
+	Close()
 }
 
 // dialogue
@@ -41,6 +44,7 @@ const (
 )
 
 type DialogueDescriber interface {
+	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
 	Side() Side
@@ -52,6 +56,7 @@ type Dialogue interface {
 	Closer
 
 	// meta
+	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
 	Side() Side

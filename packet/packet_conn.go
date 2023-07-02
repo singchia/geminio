@@ -67,8 +67,11 @@ func (connPkt *ConnPacket) Encode() ([]byte, error) {
 	if connPkt.Clear {
 		pkt[0] |= 0x02
 	}
-	if connPkt.clientIDAcquire {
+	if connPkt.packetIDAcquire {
 		pkt[0] |= 0x04
+	}
+	if connPkt.clientIDAcquire {
+		pkt[0] |= 0x08
 	}
 	if connPkt.Heartbeat != Heartbeat5 {
 		pkt[0] |= byte(math.Pow(float64(connPkt.Heartbeat)/5, 0.25)) << 4
@@ -89,9 +92,10 @@ func (connPkt *ConnPacket) Decode(data []byte) (uint32, error) {
 	}
 	// conn flags
 	flags := data[:1]
-	connPkt.Retain = (flags[0] & 0x01) == 1
-	connPkt.Clear = (flags[0] & 0x02) == 1
-	connPkt.clientIDAcquire = (flags[0] & 0x04) == 1
+	connPkt.Retain = (flags[0] & 0x01) != 0
+	connPkt.Clear = (flags[0] & 0x02) != 0
+	connPkt.packetIDAcquire = (flags[0] & 0x04) != 0
+	connPkt.clientIDAcquire = (flags[0] & 0x08) != 0
 	heartbeat := float64(flags[0] & 0x30 >> 4)
 	connPkt.Heartbeat = Heartbeat(5 * math.Pow(4, heartbeat))
 	// client id
@@ -113,9 +117,10 @@ func (connPkt *ConnPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// conn flags
-	connPkt.Retain = (flags[0] & 0x01) == 1
-	connPkt.Clear = (flags[0] & 0x02) == 1
-	connPkt.clientIDAcquire = (flags[0] & 0x04) == 1
+	connPkt.Retain = (flags[0] & 0x01) != 0
+	connPkt.Clear = (flags[0] & 0x02) != 0
+	connPkt.packetIDAcquire = (flags[0] & 0x04) != 0
+	connPkt.clientIDAcquire = (flags[0] & 0x08) != 0
 	heartbeat := float64(flags[0] & 0x30 >> 4)
 	connPkt.Heartbeat = Heartbeat(5 * math.Pow(4, heartbeat))
 	// client id

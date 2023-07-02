@@ -97,6 +97,7 @@ func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, erro
 		mgrOK:                true,
 		dialogues:            make(map[uint64]*dialogue),
 		negotiatingDialogues: make(map[uint64]*dialogue),
+		closeCh:              make(chan struct{}),
 	}
 	// dialogue id counter
 	if mp.cn.Side() == conn.ServerSide {
@@ -158,7 +159,7 @@ func (mp *multiplexer) DialogueOnline(dg *dialogue, meta []byte) error {
 }
 
 func (mp *multiplexer) DialogueOffline(dg *dialogue, meta []byte) error {
-	mp.log.Debugf("clientID: %d, del dialogueID: %d", mp.cn.ClientID, dg.DialogueID)
+	mp.log.Debugf("clientID: %d, del dialogueID: %d", mp.cn.ClientID(), dg.DialogueID)
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
 
@@ -178,32 +179,6 @@ func (mp *multiplexer) getID() uint64 {
 		return packet.SessionIDNull
 	}
 	return mp.dialogueIDs.GetID()
-}
-
-func (mp *multiplexer) Close() error {
-	mp.log.Debugf("dialogue manager is closing, clientID: %d", mp.cn.ClientID())
-	mp.mtx.RLock()
-	defer mp.mtx.RUnlock()
-
-	wg := sync.WaitGroup{}
-	wg.Add(len(mp.dialogues))
-	wg.Add(len(mp.negotiatingDialogues))
-
-	for _, dg := range mp.dialogues {
-		go func(dg *dialogue) {
-			defer wg.Done()
-			dg.CloseWait()
-		}(dg)
-	}
-	for _, dg := range mp.negotiatingDialogues {
-		go func(dg *dialogue) {
-			defer wg.Done()
-			dg.CloseWait()
-		}(dg)
-	}
-	close(mp.closeCh)
-	mp.log.Debugf("dialogue manager closed, clientID: %d", mp.cn.ClientID)
-	return nil
 }
 
 // OpenDialogue blocks until success or failed
@@ -270,12 +245,23 @@ func (mp *multiplexer) ClosedDialogue() (Dialogue, error) {
 	return dg, nil
 }
 
+func (mp *multiplexer) ListDialogues() []Dialogue {
+	dialogues := []Dialogue{}
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	for _, dialogue := range mp.dialogues {
+		dialogues = append(dialogues, dialogue)
+	}
+	return dialogues
+}
+
 func (mp *multiplexer) readPkt() {
 	for {
 		select {
 		case pkt, ok := <-mp.cn.ChannelRead():
 			if !ok {
-				mp.log.Debugf("dialogue mgr read done, clientID: %d", mp.cn.ClientID)
+				mp.log.Debugf("dialogue mgr read done, clientID: %d", mp.cn.ClientID())
 				goto FINI
 			}
 			mp.handlePkt(pkt)
@@ -306,12 +292,12 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 
 	case *packet.SessionAckPacket:
 		mp.mtx.RLock()
-		dg, ok := mp.negotiatingDialogues[realPkt.NegotiateID]
+		dg, ok := mp.negotiatingDialogues[realPkt.NegotiateID()]
 		mp.mtx.RUnlock()
 		if !ok {
 			// TODO we must warn the dialogue initiator
 			mp.log.Errorf("clientID: %d, unable to find negotiating dialogueID: %d",
-				mp.cn.ClientID, pkt.ID())
+				mp.cn.ClientID(), pkt.ID())
 			return
 		}
 		dg.readInCh <- pkt
@@ -319,28 +305,55 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 	default:
 		dgPkt, ok := pkt.(packet.SessionAbove)
 		if !ok {
-			mp.log.Errorf("packet doedg't have dialogueID, clientID: %d, negotiatingID: %d, packetType: %s",
-				mp.cn.ClientID, pkt.ID(), pkt.Type().String())
+			mp.log.Errorf("packet don't have dialogueID, clientID: %d, packetID: %d, packetType: %s",
+				mp.cn.ClientID(), pkt.ID(), pkt.Type().String())
 			return
 		}
 		dialogueID := dgPkt.SessionID()
 		mp.mtx.RLock()
-		dg, ok := mp.negotiatingDialogues[dialogueID]
+		dg, ok := mp.dialogues[dialogueID]
 		mp.mtx.RUnlock()
 		if !ok {
-			mp.log.Errorf("clientID: %d, unable to find dialogueID: %d, negotiatingID: %d, packetType: %s",
-				mp.cn.ClientID, dialogueID, pkt.ID(), pkt.Type().String())
+			mp.log.Errorf("clientID: %d, unable to find dialogueID: %d, packetID: %d, packetType: %s",
+				mp.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 			return
 		}
 
-		mp.log.Tracef("clientID: %d, dialogueID: %d, negotiatingID: %d, read %s",
-			mp.cn.ClientID, dialogueID, pkt.ID(), pkt.Type().String())
+		mp.log.Tracef("write to dialogue, clientID: %d, dialogueID: %d, packetID: %d, read %s",
+			mp.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 		dg.readInCh <- pkt
 	}
 }
 
+func (mp *multiplexer) Close() {
+	mp.log.Debugf("dialogue manager is closing, clientID: %d", mp.cn.ClientID())
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	wg := sync.WaitGroup{}
+	wg.Add(len(mp.dialogues))
+	wg.Add(len(mp.negotiatingDialogues))
+
+	for _, dg := range mp.dialogues {
+		go func(dg *dialogue) {
+			defer wg.Done()
+			dg.CloseWait()
+		}(dg)
+	}
+	for _, dg := range mp.negotiatingDialogues {
+		go func(dg *dialogue) {
+			defer wg.Done()
+			dg.CloseWait()
+		}(dg)
+	}
+	wg.Wait()
+	close(mp.closeCh)
+	mp.log.Debugf("dialogue manager closed, clientID: %d", mp.cn.ClientID())
+	return
+}
+
 func (mp *multiplexer) fini() {
-	mp.log.Debugf("dialogue manager finishing, clientID: %d", mp.cn.ClientID)
+	mp.log.Debugf("dialogue manager finishing, clientID: %d", mp.cn.ClientID())
 
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
@@ -376,5 +389,5 @@ func (mp *multiplexer) fini() {
 	}
 	mp.dialogueAcceptCh, mp.dialogueClosedCh = nil, nil
 
-	mp.log.Debugf("dialogue manager finished, clientID: %d", mp.cn.ClientID)
+	mp.log.Debugf("dialogue manager finished, clientID: %d", mp.cn.ClientID())
 }
