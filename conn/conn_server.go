@@ -114,7 +114,6 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	// states
 	sc.initFSM()
 	// rolling up
-	go sc.readPkt()
 	go sc.writePkt()
 	go sc.handlePkt()
 	err = sc.wait()
@@ -130,6 +129,8 @@ ERR:
 
 func (sc *ServerConn) wait() error {
 	sync := sc.shub.New(sc.getSyncID(), synchub.WithTimeout(10*time.Second))
+	// in case of the conn packet is inserted before the wait sync
+	go sc.readPkt()
 	event := <-sync.C()
 	if event.Error != nil {
 		sc.log.Errorf("wait conn timeout, clientID: %d, remote: %s, meta: %s",

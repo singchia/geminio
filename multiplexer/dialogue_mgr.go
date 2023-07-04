@@ -25,10 +25,10 @@ type multiplexerOpts struct {
 	tmrOutside bool
 	// for outside usage
 	dialogueAcceptCh        chan *dialogue
-	dialogueAcceptChOutsite bool
+	dialogueAcceptChOutside bool
 
 	dialogueClosedCh        chan *dialogue
-	dialogueClosedChOutsite bool
+	dialogueClosedChOutside bool
 }
 
 type multiplexer struct {
@@ -55,14 +55,14 @@ type MultiplexerOption func(*multiplexer)
 func OptionMultiplexerAcceptDialogue() MultiplexerOption {
 	return func(mp *multiplexer) {
 		mp.dialogueAcceptCh = make(chan *dialogue, 128)
-		mp.dialogueAcceptChOutsite = false
+		mp.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	return func(mp *multiplexer) {
 		mp.dialogueAcceptCh = make(chan *dialogue, 128)
-		mp.dialogueAcceptChOutsite = false
+		mp.dialogueAcceptChOutside = false
 	}
 }
 
@@ -121,7 +121,8 @@ func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, erro
 	}
 	// add default dialogue
 	dg, err := NewDialogue(cn,
-		OptionDialogueState(SESSIONED))
+		OptionDialogueState(SESSIONED),
+		OptionDialogueDelegate(mp))
 	if err != nil {
 		mp.log.Errorf("new dialogue err: %s, clientID: %d, dialogueID: %d",
 			err, cn.ClientID(), packet.SessionID1)
@@ -134,7 +135,8 @@ func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*multiplexer, erro
 	return mp, nil
 }
 
-func (mp *multiplexer) DialogueOnline(dg *dialogue, meta []byte) error {
+func (mp *multiplexer) DialogueOnline(dg DialogueDescriber) error {
+	mp.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", mp.cn.ClientID(), dg.DialogueID())
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
 
@@ -142,33 +144,34 @@ func (mp *multiplexer) DialogueOnline(dg *dialogue, meta []byte) error {
 		return ErrOperationOnClosedMultiplexer
 	}
 	// remove from the negotiating dialogues, and add to ready dialogues.
-	_, ok := mp.negotiatingDialogues[dg.negotiatingID]
+	_, ok := mp.negotiatingDialogues[dg.NegotiatingID()]
 	if ok {
-		delete(mp.negotiatingDialogues, dg.negotiatingID)
+		delete(mp.negotiatingDialogues, dg.NegotiatingID())
 	} else {
 		if mp.dlgt != nil {
 			mp.dlgt.DialogueOnline(dg)
 		}
 		if mp.dialogueAcceptCh != nil {
 			// this must not be blocked, or else the whole system will stop
-			mp.dialogueAcceptCh <- dg
+			mp.dialogueAcceptCh <- dg.(*dialogue)
 		}
 	}
-	mp.dialogues[dg.dialogueID] = dg
+	mp.dialogues[dg.DialogueID()] = dg.(*dialogue)
 	return nil
 }
 
-func (mp *multiplexer) DialogueOffline(dg *dialogue, meta []byte) error {
-	mp.log.Debugf("clientID: %d, del dialogueID: %d", mp.cn.ClientID(), dg.DialogueID)
+func (mp *multiplexer) DialogueOffline(dg DialogueDescriber) error {
+	mp.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", mp.cn.ClientID(), dg.DialogueID())
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
 
-	dg, ok := mp.dialogues[dg.dialogueID]
+	dg, ok := mp.dialogues[dg.DialogueID()]
 	if ok {
-		delete(mp.dialogues, dg.dialogueID)
+		delete(mp.dialogues, dg.DialogueID())
 		if mp.dlgt != nil {
 			mp.dlgt.DialogueOffline(dg)
 		}
+		return nil
 	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound
@@ -192,7 +195,9 @@ func (mp *multiplexer) OpenDialogue(meta []byte) (Dialogue, error) {
 
 	negotiatingID := mp.dialogueIDs.GetID()
 	dialogueIDPeersCall := mp.cn.Side() == conn.ClientSide
-	dg, err := NewDialogue(mp.cn, OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall))
+	dg, err := NewDialogue(mp.cn,
+		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
+		OptionDialogueDelegate(mp))
 	if err != nil {
 		mp.log.Errorf("new dialogue err: %s, clientID: %d", err, mp.cn.ClientID())
 		return nil, err
@@ -212,10 +217,14 @@ func (mp *multiplexer) OpenDialogue(meta []byte) (Dialogue, error) {
 	}
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
+
+	delete(mp.negotiatingDialogues, negotiatingID)
+	mp.dialogues[dg.dialogueID] = dg
 	if !mp.mgrOK {
 		// the logic on negotiatingDialogues is tricky, take care of it.
-		delete(mp.negotiatingDialogues, negotiatingID)
-		dg.Close()
+		delete(mp.dialogues, dg.dialogueID)
+		// !mgrOK only happens after multiplexer fini, so fini the dialogue
+		dg.fini()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
 	return dg, nil
@@ -280,7 +289,9 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 		// new negotiating dialogue
 		negotiatingID := mp.dialogueIDs.GetID()
 		dialogueIDPeersCall := mp.cn.Side() == conn.ClientSide
-		dg, err := NewDialogue(mp.cn, OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall))
+		dg, err := NewDialogue(mp.cn,
+			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
+			OptionDialogueDelegate(mp))
 		if err != nil {
 			mp.log.Errorf("new dialogue err: %s, clientID: %d", err, mp.cn.ClientID())
 			return
@@ -327,10 +338,8 @@ func (mp *multiplexer) handlePkt(pkt packet.Packet) {
 
 func (mp *multiplexer) Close() {
 	mp.log.Debugf("dialogue manager is closing, clientID: %d", mp.cn.ClientID())
-	mp.mtx.RLock()
-	defer mp.mtx.RUnlock()
-
 	wg := sync.WaitGroup{}
+	mp.mtx.RLock()
 	wg.Add(len(mp.dialogues))
 	wg.Add(len(mp.negotiatingDialogues))
 
@@ -346,6 +355,8 @@ func (mp *multiplexer) Close() {
 			dg.CloseWait()
 		}(dg)
 	}
+	mp.mtx.RUnlock()
+
 	wg.Wait()
 	close(mp.closeCh)
 	mp.log.Debugf("dialogue manager closed, clientID: %d", mp.cn.ClientID())
@@ -381,10 +392,10 @@ func (mp *multiplexer) fini() {
 	mp.dialogueIDs.Close()
 	mp.dialogueIDs = nil
 	// collect channels
-	if mp.dialogueAcceptChOutsite {
+	if !mp.dialogueAcceptChOutside && mp.dialogueAcceptCh != nil {
 		close(mp.dialogueAcceptCh)
 	}
-	if mp.dialogueClosedChOutsite {
+	if !mp.dialogueClosedChOutside && mp.dialogueClosedCh != nil {
 		close(mp.dialogueClosedCh)
 	}
 	mp.dialogueAcceptCh, mp.dialogueClosedCh = nil, nil

@@ -5,7 +5,10 @@ import (
 	"flag"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,7 +27,22 @@ var (
 	sns     sync.Map
 )
 
+func forceFree() {
+	for _ = range time.Tick(30 * time.Second) {
+		debug.FreeOSMemory()
+	}
+}
+
+func init() {
+	go forceFree()
+}
+
 func main() {
+
+	go func() {
+		http.ListenAndServe("0.0.0.0:6061", nil)
+	}()
+
 	network := flag.String("network", "tcp", "network to listen")
 	address := flag.String("address", "127.0.0.1:1202", "address to listen")
 	flag.Parse()

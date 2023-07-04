@@ -14,7 +14,7 @@ import (
 func main() {
 	network := flag.String("network", "tcp", "network to dial")
 	address := flag.String("address", "127.0.0.1:1202", "address to dial")
-	bench := flag.Int("batch", 1000, "bench client to dial")
+	bench := flag.Int("bench", 1000, "bench client to dial")
 	flag.Parse()
 
 	dialer := func() (net.Conn, error) {
