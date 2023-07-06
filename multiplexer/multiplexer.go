@@ -44,6 +44,7 @@ const (
 )
 
 type DialogueDescriber interface {
+	NegotiatingID() uint64
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
@@ -56,6 +57,7 @@ type Dialogue interface {
 	Closer
 
 	// meta
+	NegotiatingID() uint64
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte

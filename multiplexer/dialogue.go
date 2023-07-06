@@ -185,6 +185,10 @@ func (dg *dialogue) ClientID() uint64 {
 	return dg.cn.ClientID()
 }
 
+func (dg *dialogue) NegotiatingID() uint64 {
+	return dg.negotiatingID
+}
+
 func (dg *dialogue) DialogueID() uint64 {
 	return dg.dialogueID
 }
@@ -428,7 +432,7 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 
 func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodefine.IORet {
 	dg.log.Debugf("read dialogue ack packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
-		dg.cn.ClientID(), pkt.SessionID, pkt.ID())
+		dg.cn.ClientID(), pkt.SessionID(), pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONACK)
 	if err != nil {
 		dg.log.Debugf("emit ET_SESSIONACK err: %s, clientID: %d, dialogueID: %d, packetID: %d",
@@ -438,16 +442,7 @@ func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodef
 	}
 	dg.dialogueID = pkt.SessionID()
 	dg.meta = pkt.SessionData.Meta
-	// open dialogue active
-	if dg.dlgt != nil {
-		// notify delegation the online event
-		err = dg.dlgt.DialogueOnline(dg)
-		if err != nil {
-			// if delegate says err, then delete the dialogue.
-			dg.shub.Error(pkt.ID(), err)
-			return iodefine.IOErr
-		}
-	}
+
 	// the packetID is assigned by SessionPacket, originally from function open,
 	// and open is waiting for the completion.
 	dg.shub.Done(pkt.ID())
@@ -507,12 +502,12 @@ func (dg *dialogue) handleOutSessionPacket(pkt *packet.SessionPacket) iodefine.I
 	err := dg.fsm.EmitEvent(ET_SESSIONSENT)
 	if err != nil {
 		dg.log.Errorf("emit ET_SESSIONSENT err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-			err, dg.cn.ClientID(), pkt.NegotiateID, pkt.ID())
+			err, dg.cn.ClientID(), pkt.NegotiateID(), pkt.ID())
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
 	dg.log.Debugf("send dialogue down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-		dg.cn.ClientID(), pkt.NegotiateID, pkt.ID())
+		dg.cn.ClientID(), pkt.NegotiateID(), pkt.ID())
 	return iodefine.IOSuccess
 }
 
@@ -525,7 +520,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 			err = dg.fsm.EmitEvent(ET_ERROR)
 			if err != nil {
 				dg.log.Errorf("emit ET_ERROR err: %s, clientID: %d, dialogueID: %d, packetID: %d",
-					err, dg.cn.ClientID(), pkt.NegotiateID, pkt.ID())
+					err, dg.cn.ClientID(), pkt.NegotiateID(), pkt.ID())
 				return iodefine.IOErr
 			}
 			dg.writeOutCh <- pkt
@@ -543,6 +538,14 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 	dg.writeOutCh <- pkt
 	dg.log.Debugf("send dialogue ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+	// open dialogue passive
+	if dg.dlgt != nil {
+		// notify delegation the online event
+		err = dg.dlgt.DialogueOnline(dg)
+		if err != nil {
+			return iodefine.IOErr
+		}
+	}
 	dg.onlined = true
 	return iodefine.IONewPassive
 }
@@ -637,12 +640,11 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 func (dg *dialogue) fini() {
 	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
-
+	dg.mtx.Lock()
 	// collect shub
 	dg.shub.Close()
 	dg.shub = nil
 
-	dg.mtx.Lock()
 	dg.sessionOK = false
 	close(dg.writeInCh)
 	dg.mtx.Unlock()

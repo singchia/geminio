@@ -19,7 +19,7 @@ import (
 func main() {
 	network := flag.String("network", "tcp", "network to dial")
 	address := flag.String("address", "127.0.0.1:1202", "address to dial")
-	bench := flag.Int("batch", 1000, "bench clients to dial")
+	batch := flag.Int("batch", 1000, "batch clients to dial")
 	mps := flag.Int("mps", 1, "message per second per client")
 	flag.Parse()
 
@@ -32,7 +32,7 @@ func main() {
 	pf := packet.NewPacketFactory(id.NewIDCounter(id.Odd))
 	clients := []*conn.ClientConn{}
 
-	for i := 0; i < *bench; i++ {
+	for i := 0; i < *batch; i++ {
 		go func(i int) {
 			sc, err := conn.NewClientConnWithDialer(dialer, conn.OptionClientConnPacketFactory(pf))
 			if err != nil {
