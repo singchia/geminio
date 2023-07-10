@@ -19,6 +19,9 @@ type MessagePacket struct {
 	*PacketHeader
 	sessionID   uint64
 	MessageData *MessageData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 // TODO 待优化
@@ -94,6 +97,9 @@ type MessageAckPacket struct {
 	*PacketHeader
 	sessionID   uint64
 	MessageData *MessageData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (msgPkt *MessageAckPacket) SessionID() uint64 {
@@ -162,6 +168,9 @@ type StreamPacket struct {
 	*PacketHeader
 	sessionID uint64
 	Data      []byte
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (streamPkt *StreamPacket) SessionID() uint64 {
@@ -217,6 +226,9 @@ type RegisterPacket struct {
 	*PacketHeader
 	SessionID uint64
 	Method    []byte
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (registerPkt *RegisterPacket) Encode() ([]byte, error) {
@@ -271,6 +283,9 @@ type RegisterAckPacket struct {
 	*PacketHeader
 	SessionID    uint64
 	RegisterData *RegisterData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (registerAckPkt *RegisterAckPacket) Encode() ([]byte, error) {
