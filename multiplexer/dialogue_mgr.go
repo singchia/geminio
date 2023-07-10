@@ -307,10 +307,11 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dm.mtx.RUnlock()
 		if !ok {
 			// TODO we must warn the dialogue initiator
-			dm.log.Errorf("clientID: %d, unable to find negotiating dialogueID: %d",
-				dm.cn.ClientID(), pkt.ID())
+			dm.log.Errorf("clientID: %d, unable to find negotiatingID: %d",
+				dm.cn.ClientID(), realPkt.NegotiateID())
 			return
 		}
+		// TODO do we need handle the packet in time? before data or dismiss coming.
 		dg.readInCh <- pkt
 
 	default:
