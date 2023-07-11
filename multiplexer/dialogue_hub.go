@@ -5,15 +5,17 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/go-timer/v2"
 )
 
 // For server side only
 type dialogueHub struct {
 	// options
-	multiplexerOpts
+	*multiplexerOpts
 
 	// close channel
 	closeCh chan struct{}
@@ -60,6 +62,34 @@ func (dh *dialogueHub) DialogueOnline(dg DialogueDescriber) error {
 	return nil
 }
 
+func NewDialogueHub(opts ...MultiplexerOption) (*dialogueHub, error) {
+	dh := &dialogueHub{
+		multiplexerOpts:      &multiplexerOpts{},
+		hubOK:                true,
+		defaultDialogues:     make(map[string]*dialogue),
+		dialogues:            make(map[string]*dialogue),
+		negotiatingDialogues: make(map[string]*dialogue),
+		closeCh:              make(chan struct{}),
+		conns:                make(map[uint64]conn.Conn),
+		dialogueIDs:          id.NewIDCounter(id.Even),
+	}
+	// options
+	for _, opt := range opts {
+		opt(dh.multiplexerOpts)
+	}
+	// sync hub
+	if !dh.tmrOutside {
+		dh.tmr = timer.NewTimer()
+	}
+	// log
+	if dh.log == nil {
+		dh.log = log.DefaultLog
+	}
+	// rolling up
+	go dh.readPkt()
+	return dh, nil
+}
+
 func (dh *dialogueHub) DialogueOffline(dg DialogueDescriber) error {
 	dh.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dh.mtx.Lock()
@@ -79,10 +109,12 @@ func (dh *dialogueHub) DialogueOffline(dg DialogueDescriber) error {
 }
 
 func (dh *dialogueHub) ConnOnline(cn conn.ConnDescriber) error {
+	// once the conn online, add default dialogue
 	return nil
 }
 
 func (dh *dialogueHub) ConnOffline(cn conn.ConnDescriber) error {
+	// once the conn offline, remove all dialogues
 	return nil
 }
 

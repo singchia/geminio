@@ -35,7 +35,7 @@ type dialogueMgr struct {
 	// under layer
 	cn conn.Conn
 	// options
-	multiplexerOpts
+	*multiplexerOpts
 
 	// close channel
 	closeCh chan struct{}
@@ -50,49 +50,50 @@ type dialogueMgr struct {
 	negotiatingDialogues map[uint64]*dialogue
 }
 
-type MultiplexerOption func(*dialogueMgr)
+type MultiplexerOption func(*multiplexerOpts)
 
 func OptionMultiplexerAcceptDialogue() MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dialogueAcceptCh = make(chan *dialogue, 128)
-		dm.dialogueAcceptChOutside = false
+	return func(opts *multiplexerOpts) {
+		opts.dialogueAcceptCh = make(chan *dialogue, 128)
+		opts.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionMultiplexerClosedDialogue() MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dialogueAcceptCh = make(chan *dialogue, 128)
-		dm.dialogueAcceptChOutside = false
+	return func(opts *multiplexerOpts) {
+		opts.dialogueAcceptCh = make(chan *dialogue, 128)
+		opts.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionDelegate(dlgt Delegate) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dlgt = dlgt
+	return func(opts *multiplexerOpts) {
+		opts.dlgt = dlgt
 	}
 }
 
 func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.pf = pf
+	return func(opts *multiplexerOpts) {
+		opts.pf = pf
 	}
 }
 
 func OptionLogger(log log.Logger) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.log = log
+	return func(opts *multiplexerOpts) {
+		opts.log = log
 	}
 }
 
 func OptionTimer(tmr timer.Timer) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.tmr = tmr
-		dm.tmrOutside = true
+	return func(opts *multiplexerOpts) {
+		opts.tmr = tmr
+		opts.tmrOutside = true
 	}
 }
 
 func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, error) {
 	dm := &dialogueMgr{
+		multiplexerOpts:      &multiplexerOpts{},
 		cn:                   cn,
 		mgrOK:                true,
 		dialogues:            make(map[uint64]*dialogue),
@@ -109,7 +110,7 @@ func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 	}
 	// options
 	for _, opt := range opts {
-		opt(dm)
+		opt(dm.multiplexerOpts)
 	}
 	// sync hub
 	if !dm.tmrOutside {
@@ -131,6 +132,7 @@ func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 	dg.dialogueID = packet.SessionID1
 	dm.defaultDialogue = dg
 	dm.dialogues[packet.SessionID1] = dg
+	// rolling up
 	go dm.readPkt()
 	return dm, nil
 }
