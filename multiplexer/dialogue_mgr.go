@@ -35,7 +35,7 @@ type dialogueMgr struct {
 	// under layer
 	cn conn.Conn
 	// options
-	multiplexerOpts
+	*multiplexerOpts
 
 	// close channel
 	closeCh chan struct{}
@@ -50,49 +50,50 @@ type dialogueMgr struct {
 	negotiatingDialogues map[uint64]*dialogue
 }
 
-type MultiplexerOption func(*dialogueMgr)
+type MultiplexerOption func(*multiplexerOpts)
 
 func OptionMultiplexerAcceptDialogue() MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dialogueAcceptCh = make(chan *dialogue, 128)
-		dm.dialogueAcceptChOutside = false
+	return func(opts *multiplexerOpts) {
+		opts.dialogueAcceptCh = make(chan *dialogue, 128)
+		opts.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionMultiplexerClosedDialogue() MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dialogueAcceptCh = make(chan *dialogue, 128)
-		dm.dialogueAcceptChOutside = false
+	return func(opts *multiplexerOpts) {
+		opts.dialogueAcceptCh = make(chan *dialogue, 128)
+		opts.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionDelegate(dlgt Delegate) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.dlgt = dlgt
+	return func(opts *multiplexerOpts) {
+		opts.dlgt = dlgt
 	}
 }
 
 func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.pf = pf
+	return func(opts *multiplexerOpts) {
+		opts.pf = pf
 	}
 }
 
 func OptionLogger(log log.Logger) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.log = log
+	return func(opts *multiplexerOpts) {
+		opts.log = log
 	}
 }
 
 func OptionTimer(tmr timer.Timer) MultiplexerOption {
-	return func(dm *dialogueMgr) {
-		dm.tmr = tmr
-		dm.tmrOutside = true
+	return func(opts *multiplexerOpts) {
+		opts.tmr = tmr
+		opts.tmrOutside = true
 	}
 }
 
-func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, error) {
+func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, error) {
 	dm := &dialogueMgr{
+		multiplexerOpts:      &multiplexerOpts{},
 		cn:                   cn,
 		mgrOK:                true,
 		dialogues:            make(map[uint64]*dialogue),
@@ -109,7 +110,7 @@ func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 	}
 	// options
 	for _, opt := range opts {
-		opt(dm)
+		opt(dm.multiplexerOpts)
 	}
 	// sync hub
 	if !dm.tmrOutside {
@@ -131,12 +132,13 @@ func NewMultiplexer(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 	dg.dialogueID = packet.SessionID1
 	dm.defaultDialogue = dg
 	dm.dialogues[packet.SessionID1] = dg
+	// rolling up
 	go dm.readPkt()
 	return dm, nil
 }
 
 func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
-	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dm.cn.ClientID(), dg.DialogueID())
+	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
 
@@ -147,21 +149,20 @@ func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
 	_, ok := dm.negotiatingDialogues[dg.NegotiatingID()]
 	if ok {
 		delete(dm.negotiatingDialogues, dg.NegotiatingID())
-	} else {
-		if dm.dlgt != nil {
-			dm.dlgt.DialogueOnline(dg)
-		}
-		if dm.dialogueAcceptCh != nil {
-			// this must not be blocked, or else the whole system will stop
-			dm.dialogueAcceptCh <- dg.(*dialogue)
-		}
 	}
 	dm.dialogues[dg.DialogueID()] = dg.(*dialogue)
+	if dm.dlgt != nil {
+		dm.dlgt.DialogueOnline(dg)
+	}
+	if dm.dialogueAcceptCh != nil {
+		// this must not be blocked, or else the whole system will stop
+		dm.dialogueAcceptCh <- dg.(*dialogue)
+	}
 	return nil
 }
 
 func (dm *dialogueMgr) DialogueOffline(dg DialogueDescriber) error {
-	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dm.cn.ClientID(), dg.DialogueID())
+	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
 
@@ -205,7 +206,6 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	dm.mtx.Lock()
 	dm.negotiatingDialogues[negotiatingID] = dg
 	dm.mtx.Unlock()
-	// Open only happends at client side
 	// Open take times, shouldn't be locked
 	err = dg.open()
 	if err != nil {
@@ -219,18 +219,18 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	defer dm.mtx.Unlock()
 
 	delete(dm.negotiatingDialogues, negotiatingID)
-	dm.dialogues[dg.dialogueID] = dg
 	if !dm.mgrOK {
-		// the logic on negotiatingDialogues is tricky, take care of it.
-		delete(dm.dialogues, dg.dialogueID)
+		// delete(dm.dialogues, dg.dialogueID)
 		// !mgrOK only happens after dialogueMgr fini, so fini the dialogue
 		dg.fini()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
+	// the logic on negotiatingDialogues is tricky, take care of it.
+	dm.dialogues[dg.dialogueID] = dg
 	return dg, nil
 }
 
-// AcceptDialogue blocks until success or failed
+// AcceptDialogue blocks until success or end
 func (dm *dialogueMgr) AcceptDialogue() (Dialogue, error) {
 	if dm.dialogueAcceptCh == nil {
 		return nil, ErrAcceptChNotEnabled
@@ -242,7 +242,7 @@ func (dm *dialogueMgr) AcceptDialogue() (Dialogue, error) {
 	return dg, nil
 }
 
-// ClosedDialogue blocks until success or failed
+// ClosedDialogue blocks until success or end
 func (dm *dialogueMgr) ClosedDialogue() (Dialogue, error) {
 	if dm.dialogueClosedCh == nil {
 		return nil, ErrClosedChNotEnabled
@@ -307,10 +307,11 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dm.mtx.RUnlock()
 		if !ok {
 			// TODO we must warn the dialogue initiator
-			dm.log.Errorf("clientID: %d, unable to find negotiating dialogueID: %d",
-				dm.cn.ClientID(), pkt.ID())
+			dm.log.Errorf("clientID: %d, unable to find negotiatingID: %d",
+				dm.cn.ClientID(), realPkt.NegotiateID())
 			return
 		}
+		// TODO do we need handle the packet in time? before data or dismiss coming.
 		dg.readInCh <- pkt
 
 	default:
@@ -330,7 +331,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			return
 		}
 
-		dm.log.Tracef("write to dialogue, clientID: %d, dialogueID: %d, packetID: %d, read %s",
+		dm.log.Tracef("write to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 		dg.readInCh <- pkt
 	}

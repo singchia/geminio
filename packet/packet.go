@@ -126,6 +126,14 @@ const (
 	RetCodeERR RetCode = 0x01
 )
 
+type basePacket struct {
+	clientID uint64
+}
+
+func (basePacket basePacket) ClientID() uint64 {
+	return basePacket.clientID
+}
+
 type PacketHeader struct {
 	Version   Version
 	Typ       Type

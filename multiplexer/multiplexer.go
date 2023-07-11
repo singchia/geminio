@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrOperationOnClosedMultiplexer = errors.New("operation on closed multiplexer")
+	ErrConnNotFound                 = errors.New("conn not found")
 	ErrDialogueNotFound             = errors.New("dialogue not found")
 	ErrAcceptChNotEnabled           = errors.New("accept channel not enabled")
 	ErrClosedChNotEnabled           = errors.New("closed channel not enabled")

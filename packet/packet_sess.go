@@ -9,6 +9,7 @@ import (
 )
 
 type SessionAbove interface {
+	ClientID() uint64
 	SessionID() uint64
 }
 
@@ -24,6 +25,9 @@ type SessionPacket struct {
 	SessionFlags              // 16 bits
 	negotiateID  uint64       // 64 bits
 	SessionData  *SessionData // elastic fields
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 type SessionData struct {
@@ -125,6 +129,9 @@ type SessionAckPacket struct {
 	negotiateID  uint64 // 8 bytes
 	sessionID    uint64 // 8 bytes
 	SessionData  *SessionData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (snAckPkt *SessionAckPacket) NegotiateID() uint64 {
@@ -202,6 +209,9 @@ type DismissPacket struct {
 	*PacketHeader
 	sessionID   uint64
 	SessionData *SessionData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (disPkt *DismissPacket) SessionID() uint64 {
@@ -270,6 +280,9 @@ type DismissAckPacket struct {
 	*PacketHeader
 	sessionID   uint64
 	SessionData *SessionData
+
+	// the following fields are not encoded into packet
+	basePacket
 }
 
 func (disAckPkt *DismissAckPacket) SessionID() uint64 {

@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+type ConnAbove interface {
+	ClientID() uint64
+}
+
 type Heartbeat time.Duration
 
 const (

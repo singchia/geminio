@@ -180,7 +180,7 @@ func main() {
 			}
 
 			// multiplexer
-			sm, err := multiplexer.NewMultiplexer(sc,
+			sm, err := multiplexer.NewDialogueMgr(sc,
 				multiplexer.OptionMultiplexerAcceptDialogue(),
 				multiplexer.OptionMultiplexerClosedDialogue(),
 				multiplexer.OptionTimer(tmr),
