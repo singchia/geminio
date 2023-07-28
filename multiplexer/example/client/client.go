@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// multiplexer
-	sm, err := multiplexer.NewMultiplexer(cc,
+	sm, err := multiplexer.NewDialogueMgr(cc,
 		multiplexer.OptionMultiplexerAcceptDialogue(),
 		multiplexer.OptionMultiplexerClosedDialogue(),
 		multiplexer.OptionTimer(tmr),
