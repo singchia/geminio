@@ -2,12 +2,14 @@ package application
 
 import (
 	"log"
+	"sync"
 
 	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/multiplexer"
 	"github.com/singchia/geminio/packet"
+	gsync "github.com/singchia/geminio/pkg/sync"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -39,4 +41,11 @@ type stream struct {
 
 	// hijacks
 	hijackRPC geminio.HijackRPC
+
+	// mtx protects follows
+	mtx       sync.RWMutex
+	streamOK  bool
+	closeOnce *gsync.Once
+
+	// app layer messages
 }
