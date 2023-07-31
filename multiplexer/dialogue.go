@@ -67,9 +67,9 @@ type dialogue struct {
 
 	fsm *yafsm.FSM
 
-	// mtx protect follows
-	mtx       sync.RWMutex
-	sessionOK bool
+	// mtx protects follows
+	mtx        sync.RWMutex
+	dialogueOK bool
 
 	// to conn layer
 	readInCh, writeOutCh     chan packet.Packet
@@ -140,7 +140,7 @@ func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
 		cn:           cn,
 		fsm:          yafsm.NewFSM(),
 		closeOnce:    new(gsync.Once),
-		sessionOK:    true,
+		dialogueOK:   true,
 		readInSize:   128,
 		writeOutSize: 128,
 		readOutSize:  128,
@@ -201,7 +201,7 @@ func (dg *dialogue) Write(pkt packet.Packet) error {
 	dg.mtx.RLock()
 	defer dg.mtx.RUnlock()
 
-	if !dg.sessionOK {
+	if !dg.dialogueOK {
 		return io.EOF
 	}
 	dg.writeInCh <- pkt
@@ -272,7 +272,7 @@ func (dg *dialogue) open() error {
 	pkt = dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta)
 
 	dg.mtx.RLock()
-	if !dg.sessionOK {
+	if !dg.dialogueOK {
 		dg.mtx.RUnlock()
 		return io.EOF
 	}
@@ -591,7 +591,7 @@ func (dg *dialogue) Close() {
 	dg.closeOnce.Do(func() {
 		dg.mtx.RLock()
 		defer dg.mtx.RUnlock()
-		if !dg.sessionOK {
+		if !dg.dialogueOK {
 			return
 		}
 
@@ -607,7 +607,7 @@ func (dg *dialogue) CloseWait() {
 	// send close packet and wait for the end
 	dg.closeOnce.Do(func() {
 		dg.mtx.RLock()
-		if !dg.sessionOK {
+		if !dg.dialogueOK {
 			dg.mtx.RUnlock()
 			return
 		}
@@ -645,7 +645,7 @@ func (dg *dialogue) fini() {
 	dg.shub.Close()
 	dg.shub = nil
 
-	dg.sessionOK = false
+	dg.dialogueOK = false
 	close(dg.writeInCh)
 	dg.mtx.Unlock()
 
