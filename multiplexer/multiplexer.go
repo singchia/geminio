@@ -27,6 +27,7 @@ type Multiplexer interface {
 // dialogue
 type Reader interface {
 	Read() (packet.Packet, error)
+	ReadC() <-chan packet.Packet
 }
 
 type Writer interface {

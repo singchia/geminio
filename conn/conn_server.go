@@ -201,13 +201,15 @@ func (sc *ServerConn) handlePkt() {
 			if !ok {
 				goto FINI
 			}
+			sc.log.Tracef("conn read in packet, clientID: %d, packetID: %d, packetType: %s",
+				sc.clientID, pkt.ID(), pkt.Type().String())
 			ret := sc.handleIn(pkt)
 			if ret == iodefine.IOErr {
-				sc.log.Errorf("handle in packet err, clientID: %d", sc.clientID)
+				sc.log.Errorf("conn handle in packet err, clientID: %d", sc.clientID)
 				goto FINI
 			}
 			if ret == iodefine.IOClosed {
-				sc.log.Infof("handle in packet done, clientID: %d", sc.clientID)
+				sc.log.Infof("conn handle in packet done, clientID: %d", sc.clientID)
 				goto FINI
 			}
 		case pkt, ok := <-writeInCh:
@@ -217,11 +219,11 @@ func (sc *ServerConn) handlePkt() {
 			}
 			ret := sc.handleOut(pkt)
 			if ret == iodefine.IOErr {
-				sc.log.Errorf("handle out packet err, clientID: %d", sc.clientID)
+				sc.log.Errorf("conn handle out packet err, clientID: %d", sc.clientID)
 				goto FINI
 			}
 			if ret == iodefine.IOClosed {
-				sc.log.Infof("handle out packet done, clientID: %d", sc.clientID)
+				sc.log.Infof("conn handle out packet done, clientID: %d", sc.clientID)
 				goto FINI
 			}
 		}

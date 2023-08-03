@@ -216,6 +216,10 @@ func (dg *dialogue) Read() (packet.Packet, error) {
 	return pkt, nil
 }
 
+func (dg *dialogue) ReadC() <-chan packet.Packet {
+	return dg.readOutCh
+}
+
 func (dg *dialogue) initFSM() {
 	init := dg.fsm.AddState(INIT)
 	sessionsent := dg.fsm.AddState(SESSION_SENT)
@@ -311,7 +315,7 @@ func (dg *dialogue) writePkt() {
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 	err := dg.cn.Write(pkt)
 	if err != nil {
-		dg.log.Errorf("write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 		if record && dg.failedCh != nil {
 			// only upper layer packet need to be notified
@@ -331,7 +335,7 @@ func (dg *dialogue) handlePkt() {
 			if !ok {
 				goto FINI
 			}
-			dg.log.Tracef("read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			dg.log.Tracef("dialogue read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			ret := dg.handleIn(pkt)
 			switch ret {
@@ -347,7 +351,7 @@ func (dg *dialogue) handlePkt() {
 				// BUG! shoud never be here.
 				goto FINI
 			}
-			dg.log.Tracef("write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			dg.log.Tracef("dialogue write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			ret := dg.handleOut(pkt)
 			switch ret {
@@ -361,7 +365,7 @@ func (dg *dialogue) handlePkt() {
 		}
 	}
 FINI:
-	dg.log.Debugf("handle pkt done, clientID: %d, dialogueID: %d",
+	dg.log.Debugf("dialogue handle pkt done, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 	if dg.closewait != nil {
 		// and CloseWait is waiting for the completion.
@@ -558,7 +562,7 @@ func (dg *dialogue) handleOutDismissPacket(pkt *packet.DismissPacket) iodefine.I
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
-	dg.log.Debugf("send dismiss down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("dialogue send dismiss down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	return iodefine.IOSuccess
 }
@@ -572,7 +576,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 	}
 	dg.dowritePkt(pkt, false)
 	// make sure this packet is flushed before writeOutCh closed
-	dg.log.Debugf("send dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("dialogue send dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	if dg.fsm.State() == DISMISS_HALF {
 		return iodefine.IOSuccess
@@ -582,7 +586,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 
 func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	dg.writeOutCh <- pkt
-	dg.log.Tracef("send data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Tracef("dialogue send data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	return iodefine.IOSuccess
 }
