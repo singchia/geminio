@@ -1,8 +1,9 @@
 package application
 
 import (
-	"log"
 	"sync"
+
+	"github.com/jumboframes/armorigo/log"
 
 	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio"
@@ -48,4 +49,22 @@ type stream struct {
 	closeOnce *gsync.Once
 
 	// app layer messages
+	// raw cache
+	cache     []byte
+	messageCh chan *packet.MessagePacket
+	streamCh  chan *packet.StreamPacket
+}
+
+func (stream *stream) handlePkt() {
+	for {
+		select {
+		case pkt, ok := <-stream.dg.ReadC():
+			if !ok {
+				goto FINI
+			}
+			stream.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				stream.cn.ClientID(), pkt.ID(), pkt.Type().String())
+		}
+	}
+FINI:
 }
