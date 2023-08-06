@@ -71,7 +71,7 @@ type dialogue struct {
 	mtx        sync.RWMutex
 	dialogueOK bool
 
-	// to conn layer
+	// io
 	readInCh, writeOutCh     chan packet.Packet
 	readOutCh, writeInCh     chan packet.Packet
 	readInSize, writeOutSize int

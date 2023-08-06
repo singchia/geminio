@@ -50,19 +50,32 @@ type stream struct {
 
 	// app layer messages
 	// raw cache
-	cache     []byte
-	messageCh chan *packet.MessagePacket
-	streamCh  chan *packet.StreamPacket
+	cache        []byte
+	messageOutCh chan *packet.MessagePacket
+	streamCh     chan *packet.StreamPacket
+
+	// io
+	writeInCh chan packet.Packet // for multiple message types
 }
 
 func (stream *stream) handlePkt() {
+	readInCh := stream.dg.ReadC()
+	writeInCh := stream.writeInCh
+
 	for {
 		select {
-		case pkt, ok := <-stream.dg.ReadC():
+		case pkt, ok := <-readInCh:
 			if !ok {
 				goto FINI
 			}
 			stream.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				stream.cn.ClientID(), pkt.ID(), pkt.Type().String())
+
+		case pkt, ok := <-writeInCh:
+			if !ok {
+				goto FINI
+			}
+			stream.log.Tracef("stream write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				stream.cn.ClientID(), pkt.ID(), pkt.Type().String())
 		}
 	}
