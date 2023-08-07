@@ -149,7 +149,7 @@ func main() {
 					}
 					rc.Write(pkt)
 					msg := pkt.(*packet.MessagePacket)
-					log.Debug(rc.ClientID(), string(msg.MessageData.Key), string(msg.MessageData.Value))
+					log.Debug(rc.ClientID(), string(msg.Data.Key), string(msg.Data.Value))
 				}
 			}(rc)
 		}(netconn)

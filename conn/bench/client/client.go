@@ -37,7 +37,7 @@ func main() {
 					return
 				}
 				msg := pkt.(*packet.MessagePacket)
-				log.Println(string(msg.MessageData.Key), string(msg.MessageData.Value))
+				log.Println(string(msg.Data.Key), string(msg.Data.Value))
 			}
 		}()
 

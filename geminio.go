@@ -8,11 +8,10 @@ type Request interface {
 	StreamID() uint64
 	ClientID() uint64
 	Method() string
-	TImeout() time.Duration
+	Timeout() time.Duration
 
 	// application data
 	Data() []byte
-	SetData([]byte)
 }
 
 type Response interface {
@@ -21,7 +20,6 @@ type Response interface {
 	StreamID() uint64
 	ClientID() uint64
 	Method() string
-	TImeout() time.Duration
 
 	// application data
 	Data() []byte

@@ -83,6 +83,8 @@ func (typ Type) String() string {
 		return "request packet"
 	case TypeResponsePacket:
 		return "response packet"
+	case TypeRequestCancelPacket:
+		return "request cacnel packet"
 	case TypeRegisterPacket:
 		return "register packet"
 	case TypeRegisterAckPacket:
@@ -92,23 +94,24 @@ func (typ Type) String() string {
 }
 
 const (
-	TypeConnPacket         Type = 0x01
-	TypeConnAckPacket      Type = 0x02
-	TypeDisConnPacket      Type = 0x11
-	TypeDisConnAckPacket   Type = 0x12
-	TypeHeartbeatPacket    Type = 0x21
-	TypeHeartbeatAckPacket Type = 0x22
-	TypeSessionPacket      Type = 0x31
-	TypeSessionAckPacket   Type = 0x32
-	TypeDismissPacket      Type = 0x41
-	TypeDismissAckPacket   Type = 0x42
-	TypeMessagePacket      Type = 0x51
-	TypeMessageAckPacket   Type = 0x52
-	TypeStreamPacket       Type = 0x61
-	TypeRequestPacket      Type = 0x71
-	TypeResponsePacket     Type = 0x72
-	TypeRegisterPacket     Type = 0x81
-	TypeRegisterAckPacket  Type = 0x82
+	TypeConnPacket          Type = 0x01
+	TypeConnAckPacket       Type = 0x02
+	TypeDisConnPacket       Type = 0x11
+	TypeDisConnAckPacket    Type = 0x12
+	TypeHeartbeatPacket     Type = 0x21
+	TypeHeartbeatAckPacket  Type = 0x22
+	TypeSessionPacket       Type = 0x31
+	TypeSessionAckPacket    Type = 0x32
+	TypeDismissPacket       Type = 0x41
+	TypeDismissAckPacket    Type = 0x42
+	TypeMessagePacket       Type = 0x51
+	TypeMessageAckPacket    Type = 0x52
+	TypeStreamPacket        Type = 0x61
+	TypeRequestPacket       Type = 0x71
+	TypeResponsePacket      Type = 0x72
+	TypeRequestCancelPacket Type = 0x73
+	TypeRegisterPacket      Type = 0x81
+	TypeRegisterAckPacket   Type = 0x82
 )
 
 type Cnss byte

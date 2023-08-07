@@ -9,8 +9,8 @@ import (
 )
 
 type SessionAbove interface {
-	ClientID() uint64
 	SessionID() uint64
+	SetSessionID(sessionID uint64)
 }
 
 type SessionFlags struct {
@@ -45,51 +45,55 @@ func SessionLayer(pkt Packet) bool {
 	return false
 }
 
-func (snPkt *SessionPacket) NegotiateID() uint64 {
-	return snPkt.negotiateID
+func (pkt *SessionPacket) NegotiateID() uint64 {
+	return pkt.negotiateID
 }
 
-func (snPkt *SessionPacket) SessionID() uint64 {
-	return snPkt.negotiateID
+func (pkt *SessionPacket) SessionID() uint64 {
+	return pkt.negotiateID
 }
 
-func (snPkt *SessionPacket) SessionIDAcquire() bool {
-	return snPkt.sessionIDAcquire
+func (pkt *SessionPacket) SetSessionID(sessionID uint64) {
+	pkt.negotiateID = sessionID
 }
 
-func (snPkt *SessionPacket) Encode() ([]byte, error) {
-	hdr, err := snPkt.PacketHeader.Encode()
+func (pkt *SessionPacket) SessionIDAcquire() bool {
+	return pkt.sessionIDAcquire
+}
+
+func (pkt *SessionPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(snPkt.SessionData)
+	data, err := json.Marshal(pkt.SessionData)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 10
-	pkt := make([]byte, length)
-	pkt[0] = snPkt.SessionFlags.Priority
-	pkt[1] |= byte(snPkt.SessionFlags.Qos) << 4 >> 4
-	if snPkt.SessionFlags.sessionIDAcquire {
-		pkt[1] |= 0x10
+	next := make([]byte, length)
+	next[0] = pkt.SessionFlags.Priority
+	next[1] |= byte(pkt.SessionFlags.Qos) << 4 >> 4
+	if pkt.SessionFlags.sessionIDAcquire {
+		next[1] |= 0x10
 	}
-	binary.BigEndian.PutUint64(pkt[2:10], snPkt.negotiateID)
-	copy(pkt[10:length], data)
+	binary.BigEndian.PutUint64(next[2:10], pkt.negotiateID)
+	copy(next[10:length], data)
 
 	// set pkt length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (snPkt *SessionPacket) Decode(data []byte) (uint32, error) {
-	length := int(snPkt.PacketLen)
+func (pkt *SessionPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
-	snPkt.SessionFlags.Priority = data[0]
-	snPkt.SessionFlags.Qos = int8(data[1] & 0x0F)
-	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
-	snPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	pkt.SessionFlags.Priority = data[0]
+	pkt.SessionFlags.Qos = int8(data[1] & 0x0F)
+	pkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
+	pkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
 	// data
 	snData := &SessionData{}
 	err := json.Unmarshal(data[10:length], snData)
@@ -97,21 +101,21 @@ func (snPkt *SessionPacket) Decode(data []byte) (uint32, error) {
 		log.Errorf("session packet decode err: %s", err)
 		return 0, err
 	}
-	snPkt.SessionData = snData
+	pkt.SessionData = snData
 	return uint32(length), nil
 }
 
-func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
-	length := int(snPkt.PacketLen)
+func (pkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
-	snPkt.SessionFlags.Priority = data[0]
-	snPkt.SessionFlags.Qos = int8(data[1] & 0x0F)
-	snPkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
-	snPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	pkt.SessionFlags.Priority = data[0]
+	pkt.SessionFlags.Qos = int8(data[1] & 0x0F)
+	pkt.SessionFlags.sessionIDAcquire = (data[1] & 0x10) != 0
+	pkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
 	// data
 	snData := &SessionData{}
 	err = json.Unmarshal(data[10:length], snData)
@@ -119,7 +123,7 @@ func (snPkt *SessionPacket) DecodeFromReader(reader io.Reader) error {
 		log.Errorf("session packet decode from reader err: %s", err)
 		return err
 	}
-	snPkt.SessionData = snData
+	pkt.SessionData = snData
 	return nil
 }
 
@@ -134,46 +138,50 @@ type SessionAckPacket struct {
 	basePacket
 }
 
-func (snAckPkt *SessionAckPacket) NegotiateID() uint64 {
-	return snAckPkt.negotiateID
+func (pkt *SessionAckPacket) NegotiateID() uint64 {
+	return pkt.negotiateID
 }
 
-func (snAckPkt *SessionAckPacket) SessionID() uint64 {
-	return snAckPkt.sessionID
+func (pkt *SessionAckPacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (snAckPkt *SessionAckPacket) SetError(err error) {
-	snAckPkt.SessionData.Error = err.Error()
+func (pkt *SessionAckPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
 }
 
-func (snAckPkt *SessionAckPacket) Encode() ([]byte, error) {
-	hdr, err := snAckPkt.PacketHeader.Encode()
+func (pkt *SessionAckPacket) SetError(err error) {
+	pkt.SessionData.Error = err.Error()
+}
+
+func (pkt *SessionAckPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(snAckPkt.SessionData)
+	data, err := json.Marshal(pkt.SessionData)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 18
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[2:10], snAckPkt.negotiateID)
-	binary.BigEndian.PutUint64(pkt[10:18], snAckPkt.sessionID)
-	copy(pkt[18:length], data)
+	binary.BigEndian.PutUint64(next[2:10], pkt.negotiateID)
+	binary.BigEndian.PutUint64(next[10:18], pkt.sessionID)
+	copy(next[18:length], data)
 
 	// set pkt length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (snAckPkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
-	length := int(snAckPkt.PacketLen)
+func (pkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
-	snAckPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
-	snAckPkt.sessionID = binary.BigEndian.Uint64(data[10:18])
+	pkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	pkt.sessionID = binary.BigEndian.Uint64(data[10:18])
 	// data
 	snData := &SessionData{}
 	err := json.Unmarshal(data[18:length], snData)
@@ -181,19 +189,19 @@ func (snAckPkt *SessionAckPacket) Decode(data []byte) (uint32, error) {
 		log.Errorf("session ack packet decode err: %s", err)
 		return 0, err
 	}
-	snAckPkt.SessionData = snData
+	pkt.SessionData = snData
 	return uint32(length), nil
 }
 
-func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
-	length := int(snAckPkt.PacketLen)
+func (pkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
-	snAckPkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
-	snAckPkt.sessionID = binary.BigEndian.Uint64(data[10:18])
+	pkt.negotiateID = binary.BigEndian.Uint64(data[2:10])
+	pkt.sessionID = binary.BigEndian.Uint64(data[10:18])
 	// data
 	snData := &SessionData{}
 	err = json.Unmarshal(data[18:length], snData)
@@ -201,7 +209,7 @@ func (snAckPkt *SessionAckPacket) DecodeFromReader(reader io.Reader) error {
 		log.Errorf("session ack packet decode from reader err: %s", err)
 		return err
 	}
-	snAckPkt.SessionData = snData
+	pkt.SessionData = snData
 	return nil
 }
 
@@ -214,37 +222,41 @@ type DismissPacket struct {
 	basePacket
 }
 
-func (disPkt *DismissPacket) SessionID() uint64 {
-	return disPkt.sessionID
+func (pkt *DismissPacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (disPkt *DismissPacket) Encode() ([]byte, error) {
-	hdr, err := disPkt.PacketHeader.Encode()
+func (pkt *DismissPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *DismissPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(disPkt.SessionData)
+	data, err := json.Marshal(pkt.SessionData)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 8
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], disPkt.sessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// data
-	copy(pkt[8:length], data)
+	copy(next[8:length], data)
 	// set pkt length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (disPkt *DismissPacket) Decode(data []byte) (uint32, error) {
-	length := int(disPkt.PacketLen)
+func (pkt *DismissPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	disPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
@@ -252,12 +264,12 @@ func (disPkt *DismissPacket) Decode(data []byte) (uint32, error) {
 		log.Errorf("dismiss packet decode err: %s", err)
 		return 0, err
 	}
-	disPkt.SessionData = disData
+	pkt.SessionData = disData
 	return uint32(length), nil
 }
 
-func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
-	length := int(disPkt.PacketLen)
+func (pkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
@@ -265,14 +277,14 @@ func (disPkt *DismissPacket) DecodeFromReader(reader io.Reader) error {
 		return err
 	}
 	// session id
-	disPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err = json.Unmarshal(data[8:length], disData)
 	if err != nil {
 		return err
 	}
-	disPkt.SessionData = disData
+	pkt.SessionData = disData
 	return nil
 }
 
@@ -285,62 +297,66 @@ type DismissAckPacket struct {
 	basePacket
 }
 
-func (disAckPkt *DismissAckPacket) SessionID() uint64 {
-	return disAckPkt.sessionID
+func (pkt *DismissAckPacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (disAckPkt *DismissAckPacket) Encode() ([]byte, error) {
-	hdr, err := disAckPkt.PacketHeader.Encode()
+func (pkt *DismissAckPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *DismissAckPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(disAckPkt.SessionData)
+	data, err := json.Marshal(pkt.SessionData)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 8
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], disAckPkt.sessionID)
-	copy(pkt[8:length], data)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
+	copy(next[8:length], data)
 
 	// set pkt length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (disAckPkt *DismissAckPacket) Decode(data []byte) (uint32, error) {
-	length := int(disAckPkt.PacketLen)
+func (pkt *DismissAckPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	disAckPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	disData := &SessionData{}
 	err := json.Unmarshal(data[8:length], disData)
 	if err != nil {
 		return 0, err
 	}
-	disAckPkt.SessionData = disData
+	pkt.SessionData = disData
 	return uint32(length), nil
 }
 
-func (disAckPkt *DismissAckPacket) DecodeFromReader(reader io.Reader) error {
-	length := int(disAckPkt.PacketLen)
+func (pkt *DismissAckPacket) DecodeFromReader(reader io.Reader) error {
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
 	// session id
-	disAckPkt.sessionID = binary.BigEndian.Uint64(data[0:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[0:8])
 	// data
 	disData := &SessionData{}
 	err = json.Unmarshal(data[8:length], disData)
 	if err != nil {
 		return err
 	}
-	disAckPkt.SessionData = disData
+	pkt.SessionData = disData
 	return nil
 }
