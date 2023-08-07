@@ -49,7 +49,7 @@ func main() {
 						return
 					}
 					msg := pkt.(*packet.MessagePacket)
-					log.Debug(string(msg.MessageData.Key), string(msg.MessageData.Value))
+					log.Debug(string(msg.Data.Key), string(msg.Data.Value))
 				}
 			}()
 			go func() {

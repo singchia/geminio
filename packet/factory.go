@@ -194,7 +194,7 @@ func (pf *PacketFactory) NewMessagePacket(key, value, custom []byte) *MessagePac
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		MessageData: &MessageData{
+		Data: &MessageData{
 			Key:    key,
 			Value:  value,
 			Custom: custom,
@@ -214,7 +214,7 @@ func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
 			Cnss:     CnssAtLeastOnce,
 		},
 		sessionID: sessionID,
-		MessageData: &MessageData{
+		Data: &MessageData{
 			Key:    key,
 			Value:  value,
 			Custom: custom,
@@ -231,10 +231,10 @@ func (pf *PacketFactory) NewMessageAckPacket(packetID uint64, err error) *Messag
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		MessageData: &MessageData{},
+		Data: &MessageData{},
 	}
 	if err != nil {
-		msgAckPkt.MessageData.Error = err.Error()
+		msgAckPkt.Data.Error = err.Error()
 	}
 	return msgAckPkt
 }
@@ -248,7 +248,7 @@ func (pf *PacketFactory) NewRequestPacket(pattern, data, custom []byte) *Request
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		MessageData: &MessageData{
+		Data: &MessageData{
 			Key:    pattern,
 			Value:  data,
 			Custom: custom,
@@ -266,14 +266,14 @@ func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
 			PacketID: requestPacketID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		MessageData: &MessageData{
+		Data: &MessageData{
 			Key:    pattern,
 			Value:  data,
 			Custom: custom,
 		},
 	}
 	if err != nil {
-		msgAckPkt.MessageData.Error = err.Error()
+		msgAckPkt.Data.Error = err.Error()
 	}
 	return &ResponsePacket{msgAckPkt}
 }
@@ -301,7 +301,7 @@ func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
-		Method: method,
+		method: method,
 	}
 	return registerPkt
 }

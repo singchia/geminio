@@ -71,7 +71,7 @@ type dialogue struct {
 	mtx        sync.RWMutex
 	dialogueOK bool
 
-	// to conn layer
+	// io
 	readInCh, writeOutCh     chan packet.Packet
 	readOutCh, writeInCh     chan packet.Packet
 	readInSize, writeOutSize int
@@ -204,6 +204,7 @@ func (dg *dialogue) Write(pkt packet.Packet) error {
 	if !dg.dialogueOK {
 		return io.EOF
 	}
+	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
 	dg.writeInCh <- pkt
 	return nil
 }
@@ -411,7 +412,7 @@ func (dg *dialogue) handleOut(pkt packet.Packet) iodefine.IORet {
 
 // input packet
 func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IORet {
-	dg.log.Debugf("read dialogue packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("read dialogue packet, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONRECV)
 	if err != nil {
@@ -435,7 +436,7 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 }
 
 func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodefine.IORet {
-	dg.log.Debugf("read dialogue ack packet succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("read dialogue ack packet, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), pkt.SessionID(), pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONACK)
 	if err != nil {

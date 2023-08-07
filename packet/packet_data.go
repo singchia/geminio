@@ -7,18 +7,89 @@ import (
 	"io"
 )
 
+type AppAbove interface {
+	SessionAbove
+}
+
+// Request packet for RPC call
 type RequestPacket struct {
 	*MessagePacket
 }
 
+// Response packet for RPC handler
 type ResponsePacket struct {
 	*MessageAckPacket
 }
 
+type RequestCancelType int16
+
+const (
+	RequestCancelTypeCanceled         RequestCancelType = 1
+	RequestCancelTypeDeadlineExceeded RequestCancelType = 2
+)
+
+// Request cancel packet for RPC cancelation
+type RequestCancelPacket struct {
+	*PacketHeader
+	sessionID  uint64
+	cancelType RequestCancelType
+}
+
+func (pkt *RequestCancelPacket) SessionID() uint64 {
+	return pkt.sessionID
+}
+
+func (pkt *RequestCancelPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *RequestCancelPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
+	if err != nil {
+		return nil, err
+	}
+	length := 10
+	next := make([]byte, length)
+	// session id
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
+	// cancel type
+	binary.BigEndian.PutUint16(next[8:10], uint16(pkt.cancelType))
+	// set next length
+	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
+	return append(hdr, next...), nil
+}
+
+func (pkt *RequestCancelPacket) Decode(data []byte) (uint32, error) {
+	if len(data) < int(pkt.PacketLen) {
+		return 0, ErrIncompletePacket
+	}
+	// session id
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	// cancel type
+	pkt.cancelType = RequestCancelType(binary.BigEndian.Uint16(data[8:10]))
+	return pkt.PacketLen, nil
+}
+
+func (pkt *RequestCancelPacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
+		return ErrIllegalPacket
+	}
+	data := make([]byte, pkt.PacketLen)
+	_, err := io.ReadFull(reader, data)
+	if err != nil {
+		return err
+	}
+	// session id
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	// cancel type
+	pkt.cancelType = RequestCancelType(binary.BigEndian.Uint16(data[8:pkt.PacketLen]))
+	return nil
+}
+
 type MessagePacket struct {
 	*PacketHeader
-	sessionID   uint64
-	MessageData *MessageData
+	sessionID uint64
+	Data      *MessageData
 
 	// the following fields are not encoded into packet
 	basePacket
@@ -32,135 +103,143 @@ type MessageData struct {
 	Error  string `json:"error,omitempty"`
 }
 
-func (msgPkt *MessagePacket) SessionID() uint64 {
-	return msgPkt.sessionID
+func (pkt *MessagePacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (msgPkt *MessagePacket) Encode() ([]byte, error) {
-	hdr, err := msgPkt.PacketHeader.Encode()
+func (pkt *MessagePacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *MessagePacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(msgPkt.MessageData)
+	data, err := json.Marshal(pkt.Data)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 8
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], msgPkt.sessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// data
-	copy(pkt[8:length], data)
-	// set pkt length
+	copy(next[8:length], data)
+	// set next length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (msgPkt *MessagePacket) Decode(data []byte) (uint32, error) {
-	if len(data) < int(msgPkt.PacketLen) {
+func (pkt *MessagePacket) Decode(data []byte) (uint32, error) {
+	if len(data) < int(pkt.PacketLen) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
-	err := json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
+	err := json.Unmarshal(data[8:pkt.PacketLen], msgData)
 	if err != nil {
 		return 0, err
 	}
-	msgPkt.MessageData = msgData
-	return msgPkt.PacketLen, nil
+	pkt.Data = msgData
+	return pkt.PacketLen, nil
 }
 
-func (msgPkt *MessagePacket) DecodeFromReader(reader io.Reader) error {
-	if msgPkt.PacketLen < 8 {
+func (pkt *MessagePacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
 		return errors.New("illegal packet")
 	}
-	data := make([]byte, msgPkt.PacketLen)
+	data := make([]byte, pkt.PacketLen)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
 	// session id
-	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
-	err = json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
+	err = json.Unmarshal(data[8:pkt.PacketLen], msgData)
 	if err != nil {
 		return err
 	}
-	msgPkt.MessageData = msgData
+	pkt.Data = msgData
 	return nil
 }
 
 type MessageAckPacket struct {
 	*PacketHeader
-	sessionID   uint64
-	MessageData *MessageData
+	sessionID uint64
+	Data      *MessageData
 
 	// the following fields are not encoded into packet
 	basePacket
 }
 
-func (msgPkt *MessageAckPacket) SessionID() uint64 {
-	return msgPkt.sessionID
+func (pkt *MessageAckPacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (msgPkt *MessageAckPacket) Encode() ([]byte, error) {
-	hdr, err := msgPkt.PacketHeader.Encode()
+func (pkt *MessageAckPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *MessageAckPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(msgPkt.MessageData)
+	data, err := json.Marshal(pkt.Data)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 8
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], msgPkt.sessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// data
-	copy(pkt[8:length], data)
+	copy(next[8:length], data)
 
-	// set pkt length
+	// set next length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (msgPkt *MessageAckPacket) Decode(data []byte) (uint32, error) {
-	if len(data) < int(msgPkt.PacketLen) {
+func (pkt *MessageAckPacket) Decode(data []byte) (uint32, error) {
+	if len(data) < int(pkt.PacketLen) {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
-	err := json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
+	err := json.Unmarshal(data[8:pkt.PacketLen], msgData)
 	if err != nil {
 		return 0, err
 	}
-	msgPkt.MessageData = msgData
-	return msgPkt.PacketLen, nil
+	pkt.Data = msgData
+	return pkt.PacketLen, nil
 }
 
-func (msgPkt *MessageAckPacket) DecodeFromReader(reader io.Reader) error {
-	if msgPkt.PacketLen < 8 {
+func (pkt *MessageAckPacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
 		return errors.New("illegal packet")
 	}
-	data := make([]byte, msgPkt.PacketLen)
+	data := make([]byte, pkt.PacketLen)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
 	// session id
-	msgPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	msgData := &MessageData{}
-	err = json.Unmarshal(data[8:msgPkt.PacketLen], msgData)
+	err = json.Unmarshal(data[8:pkt.PacketLen], msgData)
 	if err != nil {
 		return err
 	}
-	msgPkt.MessageData = msgData
+	pkt.Data = msgData
 	return nil
 }
 
@@ -173,105 +252,121 @@ type StreamPacket struct {
 	basePacket
 }
 
-func (streamPkt *StreamPacket) SessionID() uint64 {
-	return streamPkt.sessionID
+func (pkt *StreamPacket) SessionID() uint64 {
+	return pkt.sessionID
 }
 
-func (streamPkt *StreamPacket) Encode() ([]byte, error) {
-	hdr, err := streamPkt.PacketHeader.Encode()
+func (pkt *StreamPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *StreamPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	length := len(streamPkt.Data) + 8
-	pkt := make([]byte, length)
+	length := len(pkt.Data) + 8
+	next := make([]byte, length)
 	// session id
-	binary.BigEndian.PutUint64(pkt[:8], streamPkt.sessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// data
-	copy(pkt[8:length], streamPkt.Data)
-	// set pkt length
+	copy(next[8:length], pkt.Data)
+	// set next length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (streamPkt *StreamPacket) Decode(data []byte) (uint32, error) {
-	length := int(streamPkt.PacketLen)
+func (pkt *StreamPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	streamPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
-	streamPkt.Data = data[8:length]
+	pkt.Data = data[8:length]
 	return uint32(length), nil
 }
 
-func (streamPkt *StreamPacket) DecodeFromReader(reader io.Reader) error {
-	if streamPkt.PacketLen < 8 {
+func (pkt *StreamPacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
 		return errors.New("illegal packet")
 	}
-	length := int(streamPkt.PacketLen)
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
 	// session id
-	streamPkt.sessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
-	streamPkt.Data = data[8:length]
+	pkt.Data = data[8:length]
 	return nil
 }
 
 type RegisterPacket struct {
 	*PacketHeader
-	SessionID uint64
-	Method    []byte
+	sessionID uint64
+	method    []byte
 
 	// the following fields are not encoded into packet
 	basePacket
 }
 
-func (registerPkt *RegisterPacket) Encode() ([]byte, error) {
-	hdr, err := registerPkt.PacketHeader.Encode()
+func (pkt *RegisterPacket) Method() string {
+	return string(pkt.method)
+}
+
+func (pkt *RegisterPacket) SessionID() uint64 {
+	return pkt.sessionID
+}
+
+func (pkt *RegisterPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *RegisterPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	length := len(registerPkt.Method) + 8
-	pkt := make([]byte, length)
+	length := len(pkt.method) + 8
+	next := make([]byte, length)
 	// sessin id
-	binary.BigEndian.PutUint64(pkt[:8], registerPkt.SessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// method
-	copy(pkt[8:length], registerPkt.Method)
-	// set pkt length
+	copy(next[8:length], pkt.method)
+	// set next length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (registerPkt *RegisterPacket) Decode(data []byte) (uint32, error) {
-	length := int(registerPkt.PacketLen)
+func (pkt *RegisterPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	registerPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// method
-	registerPkt.Method = data[8:length]
+	pkt.method = data[8:length]
 	return uint32(length), nil
 }
 
-func (registerPkt *RegisterPacket) DecodeFromReader(reader io.Reader) error {
-	if registerPkt.PacketLen < 8 {
+func (pkt *RegisterPacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
 		return errors.New("illegal packet")
 	}
-	length := int(registerPkt.PacketLen)
+	length := int(pkt.PacketLen)
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
 	if err != nil {
 		return err
 	}
-	registerPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// method
-	registerPkt.Method = data[8:length]
+	pkt.method = data[8:length]
 	return nil
 }
 
@@ -281,55 +376,63 @@ type RegisterData struct {
 
 type RegisterAckPacket struct {
 	*PacketHeader
-	SessionID    uint64
+	sessionID    uint64
 	RegisterData *RegisterData
 
 	// the following fields are not encoded into packet
 	basePacket
 }
 
-func (registerAckPkt *RegisterAckPacket) Encode() ([]byte, error) {
-	hdr, err := registerAckPkt.PacketHeader.Encode()
+func (pkt *RegisterAckPacket) SessionID() uint64 {
+	return pkt.sessionID
+}
+
+func (pkt *RegisterAckPacket) SetSessionID(sessionID uint64) {
+	pkt.sessionID = sessionID
+}
+
+func (pkt *RegisterAckPacket) Encode() ([]byte, error) {
+	hdr, err := pkt.PacketHeader.Encode()
 	if err != nil {
 		return nil, err
 	}
-	data, err := json.Marshal(registerAckPkt.RegisterData)
+	data, err := json.Marshal(pkt.RegisterData)
 	if err != nil {
 		return nil, err
 	}
 	length := len(data) + 8
-	pkt := make([]byte, length)
+	next := make([]byte, length)
 	// sessin id
-	binary.BigEndian.PutUint64(pkt[:8], registerAckPkt.SessionID)
+	binary.BigEndian.PutUint64(next[:8], pkt.sessionID)
 	// data
-	copy(pkt[8:length], data)
-	// set pkt length
+	copy(next[8:length], data)
+	// set next length
 	binary.BigEndian.PutUint32(hdr[10:14], uint32(length))
-	return append(hdr, pkt...), nil
+	return append(hdr, next...), nil
 }
 
-func (registerAckPkt *RegisterAckPacket) Decode(data []byte) (uint32, error) {
-	length := int(registerAckPkt.PacketLen)
+func (pkt *RegisterAckPacket) Decode(data []byte) (uint32, error) {
+	length := int(pkt.PacketLen)
 	if len(data) < length {
 		return 0, ErrIncompletePacket
 	}
 	// session id
-	registerAckPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	registerData := &RegisterData{}
 	err := json.Unmarshal(data[8:length], registerData)
 	if err != nil {
 		return 0, err
 	}
-	registerAckPkt.RegisterData = registerData
+	pkt.RegisterData = registerData
 	return uint32(length), nil
 }
 
-func (registerAckPkt *RegisterAckPacket) DecodeFromReader(reader io.Reader) error {
-	if registerAckPkt.PacketLen < 8 {
+func (pkt *RegisterAckPacket) DecodeFromReader(reader io.Reader) error {
+	if pkt.PacketLen < 8 {
 		return errors.New("illegal packet")
 	}
-	length := int(registerAckPkt.PacketLen)
+	length := int(pkt.PacketLen)
 
 	data := make([]byte, length)
 	_, err := io.ReadFull(reader, data)
@@ -337,13 +440,13 @@ func (registerAckPkt *RegisterAckPacket) DecodeFromReader(reader io.Reader) erro
 		return err
 	}
 	// session id
-	registerAckPkt.SessionID = binary.BigEndian.Uint64(data[:8])
+	pkt.sessionID = binary.BigEndian.Uint64(data[:8])
 	// data
 	registerData := &RegisterData{}
 	err = json.Unmarshal(data[8:length], registerData)
 	if err != nil {
 		return err
 	}
-	registerAckPkt.RegisterData = registerData
+	pkt.RegisterData = registerData
 	return nil
 }

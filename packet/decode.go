@@ -10,6 +10,7 @@ var (
 	ErrIncompletePacket  = errors.New("incomplete packet")
 	ErrExpectingData     = errors.New("expecting data")
 	ErrInvalidArguments  = errors.New("invalid arguments")
+	ErrIllegalPacket     = errors.New("illegal packet")
 )
 
 func Decode(data []byte) (Packet, uint32, error) {

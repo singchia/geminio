@@ -10,6 +10,7 @@ import (
 
 type ConnAbove interface {
 	ClientID() uint64
+	SetClientID(clientID uint64)
 }
 
 type Heartbeat time.Duration

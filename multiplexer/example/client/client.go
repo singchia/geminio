@@ -169,7 +169,7 @@ func handleInput(sn multiplexer.Dialogue) {
 				return
 			}
 			msg := pkt.(*packet.MessagePacket)
-			log.Println(">", sn.ClientID(), msg.SessionID(), string(msg.MessageData.Value))
+			log.Println(">", sn.ClientID(), msg.SessionID(), string(msg.Data.Value))
 		}
 	}()
 }
