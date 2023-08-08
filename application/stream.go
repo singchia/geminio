@@ -17,6 +17,10 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
+const (
+	registrationFormat = "%d-%d-registration"
+)
+
 type methodRPC geminio.HijackRPC
 
 type streamOpts struct {
@@ -116,15 +120,15 @@ func (sm *stream) handleMessagePacket(pkt *packet.MessagePacket) iodefine.IORet 
 }
 
 func (sm *stream) handleMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
-	sm.log.Tracef("read message ack packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Debugf("message ack packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %b",
-			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
+		sm.log.Tracef("read message ack packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %b",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
+	sm.log.Tracef("read message ack packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	acked := sm.shub.Ack(pkt.ID(), nil)
 	sm.log.Tracef("message ack packet acked: %b, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		acked, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
@@ -180,18 +184,51 @@ func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet 
 	return iodefine.IOSuccess
 }
 
+func (sm *stream) handleResponsePacket(pkt *packet.ResponsePacket) iodefine.IORet {
+	if pkt.Data.Error != "" {
+		err := errors.New(pkt.Data.Error)
+		errored := sm.shub.Error(pkt.ID(), err)
+		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %b,",
+			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
+		return iodefine.IOSuccess
+	}
+	sm.log.Tracef("read response packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s,",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	rsp := &response{
+		data:      pkt.Data.Value,
+		requestID: pkt.ID(),
+		clientID:  sm.cn.ClientID(),
+		streamID:  sm.dg.DialogueID(),
+	}
+	// the return is ignored for now
+	// TODO consistency optimize
+	_ = sm.shub.Ack(pkt.ID(), rsp)
+	return iodefine.IOSuccess
+}
+
 func (sm *stream) handleRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
 	method := pkt.Method()
 	sm.log.Tracef("read register packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
 
-	sm.pf.NewRegisterPacket([]byte(method))
+	retPkt := sm.pf.NewRegisterAckPacket(pkt.ID(), nil)
+	err := sm.dg.Write(retPkt)
+	if err != nil {
+		sm.log.Debugf("write register ack packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
+		return iodefine.IOErr
+	}
 
-	// to notify the method is registing, in case of we're waiting for the method ready
-	sm.shub.Done(method)
+	// TODO delegate for remote registration
+
 	sm.rpcMtx.Lock()
 	sm.remoteRPCs[method] = struct{}{}
 	sm.rpcMtx.Unlock()
+
+	// to notify the method is registing, in case of we're waiting for the method ready
+	syncID := fmt.Sprintf(registrationFormat, sm.cn.ClientID(), sm.dg.DialogueID())
+	sm.shub.DoneSub(syncID, method)
+
 	return iodefine.IOSuccess
 }
 
