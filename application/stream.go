@@ -96,22 +96,39 @@ FINI:
 func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
 	switch realPkt := pkt.(type) {
 	case *packet.MessagePacket:
-		return sm.handleMessagePacket(realPkt)
+		return sm.handleInMessagePacket(realPkt)
 	case *packet.MessageAckPacket:
+		return sm.handleInMessageAckPacket(realPkt)
 	case *packet.RequestPacket:
+		return sm.handleInRequestPacket(realPkt)
 	case *packet.RequestCancelPacket:
 		// TODO
 	case *packet.ResponsePacket:
+		return sm.handleInResponsePacket(realPkt)
 	case *packet.RegisterPacket:
+		return sm.handleInRegisterPacket(realPkt)
 	case *packet.RegisterAckPacket:
+		return sm.handleInRegisterAckPacket(realPkt)
 	case *packet.StreamPacket:
+		return sm.handleInStreamPacket(realPkt)
 	}
 	// unknown packet
 	return iodefine.IOErr
 }
 
+func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.MessagePacket:
+	case *packet.MessageAckPacket:
+	case *packet.RequestPacket:
+	case *packet.StreamPacket:
+	}
+	// unknown packet
+	return iodefine.IOSuccess
+}
+
 // input packet
-func (sm *stream) handleMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
+func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
 	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	// TODO add select, we don't want block here.
@@ -119,7 +136,7 @@ func (sm *stream) handleMessagePacket(pkt *packet.MessagePacket) iodefine.IORet 
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
+func (sm *stream) handleInMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
@@ -135,7 +152,7 @@ func (sm *stream) handleMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
+func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
 	method := string(pkt.Data.Key)
 	sm.log.Tracef("read request packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
@@ -184,7 +201,7 @@ func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet 
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleResponsePacket(pkt *packet.ResponsePacket) iodefine.IORet {
+func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IORet {
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
@@ -206,7 +223,7 @@ func (sm *stream) handleResponsePacket(pkt *packet.ResponsePacket) iodefine.IORe
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
+func (sm *stream) handleInRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
 	method := pkt.Method()
 	sm.log.Tracef("read register packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
@@ -229,6 +246,33 @@ func (sm *stream) handleRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORe
 	syncID := fmt.Sprintf(registrationFormat, sm.cn.ClientID(), sm.dg.DialogueID())
 	sm.shub.DoneSub(syncID, method)
 
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleInRegisterAckPacket(pkt *packet.RegisterAckPacket) iodefine.IORet {
+	sm.log.Tracef("read register ack packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	sm.shub.Done(pkt.ID())
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
+	sm.log.Tracef("read stream packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	sm.streamCh <- pkt
+	return iodefine.IOSuccess
+}
+
+// output packet
+func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		// notify the publish side the err
+		sm.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
 	return iodefine.IOSuccess
 }
 
