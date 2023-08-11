@@ -12,8 +12,8 @@ type request struct {
 	timeout  time.Duration
 }
 
-// Get RequestID, which is packetID at under layer
-func (req *request) RequestID() uint64 {
+// Get ID, which is packetID at under layer
+func (req *request) ID() uint64 {
 	return req.id
 }
 
@@ -62,7 +62,7 @@ func (rsp *response) SetError(err error) {
 	rsp.err = err
 }
 
-func (rsp *response) RequestID() uint64 {
+func (rsp *response) ID() uint64 {
 	return rsp.requestID
 }
 

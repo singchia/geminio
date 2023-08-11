@@ -1,10 +1,14 @@
 package geminio
 
-import "time"
+import (
+	"time"
+
+	"github.com/singchia/geminio/packet"
+)
 
 type Request interface {
 	// those meta info shouldn't be changed
-	RequestID() uint64
+	ID() uint64
 	StreamID() uint64
 	ClientID() uint64
 	Method() string
@@ -16,7 +20,7 @@ type Request interface {
 
 type Response interface {
 	// those meta info shouldn't be changed
-	RequestID() uint64
+	ID() uint64
 	StreamID() uint64
 	ClientID() uint64
 	Method() string
@@ -33,3 +37,24 @@ type RPC func(Request, Response)
 
 // hijack rpc functions
 type HijackRPC func(string, Request, Response)
+
+type Cnss byte
+
+const (
+	CnssAtLeastOnce = packet.CnssAtLeastOnce
+	CnssAtMostOnce  = packet.CnssAtMostOnce
+)
+
+type Message interface {
+	Done() error
+	Error(err error)
+	ID() uint64
+	StreamID() uint64
+	ClientID() uint64
+	// consistency protocol
+	Consistency() Cnss
+
+	// application data
+	Data() []byte
+	Topic() string
+}

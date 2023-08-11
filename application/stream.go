@@ -73,6 +73,10 @@ type stream struct {
 	closeCh chan struct{}
 }
 
+func (sm *stream) NewMessage(key, value []byte)
+
+func (sm *stream) Publish()
+
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
 	writeInCh := sm.writeInCh
