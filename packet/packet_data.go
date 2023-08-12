@@ -97,10 +97,10 @@ type MessagePacket struct {
 
 // TODO 待优化
 type MessageData struct {
-	Key    []byte `json:"key,omitempty"`
-	Value  []byte `json:"value,omitempty"`
-	Custom []byte `json:"custom,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Key   []byte `json:"key,omitempty"`
+	Value []byte `json:"value,omitempty"`
+	//Custom []byte `json:"custom,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 func (pkt *MessagePacket) SessionID() uint64 {

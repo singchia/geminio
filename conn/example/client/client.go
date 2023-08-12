@@ -52,7 +52,7 @@ func main() {
 			sc.Close()
 			break
 		}
-		pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
+		pkt := pf.NewMessagePacket([]byte{}, []byte(text))
 		err := sc.Write(pkt)
 		if err != nil {
 			log.Error("write err:", err)

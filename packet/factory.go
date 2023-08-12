@@ -10,6 +10,10 @@ func NewPacketFactory(packetIDs *id.IDCounter) *PacketFactory {
 	return &PacketFactory{packetIDs}
 }
 
+func (pf *PacketFactory) NewPacketID() uint64 {
+	return pf.packetIDs.GetID()
+}
+
 // connection layer packets
 func (pf *PacketFactory) NewConnPacket(wantedClientID uint64, clientIDPeersCall bool,
 	heartbeat Heartbeat, meta []byte) *ConnPacket {
@@ -185,7 +189,7 @@ func (pf *PacketFactory) NewDismissAckPacket(packetID uint64,
 }
 
 // application layer packets
-func (pf *PacketFactory) NewMessagePacket(key, value, custom []byte) *MessagePacket {
+func (pf *PacketFactory) NewMessagePacket(key, value []byte) *MessagePacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{
 		PacketHeader: &PacketHeader{
@@ -195,12 +199,18 @@ func (pf *PacketFactory) NewMessagePacket(key, value, custom []byte) *MessagePac
 			Cnss:     CnssAtLeastOnce,
 		},
 		Data: &MessageData{
-			Key:    key,
-			Value:  value,
-			Custom: custom,
+			Key:   key,
+			Value: value,
+			//Custom: custom,
 		},
 	}
 	return msgPkt
+}
+
+func (pf *PacketFactory) NewMessagePacketWithID(id uint64, key, value []byte) *MessagePacket {
+	pkt := pf.NewMessagePacket(key, value)
+	pkt.PacketID = id
+	return pkt
 }
 
 func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
@@ -215,9 +225,9 @@ func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
 		},
 		sessionID: sessionID,
 		Data: &MessageData{
-			Key:    key,
-			Value:  value,
-			Custom: custom,
+			Key:   key,
+			Value: value,
+			//Custom: custom,
 		},
 	}
 	return msgPkt
@@ -239,7 +249,7 @@ func (pf *PacketFactory) NewMessageAckPacket(packetID uint64, err error) *Messag
 	return msgAckPkt
 }
 
-func (pf *PacketFactory) NewRequestPacket(pattern, data, custom []byte) *RequestPacket {
+func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{
 		PacketHeader: &PacketHeader{
@@ -249,16 +259,16 @@ func (pf *PacketFactory) NewRequestPacket(pattern, data, custom []byte) *Request
 			Cnss:     CnssAtLeastOnce,
 		},
 		Data: &MessageData{
-			Key:    pattern,
-			Value:  data,
-			Custom: custom,
+			Key:   pattern,
+			Value: data,
+			//Custom: custom,
 		},
 	}
 	return &RequestPacket{msgPkt}
 }
 
 func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
-	pattern, data, custom []byte, err error) *ResponsePacket {
+	pattern, data []byte, err error) *ResponsePacket {
 	msgAckPkt := &MessageAckPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -267,9 +277,8 @@ func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
 			Cnss:     CnssAtLeastOnce,
 		},
 		Data: &MessageData{
-			Key:    pattern,
-			Value:  data,
-			Custom: custom,
+			Key:   pattern,
+			Value: data,
 		},
 	}
 	if err != nil {

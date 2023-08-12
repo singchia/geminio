@@ -1,8 +1,10 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
@@ -61,12 +63,68 @@ type stream struct {
 
 	// app layer messages
 	// raw cache
-	cache        []byte
-	messageOutCh chan *packet.MessagePacket
-	streamCh     chan *packet.StreamPacket
+	cache     []byte
+	messageCh chan *packet.MessagePacket
+	streamCh  chan *packet.StreamPacket
+	failedCh  chan packet.Packet
 
 	// io
 	writeInCh chan packet.Packet // for multiple message types
+
+	// close channel
+	closeCh chan struct{}
+}
+
+func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute) geminio.Message {
+	id := sm.pf.NewPacketID()
+	msg := &message{
+		data:     data,
+		id:       id,
+		clientID: sm.cn.ClientID(),
+		streamID: sm.dg.DialogueID(),
+		sm:       sm,
+	}
+	for _, opt := range opts {
+		opt(msg.MessageAttribute)
+	}
+	return msg
+}
+
+// Publish to peer, a sync function
+func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
+	if msg.ClientID() != sm.cn.ClientID() || msg.StreamID() != sm.dg.DialogueID() {
+		return errors.New("mismatch stream or client ID")
+	}
+	sm.mtx.RLock()
+	defer sm.mtx.RUnlock()
+
+	if !sm.streamOK {
+		return io.EOF
+	}
+	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
+	if msg.Cnss() == geminio.CnssAtMostOnce {
+		// if consistency is set to be AtMostOnce, we don't care about about context or timeout
+		sm.writeInCh <- pkt
+		return nil
+	}
+	var sync synchub.Sync
+	opts := []synchub.SyncOption{synchub.WithContext(ctx)}
+	if msg.Timeout() != 0 {
+		// the sync may has timeout
+		opts = append(opts, synchub.WithTimeout(msg.Timeout()))
+	}
+	sync = sm.shub.New(msg.ID(), opts...)
+	sm.writeInCh <- pkt
+	event := <-sync.C()
+	if event.Error != nil {
+		sm.log.Debugf("message return err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		// TODO we did't separate err from lib and user
+		return event.Error
+	}
+	sm.log.Tracef("message return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	return nil
 }
 
 func (sm *stream) handlePkt() {
@@ -81,13 +139,28 @@ func (sm *stream) handlePkt() {
 			}
 			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			ret := sm.handleIn(pkt)
+			switch ret {
+			case iodefine.IOSuccess:
+				continue
+			case iodefine.IOErr:
+				goto FINI
+			}
 
 		case pkt, ok := <-writeInCh:
 			if !ok {
+				// BUG! shoud never be here.
 				goto FINI
 			}
 			sm.log.Tracef("stream write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			ret := sm.handleOut(pkt)
+			switch ret {
+			case iodefine.IOSuccess:
+				continue
+			case iodefine.IOErr:
+				goto FINI
+			}
 		}
 	}
 FINI:
@@ -96,30 +169,51 @@ FINI:
 func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
 	switch realPkt := pkt.(type) {
 	case *packet.MessagePacket:
-		return sm.handleMessagePacket(realPkt)
+		return sm.handleInMessagePacket(realPkt)
 	case *packet.MessageAckPacket:
+		return sm.handleInMessageAckPacket(realPkt)
 	case *packet.RequestPacket:
+		return sm.handleInRequestPacket(realPkt)
 	case *packet.RequestCancelPacket:
 		// TODO
 	case *packet.ResponsePacket:
+		return sm.handleInResponsePacket(realPkt)
 	case *packet.RegisterPacket:
+		return sm.handleInRegisterPacket(realPkt)
 	case *packet.RegisterAckPacket:
+		return sm.handleInRegisterAckPacket(realPkt)
 	case *packet.StreamPacket:
+		return sm.handleInStreamPacket(realPkt)
 	}
 	// unknown packet
 	return iodefine.IOErr
 }
 
-// input packet
-func (sm *stream) handleMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
-	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-	// TODO add select, we don't want block here.
-	sm.messageOutCh <- pkt
+func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
+	switch realPkt := pkt.(type) {
+	case *packet.MessagePacket:
+		return sm.handleOutMessagePacket(realPkt)
+	case *packet.MessageAckPacket:
+		return sm.handleOutMessageAckPacket(realPkt)
+	case *packet.RequestPacket:
+		return sm.handleOutRequestPacket(realPkt)
+	case *packet.StreamPacket:
+		return sm.handleOutStreamPacket(realPkt)
+	}
+	// unknown packet
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
+// input packet
+func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
+	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	// TODO add select, we don't want block here.
+	sm.messageCh <- pkt
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleInMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
@@ -135,7 +229,7 @@ func (sm *stream) handleMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
+func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
 	method := string(pkt.Data.Key)
 	sm.log.Tracef("read request packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
@@ -174,7 +268,7 @@ func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet 
 
 	// no rpc found, return to call error, note that this error is not set to response error
 	err := fmt.Errorf("no such rpc: %s", method)
-	rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(method), nil, nil, err)
+	rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(method), nil, err)
 	err = sm.dg.Write(rspPkt)
 	if err != nil {
 		sm.log.Debugf("write no such rpc response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
@@ -184,7 +278,7 @@ func (sm *stream) handleRequestPacket(pkt *packet.RequestPacket) iodefine.IORet 
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleResponsePacket(pkt *packet.ResponsePacket) iodefine.IORet {
+func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IORet {
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
@@ -206,7 +300,7 @@ func (sm *stream) handleResponsePacket(pkt *packet.ResponsePacket) iodefine.IORe
 	return iodefine.IOSuccess
 }
 
-func (sm *stream) handleRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
+func (sm *stream) handleInRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
 	method := pkt.Method()
 	sm.log.Tracef("read register packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
@@ -232,11 +326,69 @@ func (sm *stream) handleRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORe
 	return iodefine.IOSuccess
 }
 
+func (sm *stream) handleInRegisterAckPacket(pkt *packet.RegisterAckPacket) iodefine.IORet {
+	sm.log.Tracef("read register ack packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	sm.shub.Done(pkt.ID())
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
+	sm.log.Tracef("read stream packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	sm.streamCh <- pkt
+	return iodefine.IOSuccess
+}
+
+// output packet
+func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		// notify the publish side the err
+		sm.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleOutMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write message ack packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleOutRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		sm.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write stream packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
 // doRPC provide generic rpc call
 func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, req *request, rsp *response, async bool) {
 	prog := func() {
 		rpc(method, req, rsp)
-		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.custom, rsp.err)
+		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.err)
 		err := sm.dg.Write(rspPkt)
 		if err != nil {
 			// Write error, the response cannot be delivered, so should be debuged
@@ -254,4 +406,53 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 	} else {
 		prog()
 	}
+}
+
+func (sm *stream) Close() {
+	sm.closeOnce.Do(func() {
+		sm.mtx.RLock()
+		defer sm.mtx.RUnlock()
+		if !sm.streamOK {
+			return
+		}
+
+		sm.log.Debugf("stream async close, clientID: %d, dialogueID: %d",
+			sm.cn.ClientID(), sm.dg.DialogueID())
+		// diglogue Close will leads to fini and then close the readInCh
+		sm.dg.Close()
+	})
+}
+
+// finish and reclaim resources
+func (sm *stream) fini() {
+	sm.log.Debugf("stream finishing, clientID: %d, dialogueID: %d",
+		sm.cn.ClientID(), sm.dg.DialogueID())
+
+	sm.mtx.Lock()
+	// collect shub, and all syncs will be close notified
+	sm.shub.Close()
+	sm.shub = nil
+
+	sm.streamOK = false
+	close(sm.writeInCh)
+	sm.mtx.Unlock()
+
+	for range sm.writeInCh {
+		// TODO we show care about msg in writeInCh buffer, it may contains message, request...
+	}
+	// collect channels
+	sm.writeInCh = nil
+
+	// the outside should care about message and stream channel status
+	close(sm.messageCh)
+	close(sm.streamCh)
+
+	// collect timer
+	if !sm.tmrOutside {
+		sm.tmr.Close()
+	}
+	sm.tmr = nil
+
+	sm.log.Debugf("stream finished, clientID: %d, dialogueID: %d",
+		sm.cn.ClientID(), sm.dg.DialogueID())
 }

@@ -289,6 +289,7 @@ func (dg *dialogue) open() error {
 	return event.Error
 }
 
+// we may or not separate the goroutine because the underlay is still a channel
 func (dg *dialogue) writePkt() {
 	writeOutCh := dg.writeOutCh
 	err := error(nil)
@@ -541,7 +542,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
-	dg.log.Debugf("send dialogue ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("dialogue write session ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	// open dialogue passive
 	if dg.dlgt != nil {
@@ -563,7 +564,7 @@ func (dg *dialogue) handleOutDismissPacket(pkt *packet.DismissPacket) iodefine.I
 		return iodefine.IOErr
 	}
 	dg.writeOutCh <- pkt
-	dg.log.Debugf("dialogue send dismiss down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("dialogue write dismiss down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	return iodefine.IOSuccess
 }
@@ -577,7 +578,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 	}
 	dg.dowritePkt(pkt, false)
 	// make sure this packet is flushed before writeOutCh closed
-	dg.log.Debugf("dialogue send dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Debugf("dialogue write dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	if dg.fsm.State() == DISMISS_HALF {
 		return iodefine.IOSuccess
@@ -587,7 +588,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 
 func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	dg.writeOutCh <- pkt
-	dg.log.Tracef("dialogue send data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
+	dg.log.Tracef("dialogue write data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	return iodefine.IOSuccess
 }
@@ -600,7 +601,7 @@ func (dg *dialogue) Close() {
 			return
 		}
 
-		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
+		dg.log.Debugf("dialogue async close, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
@@ -645,11 +646,13 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 func (dg *dialogue) fini() {
 	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
+
 	dg.mtx.Lock()
 	// collect shub
 	dg.shub.Close()
 	dg.shub = nil
 
+	// TODO should we move dialogueOK=false to Close and CloseWait?
 	dg.dialogueOK = false
 	close(dg.writeInCh)
 	dg.mtx.Unlock()
@@ -668,6 +671,9 @@ func (dg *dialogue) fini() {
 			dg.failedCh <- pkt
 		}
 	}
+	// collect channels
+	dg.writeInCh, dg.writeOutCh = nil, nil
+	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
 
 	// collect timer
 	if !dg.tmrOutside {
@@ -678,8 +684,6 @@ func (dg *dialogue) fini() {
 	dg.fsm.EmitEvent(ET_FINI)
 	dg.fsm.Close()
 	dg.fsm = nil
-	// collect channels
-	dg.writeInCh, dg.writeOutCh = nil, nil
 
 	dg.log.Debugf("dialogue finished, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)

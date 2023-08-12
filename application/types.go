@@ -1,19 +1,23 @@
 package application
 
-import "time"
+import (
+	"time"
+
+	"github.com/singchia/geminio"
+)
 
 // request implements geminio.Request
 type request struct {
+	method   string
 	data     []byte
 	id       uint64
-	method   string
 	clientID uint64
 	streamID uint64
 	timeout  time.Duration
 }
 
-// Get RequestID, which is packetID at under layer
-func (req *request) RequestID() uint64 {
+// Get ID, which is packetID at under layer
+func (req *request) ID() uint64 {
 	return req.id
 }
 
@@ -47,7 +51,7 @@ type response struct {
 	err    error
 	data   []byte
 	method string
-	custom []byte
+	//custom []byte
 	// response share id with requestID, distinguish by packet type
 	requestID uint64
 	clientID  uint64
@@ -62,7 +66,7 @@ func (rsp *response) SetError(err error) {
 	rsp.err = err
 }
 
-func (rsp *response) RequestID() uint64 {
+func (rsp *response) ID() uint64 {
 	return rsp.requestID
 }
 
@@ -85,4 +89,49 @@ func (rsp *response) Data() []byte {
 // Set Data to response, set it in RPC.
 func (rsp *response) SetData(data []byte) {
 	rsp.data = data
+}
+
+type message struct {
+	*geminio.MessageAttribute
+	err  error
+	data []byte
+	//custom []byte
+	// ids
+	id       uint64
+	clientID uint64
+	streamID uint64
+	// we need stream to handle ack
+	sm *stream
+}
+
+func (msg *message) Error(err error) {
+	return
+}
+
+func (msg *message) Done() error {
+	return nil
+}
+
+func (msg *message) ID() uint64 {
+	return msg.id
+}
+
+func (msg *message) ClientID() uint64 {
+	return msg.clientID
+}
+
+func (msg *message) StreamID() uint64 {
+	return msg.streamID
+}
+
+func (msg *message) Cnss() geminio.Cnss {
+	return geminio.Cnss(msg.MessageAttribute.Cnss)
+}
+
+func (msg *message) Timeout() time.Duration {
+	return msg.MessageAttribute.Timeout
+}
+
+func (msg *message) Data() []byte {
+	return msg.data
 }
