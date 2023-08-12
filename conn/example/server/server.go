@@ -110,7 +110,7 @@ func main() {
 							log.Error("clientID not found", clientID)
 							continue
 						}
-						pkt := pf.NewMessagePacket([]byte{}, []byte(text), []byte{})
+						pkt := pf.NewMessagePacket([]byte{}, []byte(text))
 						err = rc.(*conn.ServerConn).Write(pkt)
 						if err != nil {
 							log.Error("write err:", err)

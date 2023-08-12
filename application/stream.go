@@ -1,8 +1,10 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
@@ -73,9 +75,57 @@ type stream struct {
 	closeCh chan struct{}
 }
 
-func (sm *stream) NewMessage(key, value []byte)
+func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute) geminio.Message {
+	id := sm.pf.NewPacketID()
+	msg := &message{
+		data:     data,
+		id:       id,
+		clientID: sm.cn.ClientID(),
+		streamID: sm.dg.DialogueID(),
+		sm:       sm,
+	}
+	for _, opt := range opts {
+		opt(msg.MessageAttribute)
+	}
+	return msg
+}
 
-func (sm *stream) Publish()
+// Publish to peer, a sync function
+func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
+	if msg.ClientID() != sm.cn.ClientID() || msg.StreamID() != sm.dg.DialogueID() {
+		return errors.New("mismatch stream or client ID")
+	}
+	sm.mtx.RLock()
+	defer sm.mtx.RUnlock()
+
+	if !sm.streamOK {
+		return io.EOF
+	}
+	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
+	if msg.Cnss() == geminio.CnssAtMostOnce {
+		// if consistency is set to be AtMostOnce, we don't care about about context or timeout
+		sm.writeInCh <- pkt
+		return nil
+	}
+	var sync synchub.Sync
+	opts := []synchub.SyncOption{synchub.WithContext(ctx)}
+	if msg.Timeout() != 0 {
+		// the sync may has timeout
+		opts = append(opts, synchub.WithTimeout(msg.Timeout()))
+	}
+	sync = sm.shub.New(msg.ID(), opts...)
+	sm.writeInCh <- pkt
+	event := <-sync.C()
+	if event.Error != nil {
+		sm.log.Debugf("message return err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		// TODO we did't separate err from lib and user
+		return event.Error
+	}
+	sm.log.Tracef("message return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	return nil
+}
 
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
@@ -218,7 +268,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 
 	// no rpc found, return to call error, note that this error is not set to response error
 	err := fmt.Errorf("no such rpc: %s", method)
-	rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(method), nil, nil, err)
+	rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(method), nil, err)
 	err = sm.dg.Write(rspPkt)
 	if err != nil {
 		sm.log.Debugf("write no such rpc response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
@@ -338,7 +388,7 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, req *request, rsp *response, async bool) {
 	prog := func() {
 		rpc(method, req, rsp)
-		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.custom, rsp.err)
+		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.err)
 		err := sm.dg.Write(rspPkt)
 		if err != nil {
 			// Write error, the response cannot be delivered, so should be debuged

@@ -150,7 +150,7 @@ func benchRW(b *testing.B, reader Reader, writer Writer) {
 	pf := packet.NewPacketFactory(id.NewIDCounter(id.Even))
 	size := int64(128 * 1024)
 	buf := make([]byte, 128)
-	pkt := pf.NewMessagePacket(buf, []byte{}, []byte{})
+	pkt := pf.NewMessagePacket(buf, []byte{})
 
 	b.SetBytes(size)
 	b.ResetTimer()

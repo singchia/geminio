@@ -57,7 +57,7 @@ func main() {
 				for {
 					<-tick.C()
 					for j := 0; j < *mps; j++ {
-						pkt := pf.NewMessagePacket([]byte{}, []byte(strconv.Itoa(i)), []byte{})
+						pkt := pf.NewMessagePacket([]byte{}, []byte(strconv.Itoa(i)))
 						sc.Write(pkt)
 						err = sc.Write(pkt)
 						if err != nil {
