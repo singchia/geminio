@@ -19,6 +19,11 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
+var (
+	ErrMismatchStreamID = errors.New("mismatch streamID")
+	ErrMismatchClientID = errors.New("mismatch clientID")
+)
+
 const (
 	registrationFormat = "%d-%d-registration"
 )
@@ -92,19 +97,22 @@ func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute
 
 // Publish to peer, a sync function
 func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
-	if msg.ClientID() != sm.cn.ClientID() || msg.StreamID() != sm.dg.DialogueID() {
-		return errors.New("mismatch stream or client ID")
+	if msg.ClientID() != sm.cn.ClientID() {
+		return ErrMismatchClientID
+	}
+	if msg.StreamID() != sm.dg.DialogueID() {
+		return ErrMismatchStreamID
 	}
 	sm.mtx.RLock()
-	defer sm.mtx.RUnlock()
-
 	if !sm.streamOK {
+		sm.mtx.RUnlock()
 		return io.EOF
 	}
 	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
 	if msg.Cnss() == geminio.CnssAtMostOnce {
-		// if consistency is set to be AtMostOnce, we don't care about about context or timeout
+		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
+		sm.mtx.RUnlock()
 		return nil
 	}
 	var sync synchub.Sync
@@ -115,6 +123,8 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
 	}
 	sync = sm.shub.New(msg.ID(), opts...)
 	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
+
 	event := <-sync.C()
 	if event.Error != nil {
 		sm.log.Debugf("message return err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
@@ -125,6 +135,79 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
 	sm.log.Tracef("message return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	return nil
+}
+
+func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan *geminio.Publish) (*geminio.Publish, error) {
+	if msg.ClientID() != sm.cn.ClientID() {
+		return nil, ErrMismatchClientID
+	}
+	if msg.StreamID() != sm.dg.DialogueID() {
+		return nil, ErrMismatchStreamID
+	}
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return nil, io.EOF
+	}
+	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
+	if msg.Cnss() == geminio.CnssAtMostOnce {
+		// if consistency is set to be AtMostOnce, we don't care about context or timeout or async
+		sm.writeInCh <- pkt
+		sm.mtx.RUnlock()
+		return nil, nil
+	}
+	if ch == nil {
+		// we don't want block here
+		ch = make(chan *geminio.Publish, 1)
+	}
+	publish := &geminio.Publish{
+		Message: msg,
+		Done:    ch,
+	}
+	opts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
+		if event.Error != nil {
+			sm.log.Debugf("message packet err: %s, lientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			publish.Error = event.Error
+			ch <- publish
+			return
+		}
+		sm.log.Tracef("message return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		ch <- publish
+		return
+	})}
+	if msg.Timeout() != 0 {
+		// the sync may has timeout
+		opts = append(opts, synchub.WithTimeout(msg.Timeout()))
+	}
+	// Add a new sync for the async publish
+	sm.shub.New(pkt.ID(), opts...)
+	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
+	return publish, nil
+}
+
+// return EOF means the stream is closed
+func (sm *stream) Receive() (geminio.Message, error) {
+	pkt, ok := <-sm.messageCh
+	if !ok {
+		sm.log.Debugf("stream receive EOF, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		return nil, io.EOF
+	}
+	msg := &message{
+		MessageAttribute: &geminio.MessageAttribute{
+			Timeout: pkt.Data.Timeout,
+			Cnss:    geminio.Cnss(pkt.Cnss),
+		},
+		data:     pkt.Data.Value,
+		id:       pkt.PacketID,
+		clientID: sm.cn.ClientID(),
+		streamID: sm.dg.DialogueID(),
+		sm:       sm,
+	}
+	return msg, nil
 }
 
 func (sm *stream) handlePkt() {

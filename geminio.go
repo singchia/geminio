@@ -77,3 +77,9 @@ func WithMessagehCnss(cnss Cnss) OptionMessageAttribute {
 		opt.Cnss = cnss
 	}
 }
+
+type Publish struct {
+	Message Message
+	Error   error
+	Done    chan *Publish
+}
