@@ -80,14 +80,83 @@ type stream struct {
 	closeCh chan struct{}
 }
 
+func (sm *stream) NewRequest(data []byte, opts ...geminio.OptionRequestAttribute) geminio.Request {
+	id := sm.pf.NewPacketID()
+	req := &request{
+		RequestAttribute: &geminio.RequestAttribute{},
+		data:             data,
+		id:               id,
+		clientID:         sm.cn.ClientID(),
+		streamID:         sm.dg.DialogueID(),
+	}
+	for _, opt := range opts {
+		opt(req.RequestAttribute)
+	}
+	return req
+}
+
+func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) (geminio.Response, error) {
+	if req.ClientID() != sm.cn.ClientID() {
+		return nil, ErrMismatchClientID
+	}
+	if req.StreamID() != sm.dg.DialogueID() {
+		return nil, ErrMismatchStreamID
+	}
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return nil, io.EOF
+	}
+	pkt := sm.pf.NewRequestPacketWithID(req.ID(), []byte(method), req.Data())
+	deadline, ok := ctx.Deadline()
+	if ok {
+		// if deadline exists, we should deliver it
+		pkt.Data.Context.Deadline = deadline
+	}
+	var sync synchub.Sync
+	opts := []synchub.SyncOption{}
+	if req.Timeout() != 0 {
+		// the sync may has timeout
+		opts = append(opts, synchub.WithTimeout(req.Timeout()))
+	}
+	sync = sm.shub.New(req.ID(), opts...)
+	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
+
+	// we don't set ctx to sync, because select perform better
+	select {
+	case <-ctx.Done():
+		sync.Cancel(false)
+
+		if ctx.Err() == context.DeadlineExceeded {
+			// we don't deliver deadline exceeded since the pkt already has it
+			return nil, ctx.Err()
+		}
+		sm.mtx.RLock()
+		if !sm.streamOK {
+			sm.mtx.RUnlock()
+			return nil, io.EOF
+		}
+		// notify peer if context Canceled
+		cancelType := packet.RequestCancelTypeCanceled
+		cancelPkt := sm.pf.NewRequestCancelPacketWithIDAndSessionID(pkt.ID(), sm.dg.DialogueID(), cancelType)
+		sm.writeInCh <- cancelPkt
+		sm.mtx.RUnlock()
+		return nil, ctx.Err()
+
+	case event := <-sync.C():
+	}
+}
+
 func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute) geminio.Message {
 	id := sm.pf.NewPacketID()
 	msg := &message{
-		data:     data,
-		id:       id,
-		clientID: sm.cn.ClientID(),
-		streamID: sm.dg.DialogueID(),
-		sm:       sm,
+		MessageAttribute: &geminio.MessageAttribute{},
+		data:             data,
+		id:               id,
+		clientID:         sm.cn.ClientID(),
+		streamID:         sm.dg.DialogueID(),
+		sm:               sm,
 	}
 	for _, opt := range opts {
 		opt(msg.MessageAttribute)
@@ -332,9 +401,10 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			clientID:  sm.cn.ClientID(),
 			streamID:  sm.dg.DialogueID(),
 		}
+	// TODO context
 	// hijack exist
 	if sm.hijackRPC != nil {
-		sm.doRPC(pkt, methodRPC(sm.hijackRPC), method, req, rsp, true)
+		sm.doRPC(pkt, methodRPC(sm.hijackRPC), method, context.TODO(), req, rsp, true)
 		return iodefine.IOSuccess
 	}
 	// registered RPC lookup and call
@@ -342,10 +412,10 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	rpc, ok := sm.localRPCs[method]
 	sm.rpcMtx.RUnlock()
 	if ok {
-		wrapperRPC := func(_ string, req geminio.Request, rsp geminio.Response) {
-			rpc(req, rsp)
+		wrapperRPC := func(_ string, ctx context.Context, req geminio.Request, rsp geminio.Response) {
+			rpc(ctx, req, rsp)
 		}
-		sm.doRPC(pkt, wrapperRPC, method, req, rsp, true)
+		sm.doRPC(pkt, wrapperRPC, method, context.TODO(), req, rsp, true)
 		return iodefine.IOSuccess
 	}
 
@@ -468,9 +538,9 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 }
 
 // doRPC provide generic rpc call
-func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, req *request, rsp *response, async bool) {
+func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, ctx context.Context, req *request, rsp *response, async bool) {
 	prog := func() {
-		rpc(method, req, rsp)
+		rpc(method, ctx, req, rsp)
 		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.err)
 		err := sm.dg.Write(rspPkt)
 		if err != nil {

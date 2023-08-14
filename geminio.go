@@ -1,6 +1,7 @@
 package geminio
 
 import (
+	"context"
 	"time"
 )
 
@@ -14,6 +15,18 @@ type Request interface {
 
 	// application data
 	Data() []byte
+}
+
+type RequestAttribute struct {
+	Timeout time.Duration
+}
+
+type OptionRequestAttribute func(*RequestAttribute)
+
+func WithRequestTimeout(timeout time.Duration) OptionRequestAttribute {
+	return func(opt *RequestAttribute) {
+		opt.Timeout = timeout
+	}
 }
 
 type Response interface {
@@ -31,10 +44,10 @@ type Response interface {
 }
 
 // rpc functions
-type RPC func(Request, Response)
+type RPC func(context.Context, Request, Response)
 
 // hijack rpc functions
-type HijackRPC func(string, Request, Response)
+type HijackRPC func(string, context.Context, Request, Response)
 
 type Cnss byte
 
@@ -82,4 +95,11 @@ type Publish struct {
 	Message Message
 	Error   error
 	Done    chan *Publish
+}
+
+type Messager interface {
+	NewMessage(data []byte, opts ...MessageAttribute) Message
+	Publish(ctx context.Context, msg Message) error
+	PublishAsync(ctx context.Context, msg Message, publish chan *Publish) (*Publish, error)
+	Receive() (Message, error)
 }

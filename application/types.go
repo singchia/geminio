@@ -8,6 +8,7 @@ import (
 
 // request implements geminio.Request
 type request struct {
+	*geminio.RequestAttribute
 	method   string
 	data     []byte
 	id       uint64
