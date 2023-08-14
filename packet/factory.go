@@ -261,10 +261,29 @@ func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 		Data: &MessageData{
 			Key:   pattern,
 			Value: data,
-			//Custom: custom,
 		},
 	}
 	return &RequestPacket{msgPkt}
+}
+
+func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id uint64, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket {
+	reqCelPkt := &RequestCancelPacket{
+		PacketHeader: &PacketHeader{
+			Version:  V01,
+			Typ:      TypeRequestCancelPacket,
+			PacketID: id,
+			Cnss:     CnssAtLeastOnce,
+		},
+		sessionID:  sessionID,
+		cancelType: cancelType,
+	}
+	return reqCelPkt
+}
+
+func (pf *PacketFactory) NewRequestPacketWithID(id uint64, pattern, data []byte) *RequestPacket {
+	pkt := pf.NewRequestPacket(pattern, data)
+	pkt.PacketID = id
+	return pkt
 }
 
 func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
