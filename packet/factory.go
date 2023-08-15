@@ -207,9 +207,10 @@ func (pf *PacketFactory) NewMessagePacket(key, value []byte) *MessagePacket {
 	return msgPkt
 }
 
-func (pf *PacketFactory) NewMessagePacketWithID(id uint64, key, value []byte) *MessagePacket {
+func (pf *PacketFactory) NewMessagePacketWithIDAndSessionID(id, sessionID uint64, key, value []byte) *MessagePacket {
 	pkt := pf.NewMessagePacket(key, value)
 	pkt.PacketID = id
+	pkt.sessionID = sessionID
 	return pkt
 }
 
@@ -266,7 +267,7 @@ func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 	return &RequestPacket{msgPkt}
 }
 
-func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id uint64, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket {
+func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket {
 	reqCelPkt := &RequestCancelPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -280,9 +281,10 @@ func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id uint64, ses
 	return reqCelPkt
 }
 
-func (pf *PacketFactory) NewRequestPacketWithID(id uint64, pattern, data []byte) *RequestPacket {
+func (pf *PacketFactory) NewRequestPacketWithIDAndSessionID(id, sessionID uint64, pattern, data []byte) *RequestPacket {
 	pkt := pf.NewRequestPacket(pattern, data)
 	pkt.PacketID = id
+	pkt.sessionID = sessionID
 	return pkt
 }
 
@@ -334,6 +336,21 @@ func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 	return registerPkt
 }
 
+func (pf *PacketFactory) NewRegisterPacketWithSessionID(sessionID uint64, method []byte) *RegisterPacket {
+	packetID := pf.packetIDs.GetID()
+	registerPkt := &RegisterPacket{
+		PacketHeader: &PacketHeader{
+			Version:  V01,
+			Typ:      TypeRegisterPacket,
+			PacketID: packetID,
+			Cnss:     CnssAtLeastOnce,
+		},
+		sessionID: sessionID,
+		method:    method,
+	}
+	return registerPkt
+}
+
 func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *RegisterAckPacket {
 	registerAckPkt := &RegisterAckPacket{
 		PacketHeader: &PacketHeader{
@@ -342,6 +359,23 @@ func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *Regis
 			PacketID: packetID,
 			Cnss:     CnssAtLeastOnce,
 		},
+		RegisterData: &RegisterData{},
+	}
+	if err != nil {
+		registerAckPkt.RegisterData.Error = err.Error()
+	}
+	return registerAckPkt
+}
+
+func (pf *PacketFactory) NewRegisterAckPacketWithSessionID(sessionID uint64, packetID uint64, err error) *RegisterAckPacket {
+	registerAckPkt := &RegisterAckPacket{
+		PacketHeader: &PacketHeader{
+			Version:  V01,
+			Typ:      TypeRegisterAckPacket,
+			PacketID: packetID,
+			Cnss:     CnssAtLeastOnce,
+		},
+		sessionID:    sessionID,
 		RegisterData: &RegisterData{},
 	}
 	if err != nil {
