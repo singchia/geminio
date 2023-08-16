@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// RPC releated
 type Request interface {
 	// those meta info shouldn't be changed
 	ID() uint64
@@ -49,6 +50,22 @@ type RPC func(context.Context, Request, Response)
 // hijack rpc functions
 type HijackRPC func(string, context.Context, Request, Response)
 
+// for async RPC
+type Call struct {
+	Method   string
+	Request  Request
+	Response Response
+	Error    error
+	Done     chan *Call
+}
+
+type RPCer interface {
+	NewRequest(data []byte, opts ...OptionRequestAttribute) Request
+	Call(ctx context.Context, method string, req Request) (Response, error)
+	CallAsync(ctx context.Context, method string, req Request, ch chan *Call) (*Call, error)
+}
+
+// message related defination
 type Cnss byte
 
 const (
@@ -91,6 +108,7 @@ func WithMessagehCnss(cnss Cnss) OptionMessageAttribute {
 	}
 }
 
+// for async Publish
 type Publish struct {
 	Message Message
 	Error   error

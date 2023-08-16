@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/jumboframes/armorigo/log"
 
@@ -80,6 +81,7 @@ type stream struct {
 	closeCh chan struct{}
 }
 
+// geminio.RPCer
 func (sm *stream) NewRequest(data []byte, opts ...geminio.OptionRequestAttribute) geminio.Request {
 	id := sm.pf.NewPacketID()
 	req := &request{
@@ -95,6 +97,19 @@ func (sm *stream) NewRequest(data []byte, opts ...geminio.OptionRequestAttribute
 	return req
 }
 
+func (sm *stream) Register(ctx context.Context, method string) error {
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return io.EOF
+	}
+	pkt := sm.pf.NewRegisterPacketWithSessionID(sm.dg.DialogueID(), []byte(method))
+	sync := sm.shub.New(pkt.ID(), synchub.WithContext(ctx))
+	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
+
+}
+
 func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) (geminio.Response, error) {
 	if req.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
@@ -107,7 +122,11 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) 
 		sm.mtx.RUnlock()
 		return nil, io.EOF
 	}
-	pkt := sm.pf.NewRequestPacketWithID(req.ID(), []byte(method), req.Data())
+	pkt := sm.pf.NewRequestPacketWithIDAndSessionID(req.ID(), sm.dg.DialogueID(), []byte(method), req.Data())
+	if req.Timeout() != 0 {
+		// if timeout exists, we should deliver it
+		pkt.Data.Deadline = time.Now().Add(req.Timeout())
+	}
 	deadline, ok := ctx.Deadline()
 	if ok {
 		// if deadline exists, we should deliver it
@@ -145,9 +164,70 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) 
 		return nil, ctx.Err()
 
 	case event := <-sync.C():
+		if event.Error != nil {
+			sm.log.Debugf("request return err: %s, clientID: %d, dialogueID: %d, reqID: %d",
+				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), req.ID())
+			return nil, event.Error
+		}
+		rsp := event.Ack.(*response)
+		return rsp, nil
 	}
 }
 
+func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Request, ch chan *geminio.Call) (*geminio.Call, error) {
+	if req.ClientID() != sm.cn.ClientID() {
+		return nil, ErrMismatchClientID
+	}
+	if req.StreamID() != sm.dg.DialogueID() {
+		return nil, ErrMismatchStreamID
+	}
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return nil, io.EOF
+	}
+	pkt := sm.pf.NewRequestPacketWithIDAndSessionID(req.ID(), sm.dg.DialogueID(), []byte(method), req.Data())
+	// deadline and timeout for peer
+	if req.Timeout() != 0 {
+		pkt.Data.Deadline = time.Now().Add(req.Timeout())
+	}
+	deadline, ok := ctx.Deadline()
+	if ok {
+		pkt.Data.Context.Deadline = deadline
+	}
+	if ch == nil {
+		ch = make(chan *geminio.Call, 1)
+	}
+	call := &geminio.Call{
+		Method:  method,
+		Request: req,
+		Done:    ch,
+	}
+	// deadline and timeout for local
+	opts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
+		if event.Error != nil {
+			sm.log.Debugf("request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			call.Error = event.Error
+			ch <- call
+			return
+		}
+		sm.log.Tracef("response return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		ch <- call
+		return
+	})}
+	if req.Timeout() != 0 {
+		opts = append(opts, synchub.WithTimeout(req.Timeout()))
+	}
+	// Add a new sync for the async call
+	sm.shub.New(pkt.ID(), opts...)
+	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
+	return call, nil
+}
+
+// geminio.Messager
 func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute) geminio.Message {
 	id := sm.pf.NewPacketID()
 	msg := &message{
@@ -177,7 +257,16 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
 		sm.mtx.RUnlock()
 		return io.EOF
 	}
-	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
+
+	pkt := sm.pf.NewMessagePacketWithIDAndSessionID(msg.ID(), sm.dg.DialogueID(), nil, msg.Data())
+	if msg.Timeout() != 0 {
+		pkt.Data.Deadline = time.Now().Add(msg.Timeout())
+	}
+	deadline, ok := ctx.Deadline()
+	if ok {
+		pkt.Data.Context.Deadline = deadline
+	}
+
 	if msg.Cnss() == geminio.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
@@ -218,7 +307,16 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		sm.mtx.RUnlock()
 		return nil, io.EOF
 	}
-	pkt := sm.pf.NewMessagePacketWithID(msg.ID(), nil, msg.Data())
+	now := time.Now()
+	pkt := sm.pf.NewMessagePacketWithIDAndSessionID(msg.ID(), sm.dg.DialogueID(), nil, msg.Data())
+	if msg.Timeout() != 0 {
+		pkt.Data.Deadline = now.Add(msg.Timeout())
+	}
+	deadline, ok := ctx.Deadline()
+	if ok {
+		pkt.Data.Context.Deadline = deadline
+	}
+
 	if msg.Cnss() == geminio.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout or async
 		sm.writeInCh <- pkt
@@ -233,9 +331,10 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		Message: msg,
 		Done:    ch,
 	}
+	// deadline and timeout for local
 	opts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
 		if event.Error != nil {
-			sm.log.Debugf("message packet err: %s, lientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			sm.log.Debugf("message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 			publish.Error = event.Error
 			ch <- publish
