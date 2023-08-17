@@ -2,6 +2,7 @@ package geminio
 
 import (
 	"context"
+	"net"
 	"time"
 )
 
@@ -63,6 +64,7 @@ type RPCer interface {
 	NewRequest(data []byte, opts ...OptionRequestAttribute) Request
 	Call(ctx context.Context, method string, req Request) (Response, error)
 	CallAsync(ctx context.Context, method string, req Request, ch chan *Call) (*Call, error)
+	Register(ctx context.Context, method string) error
 }
 
 // message related defination
@@ -120,4 +122,39 @@ type Messager interface {
 	Publish(ctx context.Context, msg Message) error
 	PublishAsync(ctx context.Context, msg Message, publish chan *Publish) (*Publish, error)
 	Receive() (Message, error)
+}
+
+type Raw net.Conn
+
+// Application
+type Application interface {
+	// rpc
+	RPCer
+	// message
+	Messager
+	// raw
+	Raw
+}
+
+type Stream interface {
+	// a stream is a geminio
+	Application
+	// meta info for a stream
+	StreamID() uint64
+	ClientID() uint64
+	Meta() []byte
+}
+
+// Stream multiplexer
+type Multiplexer interface {
+	OpenStream(meta []byte) (Stream, error)
+	AcceptStream() (Stream, error)
+	ListStreams() []Stream
+}
+
+type Geminio interface {
+	// End is a default stream with streamID 1
+	Stream
+	// End is a stream multiplexer
+	Multiplexer
 }

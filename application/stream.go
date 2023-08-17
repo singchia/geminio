@@ -104,10 +104,19 @@ func (sm *stream) Register(ctx context.Context, method string) error {
 		return io.EOF
 	}
 	pkt := sm.pf.NewRegisterPacketWithSessionID(sm.dg.DialogueID(), []byte(method))
-	sync := sm.shub.New(pkt.ID(), synchub.WithContext(ctx))
+	sync := sm.shub.New(pkt.ID())
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
-
+	select {
+	case event := <-sync.C():
+		if event.Error != nil {
+			sm.log.Debugf("register err: %s, clientID: %d, dialogueID: %d, packetID: %d",
+				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID())
+			return event.Error
+		}
+	case <-ctx.Done():
+	}
+	return nil
 }
 
 func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) (geminio.Response, error) {
@@ -377,6 +386,8 @@ func (sm *stream) Receive() (geminio.Message, error) {
 	}
 	return msg, nil
 }
+
+// geminio.Raw
 
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
