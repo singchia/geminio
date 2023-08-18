@@ -69,7 +69,9 @@ type stream struct {
 
 	// app layer messages
 	// raw cache
-	cache     []byte
+	cache    []byte
+	cacheMtx sync.Mutex
+
 	messageCh chan *packet.MessagePacket
 	streamCh  chan *packet.StreamPacket
 	failedCh  chan packet.Packet
@@ -115,6 +117,7 @@ func (sm *stream) Register(ctx context.Context, method string) error {
 			return event.Error
 		}
 	case <-ctx.Done():
+		return ctx.Err()
 	}
 	return nil
 }
@@ -388,6 +391,41 @@ func (sm *stream) Receive() (geminio.Message, error) {
 }
 
 // geminio.Raw
+func (sm *stream) Read(b []byte) (int, error) {
+	sm.cacheMtx.Lock()
+	if sm.cache != nil && len(sm.cache) != 0 {
+		n := copy(b, sm.cache)
+		sm.cache = sm.cache[n:]
+		sm.cacheMtx.Unlock()
+		return n, nil
+	}
+
+	pkt, ok := <-sm.streamCh
+	if !ok {
+		return 0, io.EOF
+	}
+
+	sm.cacheMtx.Lock()
+	n := copy(b, pkt.Data)
+	sm.cache = pkt.Data[n:]
+	sm.cacheMtx.Unlock()
+	return n, nil
+}
+
+func (sm *stream) Write(b []byte) (int, error) {
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return 0, io.EOF
+	}
+
+	newb := make([]byte, len(b))
+	copy(newb, b)
+	pkt := sm.pf.NewStreamPacketWithSessionID(sm.dg.DialogueID(), newb)
+
+	sm.writeInCh <- pkt
+	return len(b), nil
+}
 
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()

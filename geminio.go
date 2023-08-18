@@ -126,19 +126,18 @@ type Messager interface {
 
 type Raw net.Conn
 
-// Application
-type Application interface {
+type RawRPCMessager interface {
+	// raw
+	Raw
 	// rpc
 	RPCer
 	// message
 	Messager
-	// raw
-	Raw
 }
 
 type Stream interface {
 	// a stream is a geminio
-	Application
+	RawRPCMessager
 	// meta info for a stream
 	StreamID() uint64
 	ClientID() uint64
