@@ -14,6 +14,7 @@ import (
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/multiplexer"
+	"github.com/singchia/geminio/options"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/iodefine"
 	gsync "github.com/singchia/geminio/pkg/sync"
@@ -21,8 +22,9 @@ import (
 )
 
 var (
-	ErrMismatchStreamID = errors.New("mismatch streamID")
-	ErrMismatchClientID = errors.New("mismatch clientID")
+	ErrMismatchStreamID      = errors.New("mismatch streamID")
+	ErrMismatchClientID      = errors.New("mismatch clientID")
+	ErrRemoteRPCUnregistered = errors.New("remote rpc unregistered")
 )
 
 const (
@@ -84,22 +86,19 @@ type stream struct {
 }
 
 // geminio.RPCer
-func (sm *stream) NewRequest(data []byte, opts ...geminio.OptionRequestAttribute) geminio.Request {
+func (sm *stream) NewRequest(data []byte) geminio.Request {
 	id := sm.pf.NewPacketID()
 	req := &request{
-		RequestAttribute: &geminio.RequestAttribute{},
-		data:             data,
-		id:               id,
-		clientID:         sm.cn.ClientID(),
-		streamID:         sm.dg.DialogueID(),
-	}
-	for _, opt := range opts {
-		opt(req.RequestAttribute)
+		//RequestAttribute: &geminio.RequestAttribute{},
+		data:     data,
+		id:       id,
+		clientID: sm.cn.ClientID(),
+		streamID: sm.dg.DialogueID(),
 	}
 	return req
 }
 
-func (sm *stream) Register(ctx context.Context, method string) error {
+func (sm *stream) Register(ctx context.Context, method string, rpc geminio.RPC) error {
 	sm.mtx.RLock()
 	if !sm.streamOK {
 		sm.mtx.RUnlock()
@@ -119,25 +118,40 @@ func (sm *stream) Register(ctx context.Context, method string) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	sm.rpcMtx.Lock()
+	defer sm.rpcMtx.Unlock()
+	sm.localRPCs[method] = rpc
 	return nil
 }
 
-func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) (geminio.Response, error) {
+func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, opts ...*options.CallOptions) (geminio.Response, error) {
 	if req.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
 	if req.StreamID() != sm.dg.DialogueID() {
 		return nil, ErrMismatchStreamID
 	}
+	co := options.MergeCallOptions(opts...)
+
 	sm.mtx.RLock()
 	if !sm.streamOK {
 		sm.mtx.RUnlock()
 		return nil, io.EOF
 	}
+
+	// check remote RPC exists
+	sm.rpcMtx.RLock()
+	_, ok := sm.remoteRPCs[method]
+	if !ok {
+		sm.rpcMtx.RUnlock()
+		return nil, ErrRemoteRPCUnregistered
+	}
+	sm.rpcMtx.RUnlock()
+	// transfer to underlayer packet
 	pkt := sm.pf.NewRequestPacketWithIDAndSessionID(req.ID(), sm.dg.DialogueID(), []byte(method), req.Data())
-	if req.Timeout() != 0 {
+	if co.Timeout != nil {
 		// if timeout exists, we should deliver it
-		pkt.Data.Deadline = time.Now().Add(req.Timeout())
+		pkt.Data.Deadline = time.Now().Add(*co.Timeout)
 	}
 	deadline, ok := ctx.Deadline()
 	if ok {
@@ -145,12 +159,12 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request) 
 		pkt.Data.Context.Deadline = deadline
 	}
 	var sync synchub.Sync
-	opts := []synchub.SyncOption{}
-	if req.Timeout() != 0 {
+	syncOpts := []synchub.SyncOption{}
+	if co.Timeout != nil {
 		// the sync may has timeout
-		opts = append(opts, synchub.WithTimeout(req.Timeout()))
+		syncOpts = append(syncOpts, synchub.WithTimeout(*co.Timeout))
 	}
-	sync = sm.shub.New(req.ID(), opts...)
+	sync = sm.shub.New(req.ID(), syncOpts...)
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
 
@@ -240,24 +254,20 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 }
 
 // geminio.Messager
-func (sm *stream) NewMessage(data []byte, opts ...geminio.OptionMessageAttribute) geminio.Message {
+func (sm *stream) NewMessage(data []byte) geminio.Message {
 	id := sm.pf.NewPacketID()
 	msg := &message{
-		MessageAttribute: &geminio.MessageAttribute{},
-		data:             data,
-		id:               id,
-		clientID:         sm.cn.ClientID(),
-		streamID:         sm.dg.DialogueID(),
-		sm:               sm,
-	}
-	for _, opt := range opts {
-		opt(msg.MessageAttribute)
+		data:     data,
+		id:       id,
+		clientID: sm.cn.ClientID(),
+		streamID: sm.dg.DialogueID(),
+		sm:       sm,
 	}
 	return msg
 }
 
 // Publish to peer, a sync function
-func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
+func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*options.PublishOptions) error {
 	if msg.ClientID() != sm.cn.ClientID() {
 		return ErrMismatchClientID
 	}
@@ -279,19 +289,19 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message) error {
 		pkt.Data.Context.Deadline = deadline
 	}
 
-	if msg.Cnss() == geminio.CnssAtMostOnce {
+	if msg.Cnss() == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
 		sm.mtx.RUnlock()
 		return nil
 	}
 	var sync synchub.Sync
-	opts := []synchub.SyncOption{synchub.WithContext(ctx)}
+	syncOpts := []synchub.SyncOption{synchub.WithContext(ctx)}
 	if msg.Timeout() != 0 {
 		// the sync may has timeout
-		opts = append(opts, synchub.WithTimeout(msg.Timeout()))
+		syncOpts = append(syncOpts, synchub.WithTimeout(msg.Timeout()))
 	}
-	sync = sm.shub.New(msg.ID(), opts...)
+	sync = sm.shub.New(msg.ID(), syncOpts...)
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
 
@@ -329,7 +339,7 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		pkt.Data.Context.Deadline = deadline
 	}
 
-	if msg.Cnss() == geminio.CnssAtMostOnce {
+	if msg.Cnss() == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout or async
 		sm.writeInCh <- pkt
 		sm.mtx.RUnlock()
@@ -377,10 +387,8 @@ func (sm *stream) Receive() (geminio.Message, error) {
 		return nil, io.EOF
 	}
 	msg := &message{
-		MessageAttribute: &geminio.MessageAttribute{
-			Timeout: pkt.Data.Timeout,
-			Cnss:    geminio.Cnss(pkt.Cnss),
-		},
+		timeout:  pkt.Data.Timeout,
+		cnss:     options.Cnss(pkt.Cnss),
 		data:     pkt.Data.Value,
 		id:       pkt.PacketID,
 		clientID: sm.cn.ClientID(),
