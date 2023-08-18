@@ -117,9 +117,9 @@ const (
 type Cnss byte
 
 const (
-	CnssAtMostOnce      Cnss = 0x00
-	CnssAtLeastOnce     Cnss = 0x01
-	CnssAtEffectiveOnce Cnss = 0x02
+	CnssAtMostOnce      Cnss = 0x01
+	CnssAtLeastOnce     Cnss = 0x02
+	CnssAtEffectiveOnce Cnss = 0x03
 )
 
 type RetCode byte

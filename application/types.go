@@ -3,12 +3,11 @@ package application
 import (
 	"time"
 
-	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/options"
 )
 
 // request implements geminio.Request
 type request struct {
-	*geminio.RequestAttribute
 	method   string
 	data     []byte
 	id       uint64
@@ -93,7 +92,6 @@ func (rsp *response) SetData(data []byte) {
 }
 
 type message struct {
-	*geminio.MessageAttribute
 	err  error
 	data []byte
 	//custom []byte
@@ -101,6 +99,9 @@ type message struct {
 	id       uint64
 	clientID uint64
 	streamID uint64
+	// meta
+	timeout time.Duration
+	cnss    options.Cnss
 	// we need stream to handle ack
 	sm *stream
 }
@@ -125,12 +126,12 @@ func (msg *message) StreamID() uint64 {
 	return msg.streamID
 }
 
-func (msg *message) Cnss() geminio.Cnss {
-	return geminio.Cnss(msg.MessageAttribute.Cnss)
+func (msg *message) Cnss() options.Cnss {
+	return msg.cnss
 }
 
 func (msg *message) Timeout() time.Duration {
-	return msg.MessageAttribute.Timeout
+	return msg.timeout
 }
 
 func (msg *message) Data() []byte {

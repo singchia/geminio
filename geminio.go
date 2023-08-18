@@ -4,6 +4,8 @@ import (
 	"context"
 	"net"
 	"time"
+
+	"github.com/singchia/geminio/options"
 )
 
 // RPC releated
@@ -17,18 +19,6 @@ type Request interface {
 
 	// application data
 	Data() []byte
-}
-
-type RequestAttribute struct {
-	Timeout time.Duration
-}
-
-type OptionRequestAttribute func(*RequestAttribute)
-
-func WithRequestTimeout(timeout time.Duration) OptionRequestAttribute {
-	return func(opt *RequestAttribute) {
-		opt.Timeout = timeout
-	}
 }
 
 type Response interface {
@@ -61,19 +51,12 @@ type Call struct {
 }
 
 type RPCer interface {
-	NewRequest(data []byte, opts ...OptionRequestAttribute) Request
-	Call(ctx context.Context, method string, req Request) (Response, error)
-	CallAsync(ctx context.Context, method string, req Request, ch chan *Call) (*Call, error)
-	Register(ctx context.Context, method string) error
+	NewRequest(data []byte) Request
+	Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
+	CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
+	Register(ctx context.Context, method string, rpc RPC) error
+	Hijack(rpc HijackRPC, opts ...*options.HijackOptions)
 }
-
-// message related defination
-type Cnss byte
-
-const (
-	CnssAtMostOnce  Cnss = 0
-	CnssAtLeastOnce Cnss = 1
-)
 
 type Message interface {
 	// to tell peer received or errored
@@ -85,29 +68,10 @@ type Message interface {
 	ClientID() uint64
 	Timeout() time.Duration
 	// consistency protocol
-	Cnss() Cnss
+	Cnss() options.Cnss
 
 	// application data
 	Data() []byte
-}
-
-type MessageAttribute struct {
-	Timeout time.Duration
-	Cnss    Cnss
-}
-
-type OptionMessageAttribute func(*MessageAttribute)
-
-func WithMessageTimeout(timeout time.Duration) OptionMessageAttribute {
-	return func(opt *MessageAttribute) {
-		opt.Timeout = timeout
-	}
-}
-
-func WithMessagehCnss(cnss Cnss) OptionMessageAttribute {
-	return func(opt *MessageAttribute) {
-		opt.Cnss = cnss
-	}
 }
 
 // for async Publish
@@ -118,27 +82,26 @@ type Publish struct {
 }
 
 type Messager interface {
-	NewMessage(data []byte, opts ...MessageAttribute) Message
-	Publish(ctx context.Context, msg Message) error
-	PublishAsync(ctx context.Context, msg Message, publish chan *Publish) (*Publish, error)
+	NewMessage(data []byte) Message
+	Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
+	PublishAsync(ctx context.Context, msg Message, publish chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
 	Receive() (Message, error)
 }
 
 type Raw net.Conn
 
-// Application
-type Application interface {
+type RawRPCMessager interface {
+	// raw
+	Raw
 	// rpc
 	RPCer
 	// message
 	Messager
-	// raw
-	Raw
 }
 
 type Stream interface {
 	// a stream is a geminio
-	Application
+	RawRPCMessager
 	// meta info for a stream
 	StreamID() uint64
 	ClientID() uint64

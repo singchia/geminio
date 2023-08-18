@@ -322,6 +322,12 @@ func (pf *PacketFactory) NewStreamPacket(data []byte) *StreamPacket {
 	return streamPkt
 }
 
+func (pf *PacketFactory) NewStreamPacketWithSessionID(sessionID uint64, data []byte) *StreamPacket {
+	pkt := pf.NewStreamPacket(data)
+	pkt.sessionID = sessionID
+	return pkt
+}
+
 func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 	packetID := pf.packetIDs.GetID()
 	registerPkt := &RegisterPacket{
@@ -337,18 +343,9 @@ func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 }
 
 func (pf *PacketFactory) NewRegisterPacketWithSessionID(sessionID uint64, method []byte) *RegisterPacket {
-	packetID := pf.packetIDs.GetID()
-	registerPkt := &RegisterPacket{
-		PacketHeader: &PacketHeader{
-			Version:  V01,
-			Typ:      TypeRegisterPacket,
-			PacketID: packetID,
-			Cnss:     CnssAtLeastOnce,
-		},
-		sessionID: sessionID,
-		method:    method,
-	}
-	return registerPkt
+	pkt := pf.NewRegisterPacket(method)
+	pkt.sessionID = sessionID
+	return pkt
 }
 
 func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *RegisterAckPacket {
@@ -368,18 +365,7 @@ func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *Regis
 }
 
 func (pf *PacketFactory) NewRegisterAckPacketWithSessionID(sessionID uint64, packetID uint64, err error) *RegisterAckPacket {
-	registerAckPkt := &RegisterAckPacket{
-		PacketHeader: &PacketHeader{
-			Version:  V01,
-			Typ:      TypeRegisterAckPacket,
-			PacketID: packetID,
-			Cnss:     CnssAtLeastOnce,
-		},
-		sessionID:    sessionID,
-		RegisterData: &RegisterData{},
-	}
-	if err != nil {
-		registerAckPkt.RegisterData.Error = err.Error()
-	}
-	return registerAckPkt
+	pkt := pf.NewRegisterAckPacket(packetID, err)
+	pkt.sessionID = sessionID
+	return pkt
 }
