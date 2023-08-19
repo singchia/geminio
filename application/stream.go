@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"regexp"
 	"sync"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/singchia/geminio/options"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/iodefine"
+	gnet "github.com/singchia/geminio/pkg/net"
 	gsync "github.com/singchia/geminio/pkg/sync"
 	"github.com/singchia/go-timer/v2"
 )
@@ -30,6 +33,12 @@ var (
 const (
 	registrationFormat = "%d-%d-registration"
 )
+
+type patternRPC struct {
+	match   bool
+	pattern *regexp.Regexp
+	rpc     geminio.HijackRPC
+}
 
 type methodRPC geminio.HijackRPC
 
@@ -46,6 +55,7 @@ type streamOpts struct {
 }
 
 type stream struct {
+	*gnet.UnimplementedConn
 	// options
 	streamOpts
 
@@ -58,11 +68,11 @@ type stream struct {
 
 	// registered rpcs
 	rpcMtx     sync.RWMutex
-	localRPCs  map[string]geminio.RPC // key: method value: RPC
-	remoteRPCs map[string]struct{}    // key: method value: placeholder
-
-	// hijacks
-	hijackRPC geminio.HijackRPC
+	rpcCancels map[uint64]context.CancelFunc // inflight rpc's cancel
+	localRPCs  map[string]geminio.RPC        // key: method value: RPC
+	remoteRPCs map[string]struct{}           // key: method value: placeholder
+	// hijack
+	hijackRPC *patternRPC
 
 	// mtx protects follows
 	mtx       sync.RWMutex
@@ -230,19 +240,20 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 		Done:    ch,
 	}
 	// deadline and timeout for local
-	opts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
-		if event.Error != nil {
-			sm.log.Debugf("request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-			call.Error = event.Error
+	opts := []synchub.SyncOption{synchub.WithContext(ctx),
+		synchub.WithCallback(func(event *synchub.Event) {
+			if event.Error != nil {
+				sm.log.Debugf("request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+					event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+				call.Error = event.Error
+				ch <- call
+				return
+			}
+			sm.log.Tracef("response return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 			ch <- call
 			return
-		}
-		sm.log.Tracef("response return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-		ch <- call
-		return
-	})}
+		})}
 	if req.Timeout() != 0 {
 		opts = append(opts, synchub.WithTimeout(req.Timeout()))
 	}
@@ -251,6 +262,24 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
 	return call, nil
+}
+
+func (sm *stream) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions) error {
+	pRPC := &patternRPC{}
+	fo := options.MergeHijackOptions(opts...)
+	if fo.Pattern != nil {
+		reg, err := regexp.Compile(*fo.Pattern)
+		if err != nil {
+			return err
+		}
+		pRPC.pattern = reg
+	}
+	if fo.Match != nil {
+		pRPC.match = *fo.Match
+	}
+	pRPC.rpc = rpc
+	sm.hijackRPC = pRPC
+	return nil
 }
 
 // geminio.Messager
@@ -264,6 +293,18 @@ func (sm *stream) NewMessage(data []byte) geminio.Message {
 		sm:       sm,
 	}
 	return msg
+}
+
+func (sm *stream) ackMessage(pktID uint64, err error) error {
+	sm.mtx.RLock()
+	if !sm.streamOK {
+		sm.mtx.RUnlock()
+		return io.EOF
+	}
+
+	pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pktID, err)
+	sm.writeInCh <- pkt
+	return nil
 }
 
 // Publish to peer, a sync function
@@ -379,23 +420,27 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 }
 
 // return EOF means the stream is closed
-func (sm *stream) Receive() (geminio.Message, error) {
-	pkt, ok := <-sm.messageCh
-	if !ok {
-		sm.log.Debugf("stream receive EOF, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-		return nil, io.EOF
+func (sm *stream) Receive(ctx context.Context) (geminio.Message, error) {
+	select {
+	case pkt, ok := <-sm.messageCh:
+		if !ok {
+			sm.log.Debugf("stream receive EOF, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			return nil, io.EOF
+		}
+		msg := &message{
+			timeout:  pkt.Data.Timeout,
+			cnss:     options.Cnss(pkt.Cnss),
+			data:     pkt.Data.Value,
+			id:       pkt.PacketID,
+			clientID: sm.cn.ClientID(),
+			streamID: sm.dg.DialogueID(),
+			sm:       sm,
+		}
+		return msg, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-	msg := &message{
-		timeout:  pkt.Data.Timeout,
-		cnss:     options.Cnss(pkt.Cnss),
-		data:     pkt.Data.Value,
-		id:       pkt.PacketID,
-		clientID: sm.cn.ClientID(),
-		streamID: sm.dg.DialogueID(),
-		sm:       sm,
-	}
-	return msg, nil
 }
 
 // geminio.Raw
@@ -435,6 +480,15 @@ func (sm *stream) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
+func (sm *stream) LocalAddr() net.Addr {
+	return sm.cn.LocalAddr()
+}
+
+func (sm *stream) RemoteAddr() net.Addr {
+	return sm.cn.RemoteAddr()
+}
+
+// main handle logic
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
 	writeInCh := sm.writeInCh
@@ -483,7 +537,7 @@ func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
 	case *packet.RequestPacket:
 		return sm.handleInRequestPacket(realPkt)
 	case *packet.RequestCancelPacket:
-		// TODO
+		return sm.handleInRequestCancelPacket(realPkt)
 	case *packet.ResponsePacket:
 		return sm.handleInResponsePacket(realPkt)
 	case *packet.RegisterPacket:
@@ -557,11 +611,28 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			clientID:  sm.cn.ClientID(),
 			streamID:  sm.dg.DialogueID(),
 		}
-	// TODO context
+	// setup context
+	ctx, cancel := context.Background(), context.CancelFunc(nil)
+	if !pkt.Data.Deadline.IsZero() || !pkt.Data.Context.Deadline.IsZero() {
+		deadline := pkt.Data.Deadline
+		if deadline.IsZero() || (!deadline.IsZero() &&
+			!pkt.Data.Context.Deadline.IsZero() &&
+			pkt.Data.Context.Deadline.Before(deadline)) {
+			deadline = pkt.Data.Context.Deadline
+		}
+		ctx, cancel = context.WithDeadline(ctx, deadline)
+		sm.rpcMtx.Lock()
+		sm.rpcCancels[pkt.ID()] = cancel
+		sm.rpcMtx.Unlock()
+	}
 	// hijack exist
 	if sm.hijackRPC != nil {
-		sm.doRPC(pkt, methodRPC(sm.hijackRPC), method, context.TODO(), req, rsp, true)
-		return iodefine.IOSuccess
+		matched := sm.hijackRPC.pattern.Match([]byte(method))
+		if (sm.hijackRPC.match && matched) || (!sm.hijackRPC.match && !matched) {
+			// do RPC and cancel the context
+			sm.doRPC(pkt, methodRPC(sm.hijackRPC.rpc), method, ctx, req, rsp, true)
+			return iodefine.IOSuccess
+		}
 	}
 	// registered RPC lookup and call
 	sm.rpcMtx.RLock()
@@ -571,8 +642,17 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 		wrapperRPC := func(_ string, ctx context.Context, req geminio.Request, rsp geminio.Response) {
 			rpc(ctx, req, rsp)
 		}
-		sm.doRPC(pkt, wrapperRPC, method, context.TODO(), req, rsp, true)
+		// do RPC and cancel the context
+		sm.doRPC(pkt, wrapperRPC, method, ctx, req, rsp, true)
 		return iodefine.IOSuccess
+	}
+
+	// release the context
+	if cancel != nil {
+		sm.rpcMtx.Lock()
+		delete(sm.rpcCancels, pkt.ID())
+		cancel()
+		sm.rpcMtx.Unlock()
 	}
 
 	// no rpc found, return to call error, note that this error is not set to response error
@@ -584,6 +664,17 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
 		return iodefine.IOErr
 	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleInRequestCancelPacket(pkt *packet.RequestCancelPacket) iodefine.IORet {
+	sm.rpcMtx.Lock()
+	cancel, ok := sm.rpcCancels[pkt.ID()]
+	if ok {
+		delete(sm.rpcCancels, pkt.ID())
+		cancel()
+	}
+	sm.rpcMtx.Unlock()
 	return iodefine.IOSuccess
 }
 
@@ -645,7 +736,11 @@ func (sm *stream) handleInRegisterAckPacket(pkt *packet.RegisterAckPacket) iodef
 func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
 	sm.log.Tracef("read stream packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-	sm.streamCh <- pkt
+	select {
+	case sm.streamCh <- pkt:
+	default:
+		// TODO drop the packet, we don't want block here
+	}
 	return iodefine.IOSuccess
 }
 
@@ -697,6 +792,15 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, ctx context.Context, req *request, rsp *response, async bool) {
 	prog := func() {
 		rpc(method, ctx, req, rsp)
+		// once the rpc complete, we should cancel the context
+		sm.rpcMtx.Lock()
+		cancel, ok := sm.rpcCancels[pkt.ID()]
+		if ok {
+			delete(sm.rpcCancels, pkt.ID())
+			cancel()
+		}
+		sm.rpcMtx.Unlock()
+
 		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.err)
 		err := sm.dg.Write(rspPkt)
 		if err != nil {
@@ -717,7 +821,7 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 	}
 }
 
-func (sm *stream) Close() {
+func (sm *stream) Close() error {
 	sm.closeOnce.Do(func() {
 		sm.mtx.RLock()
 		defer sm.mtx.RUnlock()
@@ -730,6 +834,7 @@ func (sm *stream) Close() {
 		// diglogue Close will leads to fini and then close the readInCh
 		sm.dg.Close()
 	})
+	return nil
 }
 
 // finish and reclaim resources

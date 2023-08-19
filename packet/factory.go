@@ -250,6 +250,12 @@ func (pf *PacketFactory) NewMessageAckPacket(packetID uint64, err error) *Messag
 	return msgAckPkt
 }
 
+func (pf *PacketFactory) NewMessageAckPacketWithSessionID(sessionID, packetID uint64, err error) *MessageAckPacket {
+	pkt := pf.NewMessageAckPacket(packetID, err)
+	pkt.sessionID = sessionID
+	return pkt
+}
+
 func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{

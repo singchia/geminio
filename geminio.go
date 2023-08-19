@@ -52,16 +52,18 @@ type Call struct {
 
 type RPCer interface {
 	NewRequest(data []byte) Request
+
 	Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
 	CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
 	Register(ctx context.Context, method string, rpc RPC) error
-	Hijack(rpc HijackRPC, opts ...*options.HijackOptions)
+	// Hijack rpc from remote
+	Hijack(rpc HijackRPC, opts ...*options.HijackOptions) error
 }
 
 type Message interface {
 	// to tell peer received or errored
 	Done() error
-	Error(err error)
+	Error(err error) error
 	// those meta info shouldn't be changed
 	ID() uint64
 	StreamID() uint64
@@ -69,7 +71,6 @@ type Message interface {
 	Timeout() time.Duration
 	// consistency protocol
 	Cnss() options.Cnss
-
 	// application data
 	Data() []byte
 }
@@ -83,9 +84,10 @@ type Publish struct {
 
 type Messager interface {
 	NewMessage(data []byte) Message
+
 	Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
 	PublishAsync(ctx context.Context, msg Message, publish chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
-	Receive() (Message, error)
+	Receive(ctx context.Context) (Message, error)
 }
 
 type Raw net.Conn
@@ -110,13 +112,14 @@ type Stream interface {
 
 // Stream multiplexer
 type Multiplexer interface {
-	OpenStream(meta []byte) (Stream, error)
+	OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
 	AcceptStream() (Stream, error)
 	ListStreams() []Stream
 }
 
-type Geminio interface {
+type End interface {
 	// End is a default stream with streamID 1
+	// Close on default stream will close all from the End
 	Stream
 	// End is a stream multiplexer
 	Multiplexer
