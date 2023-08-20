@@ -1,6 +1,7 @@
 package application
 
 import (
+	"errors"
 	"time"
 
 	"github.com/singchia/geminio/options"
@@ -106,12 +107,18 @@ type message struct {
 	sm *stream
 }
 
-func (msg *message) Error(err error) {
-	return
+func (msg *message) Error(err error) error {
+	if msg.sm == nil {
+		return errors.New("message' stream is nil")
+	}
+	return msg.sm.ackMessage(msg.id, err)
 }
 
 func (msg *message) Done() error {
-	return nil
+	if msg.sm == nil {
+		return errors.New("message' stream is nil")
+	}
+	return msg.sm.ackMessage(msg.id, nil)
 }
 
 func (msg *message) ID() uint64 {
