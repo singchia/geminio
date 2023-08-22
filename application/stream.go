@@ -488,6 +488,18 @@ func (sm *stream) RemoteAddr() net.Addr {
 	return sm.cn.RemoteAddr()
 }
 
+func (sm *stream) SetDeadline(t time.Time) error {
+	return nil
+}
+
+func (sm *stream) SetReadDeadline(t time.Time) error {
+	return nil
+}
+
+func (sm *stream) SetWriteDeadline(t time.Time) error {
+	return nil
+}
+
 // main handle logic
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
