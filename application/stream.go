@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"regexp"
 	"sync"
 	"time"
@@ -90,9 +91,11 @@ type stream struct {
 	failedCh  chan packet.Packet
 
 	// deadline mtx protects SetDeadline, SetReadDeadline, SetWriteDeadline and all Read Write
-	dlMtx    sync.Mutex
-	dlChList *list.List
-	deadline time.Time
+	dlMtx         sync.Mutex
+	dlReadChList  *list.List
+	dlWriteChList *list.List
+	dlRead        time.Time
+	dlWrite       time.Time
 
 	// io
 	writeInCh chan packet.Packet // for multiple message types
@@ -458,17 +461,42 @@ func (sm *stream) Read(b []byte) (int, error) {
 		sm.cacheMtx.Unlock()
 		return n, nil
 	}
-
-	pkt, ok := <-sm.streamCh
-	if !ok {
-		return 0, io.EOF
-	}
-
-	sm.cacheMtx.Lock()
-	n := copy(b, pkt.Data)
-	sm.cache = pkt.Data[n:]
 	sm.cacheMtx.Unlock()
-	return n, nil
+
+	sm.dlMtx.Lock()
+	defer sm.dlMtx.Unlock()
+
+	if !sm.dlRead.IsZero() && time.Now().After(sm.dlRead) {
+		select {
+		case pkt, ok := <-sm.streamCh:
+			if !ok {
+				return 0, io.EOF
+			}
+			sm.cacheMtx.Lock()
+			n := copy(b, pkt.Data)
+			sm.cache = pkt.Data[n:]
+			sm.cacheMtx.Unlock()
+			return n, nil
+		default:
+			return 0, os.ErrDeadlineExceeded
+		}
+	} else {
+		dlCh := make(chan struct{})
+		sm.dlReadChList.PushBack(dlCh)
+		select {
+		case pkt, ok := <-sm.streamCh:
+			if !ok {
+				return 0, io.EOF
+			}
+			sm.cacheMtx.Lock()
+			n := copy(b, pkt.Data)
+			sm.cache = pkt.Data[n:]
+			sm.cacheMtx.Unlock()
+			return n, nil
+		case <-dlCh:
+			return 0, os.ErrDeadlineExceeded
+		}
+	}
 }
 
 func (sm *stream) Write(b []byte) (int, error) {
