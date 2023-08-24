@@ -1,6 +1,7 @@
 package application
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -87,6 +88,11 @@ type stream struct {
 	messageCh chan *packet.MessagePacket
 	streamCh  chan *packet.StreamPacket
 	failedCh  chan packet.Packet
+
+	// deadline mtx protects SetDeadline, SetReadDeadline, SetWriteDeadline and all Read Write
+	dlMtx    sync.Mutex
+	dlChList *list.List
+	deadline time.Time
 
 	// io
 	writeInCh chan packet.Packet // for multiple message types
