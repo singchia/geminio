@@ -91,11 +91,10 @@ type stream struct {
 	failedCh  chan packet.Packet
 
 	// deadline mtx protects SetDeadline, SetReadDeadline, SetWriteDeadline and all Read Write
-	dlMtx         sync.Mutex
-	dlReadChList  *list.List
-	dlWriteChList *list.List
-	dlRead        time.Time
-	dlWrite       time.Time
+	dlMtx                       sync.Mutex
+	dlReadSync, dlWriteSync     synchub.Sync
+	dlReadChList, dlWriteChList *list.List
+	dlRead, dlWrite             time.Time
 
 	// io
 	writeInCh chan packet.Packet // for multiple message types
@@ -544,6 +543,17 @@ func (sm *stream) RemoteAddr() net.Addr {
 //
 // A zero value for t means I/O operations will not time out.
 func (sm *stream) SetDeadline(t time.Time) error {
+	sm.dlMtx.Lock()
+	defer sm.dlMtx.Unlock()
+
+	err := sm.setReadDeadline(t)
+	if err != nil {
+		return err
+	}
+	err = sm.setWriteDeadline(t)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -551,6 +561,33 @@ func (sm *stream) SetDeadline(t time.Time) error {
 // and any currently-blocked Read call.
 // A zero value for t means Read will not time out.
 func (sm *stream) SetReadDeadline(t time.Time) error {
+	sm.dlMtx.Lock()
+	defer sm.dlMtx.Unlock()
+	return sm.setReadDeadline(t)
+}
+
+func (sm *stream) setReadDeadline(t time.Time) error {
+	if sm.dlReadSync != nil {
+		sm.dlReadSync.Cancel(false)
+		sm.dlReadSync = nil
+	}
+	duration := time.Now().Sub(t)
+	if duration > 0 {
+		sm.dlReadSync = sm.shub.Add(&struct{}{},
+			synchub.WithTimeout(duration),
+			synchub.WithCallback(func(event *synchub.Event) {
+				e := sm.dlReadChList.Front()
+				for e != nil {
+					ch, _ := e.Value.(chan struct{})
+					// deadline exceeds and notify all waiting Read/Write
+					close(ch)
+					olde := e
+					e = e.Next()
+					sm.dlReadChList.Remove(olde)
+				}
+			}))
+	}
+	sm.dlRead = t
 	return nil
 }
 
@@ -560,6 +597,33 @@ func (sm *stream) SetReadDeadline(t time.Time) error {
 // some of the data was successfully written.
 // A zero value for t means Write will not time out.
 func (sm *stream) SetWriteDeadline(t time.Time) error {
+	sm.dlMtx.Lock()
+	defer sm.dlMtx.Unlock()
+	return sm.setWriteDeadline(t)
+}
+
+func (sm *stream) setWriteDeadline(t time.Time) error {
+	if sm.dlWriteSync != nil {
+		sm.dlWriteSync.Cancel(false)
+		sm.dlWriteSync = nil
+	}
+	duration := time.Now().Sub(t)
+	if duration > 0 {
+		sm.dlWriteSync = sm.shub.Add(&struct{}{},
+			synchub.WithTimeout(duration),
+			synchub.WithCallback(func(event *synchub.Event) {
+				e := sm.dlWriteChList.Front()
+				for e != nil {
+					ch, _ := e.Value.(chan struct{})
+					// deadline exceeds and notify all waiting Read/Write
+					close(ch)
+					olde := e
+					e = e.Next()
+					sm.dlWriteChList.Remove(olde)
+				}
+			}))
+	}
+	sm.dlWrite = t
 	return nil
 }
 
