@@ -166,7 +166,7 @@ func (sm *stream) setReadDeadline(t time.Time) error {
 		sm.dlReadSync.Cancel(false)
 		sm.dlReadSync = nil
 	}
-	duration := time.Now().Sub(t)
+	duration := t.Sub(time.Now())
 	if duration > 0 {
 		sm.dlReadSync = sm.shub.Add(&struct{}{},
 			synchub.WithTimeout(duration),
@@ -222,7 +222,7 @@ func (sm *stream) setWriteDeadline(t time.Time) error {
 		sm.dlWriteSync.Cancel(false)
 		sm.dlWriteSync = nil
 	}
-	duration := time.Now().Sub(t)
+	duration := t.Sub(time.Now())
 	if duration > 0 {
 		sm.dlWriteSync = sm.shub.Add(&struct{}{},
 			synchub.WithTimeout(duration),
