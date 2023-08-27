@@ -9,6 +9,11 @@ import (
 	"github.com/jumboframes/armorigo/synchub"
 )
 
+const (
+	deadlineReadSyncKey  = "geminio:read_deadline"
+	deadlineWriteSyncKey = "geminio:write_deadline"
+)
+
 // geminio.Raw
 func (sm *stream) Read(b []byte) (int, error) {
 	sm.mtx.RLock()
@@ -140,7 +145,6 @@ func (sm *stream) RemoteAddr() net.Addr {
 func (sm *stream) SetDeadline(t time.Time) error {
 	sm.dlMtx.Lock()
 	defer sm.dlMtx.Unlock()
-
 	err := sm.setReadDeadline(t)
 	if err != nil {
 		return err
@@ -168,9 +172,16 @@ func (sm *stream) setReadDeadline(t time.Time) error {
 	}
 	duration := t.Sub(time.Now())
 	if duration > 0 {
-		sm.dlReadSync = sm.shub.Add(&struct{}{},
+		sm.dlReadSync = sm.shub.Add(deadlineReadSyncKey,
 			synchub.WithTimeout(duration),
 			synchub.WithCallback(func(event *synchub.Event) {
+				if event.Error != synchub.ErrSyncTimeout {
+					return
+				}
+				// deadline exceeds
+				sm.dlMtx.RLock()
+				defer sm.dlMtx.RUnlock()
+
 				e := sm.dlReadChList.Front()
 				for e != nil {
 					ch, _ := e.Value.(chan struct{})
@@ -197,6 +208,38 @@ func (sm *stream) SetWriteDeadline(t time.Time) error {
 	return sm.setWriteDeadline(t)
 }
 
+func (sm *stream) setWriteDeadline(t time.Time) error {
+	if sm.dlWriteSync != nil {
+		sm.dlWriteSync.Cancel(false)
+		sm.dlWriteSync = nil
+	}
+	duration := t.Sub(time.Now())
+	if duration > 0 {
+		sm.dlWriteSync = sm.shub.Add(deadlineWriteSyncKey,
+			synchub.WithTimeout(duration),
+			synchub.WithCallback(func(event *synchub.Event) {
+				if event.Error != synchub.ErrSyncTimeout {
+					return
+				}
+				// deadline exceeds
+				sm.dlMtx.RLock()
+				defer sm.dlMtx.RUnlock()
+
+				e := sm.dlWriteChList.Front()
+				for e != nil {
+					ch, _ := e.Value.(chan struct{})
+					// deadline exceeds and notify all waiting Read/Write
+					close(ch)
+					olde := e
+					e = e.Next()
+					sm.dlWriteChList.Remove(olde)
+				}
+			}))
+	}
+	sm.dlWrite = t
+	return nil
+}
+
 func (sm *stream) readDeadlineExceeded() bool {
 	sm.dlMtx.RLock()
 	defer sm.dlMtx.RUnlock()
@@ -215,29 +258,4 @@ func (sm *stream) writeDeadlineExceeded() bool {
 		return true
 	}
 	return false
-}
-
-func (sm *stream) setWriteDeadline(t time.Time) error {
-	if sm.dlWriteSync != nil {
-		sm.dlWriteSync.Cancel(false)
-		sm.dlWriteSync = nil
-	}
-	duration := t.Sub(time.Now())
-	if duration > 0 {
-		sm.dlWriteSync = sm.shub.Add(&struct{}{},
-			synchub.WithTimeout(duration),
-			synchub.WithCallback(func(event *synchub.Event) {
-				e := sm.dlWriteChList.Front()
-				for e != nil {
-					ch, _ := e.Value.(chan struct{})
-					// deadline exceeds and notify all waiting Read/Write
-					close(ch)
-					olde := e
-					e = e.Next()
-					sm.dlWriteChList.Remove(olde)
-				}
-			}))
-	}
-	sm.dlWrite = t
-	return nil
 }

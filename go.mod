@@ -8,6 +8,7 @@ replace (
 )
 
 require (
+	github.com/golang/mock v1.6.0
 	github.com/jumboframes/armorigo v0.1.0
 	github.com/singchia/go-timer/v2 v2.2.0
 	github.com/singchia/yafsm v0.99.0
