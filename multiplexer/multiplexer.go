@@ -21,6 +21,7 @@ type Multiplexer interface {
 	ClosedDialogue() (Dialogue, error)
 	// list
 	ListDialogues() []Dialogue
+	GetDialogue(clientID uint64, dialogueID uint64) (Dialogue, error)
 	Close()
 }
 

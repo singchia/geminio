@@ -127,7 +127,7 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 	}
 }
 
-func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Request, ch chan *geminio.Call) (*geminio.Call, error) {
+func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Request, ch chan *geminio.Call, opts ...*options.CallOptions) (*geminio.Call, error) {
 	if req.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
@@ -157,7 +157,7 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 		Done:    ch,
 	}
 	// deadline and timeout for local
-	opts := []synchub.SyncOption{synchub.WithContext(ctx),
+	syncOpts := []synchub.SyncOption{synchub.WithContext(ctx),
 		synchub.WithCallback(func(event *synchub.Event) {
 			if event.Error != nil {
 				sm.log.Debugf("request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
@@ -172,10 +172,10 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 			return
 		})}
 	if req.Timeout() != 0 {
-		opts = append(opts, synchub.WithTimeout(req.Timeout()))
+		syncOpts = append(syncOpts, synchub.WithTimeout(req.Timeout()))
 	}
 	// Add a new sync for the async call
-	sm.shub.New(pkt.ID(), opts...)
+	sm.shub.New(pkt.ID(), syncOpts...)
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
 	return call, nil

@@ -86,7 +86,8 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 	return nil
 }
 
-func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan *geminio.Publish) (*geminio.Publish, error) {
+func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan *geminio.Publish,
+	opts ...*options.PublishOptions) (*geminio.Publish, error) {
 	if msg.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
@@ -123,7 +124,7 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		Done:    ch,
 	}
 	// deadline and timeout for local
-	opts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
+	syncOpts := []synchub.SyncOption{synchub.WithContext(ctx), synchub.WithCallback(func(event *synchub.Event) {
 		if event.Error != nil {
 			sm.log.Debugf("message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
@@ -138,10 +139,10 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 	})}
 	if msg.Timeout() != 0 {
 		// the sync may has timeout
-		opts = append(opts, synchub.WithTimeout(msg.Timeout()))
+		syncOpts = append(syncOpts, synchub.WithTimeout(msg.Timeout()))
 	}
 	// Add a new sync for the async publish
-	sm.shub.New(pkt.ID(), opts...)
+	sm.shub.New(pkt.ID(), syncOpts...)
 	sm.writeInCh <- pkt
 	sm.mtx.RUnlock()
 	return publish, nil
