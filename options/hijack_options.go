@@ -5,6 +5,11 @@ type HijackOptions struct {
 	Pattern *string
 }
 
+func (opt *HijackOptions) SetMatch(match bool, pattern string) {
+	opt.Match = &match
+	opt.Pattern = &pattern
+}
+
 func Hijack() *HijackOptions {
 	return &HijackOptions{}
 }
@@ -23,9 +28,4 @@ func MergeHijackOptions(opts ...*HijackOptions) *HijackOptions {
 		}
 	}
 	return ho
-}
-
-func (opt *HijackOptions) SetMatch(match bool, pattern string) {
-	opt.Match = &match
-	opt.Pattern = &pattern
 }

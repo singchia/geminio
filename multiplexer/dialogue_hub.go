@@ -78,8 +78,9 @@ func NewDialogueHub(opts ...MultiplexerOption) (*dialogueHub, error) {
 		opt(dh.multiplexerOpts)
 	}
 	// sync hub
-	if !dh.tmrOutside {
+	if dh.tmr == nil {
 		dh.tmr = timer.NewTimer()
+		dh.tmrOutside = false
 	}
 	// log
 	if dh.log == nil {
@@ -131,7 +132,7 @@ func (dh *dialogueHub) OpenDialogue(clientID uint64, meta []byte) (Dialogue, err
 		return nil, ErrConnNotFound
 	}
 	negotiatingID := dh.dialogueIDs.GetID()
-	dg, err := NewDialogue(cn,
+	dg, err := NewDialogue(cn, dh.multiplexerOpts.opts,
 		OptionDialogueNegotiatingID(negotiatingID, false),
 		OptionDialogueDelegate(dh))
 	if err != nil {
@@ -228,7 +229,8 @@ func (dh *dialogueHub) handlePkt(pkt packet.Packet) {
 		}
 		// new negotiating dialogue
 		negotiatingID := dh.dialogueIDs.GetID()
-		dg, err := NewDialogue(cn, OptionDialogueNegotiatingID(negotiatingID, false),
+		dg, err := NewDialogue(cn, dh.multiplexerOpts.opts,
+			OptionDialogueNegotiatingID(negotiatingID, false),
 			OptionDialogueDelegate(dh))
 		if err != nil {
 			dh.log.Errorf("new dialogue err: %s, clientID: %d", err, clientID)

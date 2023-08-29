@@ -30,7 +30,7 @@ type ServerConn struct {
 
 type ServerConnOption func(*ServerConn)
 
-func OptionServerConnPacketFactory(pf *packet.PacketFactory) ServerConnOption {
+func OptionServerConnPacketFactory(pf packet.PacketFactory) ServerConnOption {
 	return func(sc *ServerConn) {
 		sc.pf = pf
 	}

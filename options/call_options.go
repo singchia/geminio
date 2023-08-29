@@ -6,6 +6,10 @@ type CallOptions struct {
 	Timeout *time.Duration
 }
 
+func (opt *CallOptions) SetTimeout(timeout time.Duration) {
+	opt.Timeout = &timeout
+}
+
 func Call() *CallOptions {
 	return &CallOptions{}
 }
@@ -21,8 +25,4 @@ func MergeCallOptions(opts ...*CallOptions) *CallOptions {
 		}
 	}
 	return co
-}
-
-func (opt *CallOptions) SetTimeout(timeout time.Duration) {
-	opt.Timeout = &timeout
 }

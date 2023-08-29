@@ -28,7 +28,7 @@ type ClientConn struct {
 
 type ClientConnOption func(*ClientConn) error
 
-func OptionClientConnPacketFactory(pf *packet.PacketFactory) ClientConnOption {
+func OptionClientConnPacketFactory(pf packet.PacketFactory) ClientConnOption {
 	return func(cc *ClientConn) error {
 		cc.pf = pf
 		return nil

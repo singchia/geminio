@@ -8,6 +8,7 @@ import (
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/multiplexer"
+	"github.com/singchia/geminio/options"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
@@ -15,7 +16,7 @@ import (
 
 type opts struct {
 	// packet factory
-	pf *packet.PacketFactory
+	pf packet.PacketFactory
 	// logger
 	log log.Logger
 	// timer
@@ -26,7 +27,7 @@ type opts struct {
 type EndOption func(*End)
 
 // OptionEndPacketFactory sets the packet factory for End and Streams from the End
-func OptionEndPacketFactory(pf *packet.PacketFactory) EndOption {
+func OptionEndPacketFactory(pf packet.PacketFactory) EndOption {
 	return func(end *End) {
 		end.pf = pf
 	}
@@ -67,7 +68,9 @@ type End struct {
 	dlgt delegate.Delegate
 }
 
-func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOption) (*End, error) {
+func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOption) (
+	*End, error) {
+
 	end := &End{
 		opts:        &opts{},
 		cn:          cn,
@@ -101,6 +104,19 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	return end, nil
 }
 
+func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
+	geminio.Stream, error) {
+
+	oo := options.MergeOpenStreamOptions(opts...)
+	dg, err := end.multiplexer.OpenDialogue(oo.Meta)
+	if err != nil {
+		return nil, err
+	}
+	sm := newStream(end.cn, dg, end.opts)
+	end.streams.Store(sm.StreamID(), sm)
+	return sm, nil
+}
+
 func (end *End) AcceptStream() (geminio.Stream, error) {
 	dg, err := end.multiplexer.AcceptDialogue()
 	if err != nil {
@@ -109,4 +125,13 @@ func (end *End) AcceptStream() (geminio.Stream, error) {
 	sm := newStream(end.cn, dg, end.opts)
 	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
+}
+
+func (end *End) ListStreams() []geminio.Stream {
+	streams := []geminio.Stream{}
+	end.streams.Range(func(_, value interface{}) bool {
+		streams = append(streams, value.(*stream))
+		return true
+	})
+	return streams
 }
