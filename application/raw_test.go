@@ -19,7 +19,7 @@ import (
 func getStream(ctl *gomock.Controller, readWait, writeWait time.Duration) *stream {
 	tmr := timer.NewTimer()
 	sm := &stream{
-		streamOpts: streamOpts{
+		opts: &opts{
 			log:        log.DefaultLog,
 			tmr:        tmr,
 			tmrOutside: true,

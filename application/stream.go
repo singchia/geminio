@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jumboframes/armorigo/log"
-
 	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
@@ -19,7 +17,6 @@ import (
 	"github.com/singchia/geminio/pkg/iodefine"
 	gnet "github.com/singchia/geminio/pkg/net"
 	gsync "github.com/singchia/geminio/pkg/sync"
-	"github.com/singchia/go-timer/v2"
 )
 
 var (
@@ -40,35 +37,29 @@ type patternRPC struct {
 
 type methodRPC geminio.HijackRPC
 
-type streamOpts struct {
-	// packet factory
-	pf *packet.PacketFactory
-	// logger
-	log log.Logger
-	// timer
-	tmr        timer.Timer
-	tmrOutside bool
-	// meta
-	meta []byte
-}
-
 type stream struct {
 	*gnet.UnimplementedConn
-	// options
-	streamOpts
+	// options for End and stream, remember stream dones't own opts
+	*opts
+
+	// meta for the stream, which set by OpenStream
+	meta []byte
 
 	// sync hubor for negotiations and registrations
 	shub *synchub.SyncHub
 
-	// under layer dialogue and connection
-	dg multiplexer.Dialogue
+	// under layer connection and dialogue
 	cn conn.Conn
+	dg multiplexer.Dialogue
 
 	// registered rpcs
-	rpcMtx     sync.RWMutex
-	rpcCancels map[uint64]context.CancelFunc // inflight rpc's cancel
-	localRPCs  map[string]geminio.RPC        // key: method value: RPC
-	remoteRPCs map[string]struct{}           // key: method value: placeholder
+	rpcMtx sync.RWMutex
+	// inflight rpc's cancel
+	rpcCancels map[uint64]context.CancelFunc
+	// key: method value: RPC
+	localRPCs map[string]geminio.RPC
+	// key: method value: placeholder
+	remoteRPCs map[string]struct{}
 	// hijack
 	hijackRPC *patternRPC
 
@@ -97,6 +88,43 @@ type stream struct {
 
 	// close channel
 	closeCh chan struct{}
+}
+
+func newStream(cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
+	shub := synchub.NewSyncHub(synchub.OptionTimer(opts.tmr))
+	sm := &stream{
+		UnimplementedConn: &gnet.UnimplementedConn{},
+		opts:              opts,
+		shub:              shub,
+		cn:                cn,
+		dg:                dg,
+		rpcCancels:        make(map[uint64]context.CancelFunc),
+		localRPCs:         make(map[string]geminio.RPC),
+		remoteRPCs:        make(map[string]struct{}),
+		streamOK:          true,
+		closeOnce:         new(gsync.Once),
+		messageCh:         make(chan *packet.MessagePacket),
+		streamCh:          make(chan *packet.StreamPacket),
+		failedCh:          make(chan packet.Packet),
+		dlReadChList:      list.New(),
+		dlWriteChList:     list.New(),
+		writeInCh:         make(chan packet.Packet),
+		closeCh:           make(chan struct{}),
+	}
+	go sm.handlePkt()
+	return sm
+}
+
+func (sm *stream) StreamID() uint64 {
+	return sm.dg.DialogueID()
+}
+
+func (sm *stream) ClientID() uint64 {
+	return sm.cn.ClientID()
+}
+
+func (sm *stream) Meta() []byte {
+	return sm.meta
 }
 
 // main handle logic

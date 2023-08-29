@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"errors"
 	"io"
 	"sync"
 
@@ -263,6 +264,17 @@ func (dm *dialogueMgr) ListDialogues() []Dialogue {
 		dialogues = append(dialogues, dialogue)
 	}
 	return dialogues
+}
+
+func (dm *dialogueMgr) GetDialogue(clientID, dialogueID uint64) (Dialogue, error) {
+	if dm.cn.ClientID() != clientID {
+		return nil, errors.New("unfound clientID")
+	}
+	dialogue, ok := dm.dialogues[dialogueID]
+	if !ok {
+		return nil, errors.New("unfound dialgoueID")
+	}
+	return dialogue, nil
 }
 
 func (dm *dialogueMgr) readPkt() {
