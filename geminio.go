@@ -101,6 +101,13 @@ type RawRPCMessager interface {
 	Messager
 }
 
+type Side int
+
+const (
+	InitiatorSide Side = 0
+	RecipientSide Side = 1
+)
+
 type Stream interface {
 	// a stream is a geminio
 	RawRPCMessager
@@ -108,6 +115,7 @@ type Stream interface {
 	StreamID() uint64
 	ClientID() uint64
 	Meta() []byte
+	Side() Side
 }
 
 // Stream multiplexer

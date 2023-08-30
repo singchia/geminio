@@ -6,7 +6,9 @@ import (
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
@@ -110,7 +112,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (*dialogueMgr, er
 		closeCh:              make(chan struct{}),
 	}
 	// dialogue id counter
-	if dm.cn.Side() == conn.ServerSide {
+	if dm.cn.Side() == geminio.RecipientSide {
 		dm.dialogueIDs = id.NewIDCounter(id.Even)
 		dm.dialogueIDs.ReserveID(packet.SessionID1)
 	} else {
@@ -147,7 +149,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (*dialogueMgr, er
 	return dm, nil
 }
 
-func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
+func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
@@ -171,7 +173,7 @@ func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
 	return nil
 }
 
-func (dm *dialogueMgr) DialogueOffline(dg DialogueDescriber) error {
+func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
@@ -189,7 +191,7 @@ func (dm *dialogueMgr) DialogueOffline(dg DialogueDescriber) error {
 }
 
 func (dm *dialogueMgr) getID() uint64 {
-	if dm.cn.Side() == conn.ClientSide {
+	if dm.cn.Side() == geminio.InitiatorSide {
 		return packet.SessionIDNull
 	}
 	return dm.dialogueIDs.GetID()
@@ -205,7 +207,7 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	dm.mtx.RUnlock()
 
 	negotiatingID := dm.dialogueIDs.GetID()
-	dialogueIDPeersCall := dm.cn.Side() == conn.ClientSide
+	dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
 	dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 		OptionDialogueDelegate(dm))
@@ -309,7 +311,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 	case *packet.SessionPacket:
 		// new negotiating dialogue
 		negotiatingID := dm.dialogueIDs.GetID()
-		dialogueIDPeersCall := dm.cn.Side() == conn.ClientSide
+		dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
 		dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 			OptionDialogueDelegate(dm))

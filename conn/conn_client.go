@@ -8,6 +8,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
@@ -94,7 +95,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 			},
 			netconn:    netconn,
 			fsm:        yafsm.NewFSM(),
-			side:       ClientSide,
+			side:       geminio.InitiatorSide,
 			connOK:     true,
 			readInCh:   make(chan packet.Packet, 16),
 			writeOutCh: make(chan packet.Packet, 16),

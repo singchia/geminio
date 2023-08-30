@@ -7,6 +7,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
@@ -36,7 +37,7 @@ type dialogueHub struct {
 	readInCh chan packet.Packet
 }
 
-func (dh *dialogueHub) DialogueOnline(dg DialogueDescriber) error {
+func (dh *dialogueHub) DialogueOnline(dg delegate.DialogueDescriber) error {
 	dh.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dh.mtx.Lock()
 	defer dh.mtx.Unlock()
@@ -91,7 +92,7 @@ func NewDialogueHub(opts ...MultiplexerOption) (*dialogueHub, error) {
 	return dh, nil
 }
 
-func (dh *dialogueHub) DialogueOffline(dg DialogueDescriber) error {
+func (dh *dialogueHub) DialogueOffline(dg delegate.DialogueDescriber) error {
 	dh.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dh.mtx.Lock()
 	defer dh.mtx.Unlock()
@@ -109,12 +110,12 @@ func (dh *dialogueHub) DialogueOffline(dg DialogueDescriber) error {
 	return ErrDialogueNotFound
 }
 
-func (dh *dialogueHub) ConnOnline(cn conn.ConnDescriber) error {
+func (dh *dialogueHub) ConnOnline(cn delegate.ConnDescriber) error {
 	// once the conn online, add default dialogue
 	return nil
 }
 
-func (dh *dialogueHub) ConnOffline(cn conn.ConnDescriber) error {
+func (dh *dialogueHub) ConnOffline(cn delegate.ConnDescriber) error {
 	// once the conn offline, remove all dialogues
 	return nil
 }

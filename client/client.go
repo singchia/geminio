@@ -8,7 +8,6 @@ import (
 	"github.com/singchia/geminio/application"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/multiplexer"
-	"github.com/singchia/geminio/options"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
@@ -17,23 +16,41 @@ import (
 type Dialer func() (net.Conn, error)
 
 type Client struct {
-	opts *options.ClientOptions
+	opts *ClientOptions
 	geminio.End
 }
 
-func New(network, address string, opts ...*options.ClientOptions) (geminio.End, error) {
+func New(network, address string, opts ...*ClientOptions) (geminio.End, error) {
 	// connection
 	netcn, err := net.Dial(network, address)
 	if err != nil {
 		return nil, err
 	}
+	return new(netcn, opts...)
+}
+
+func NewWithDialer(dialer Dialer, opts ...*ClientOptions) (geminio.End, error) {
+	netcn, err := dialer()
+	if err != nil {
+		return nil, err
+	}
+	return new(netcn, opts...)
+}
+
+func NewWithConn(conn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
+	return new(conn, opts...)
+}
+
+func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
 	// options
-	co := options.MergeClientOptions(opts...)
+	co := MergeClientOptions(opts...)
+	initOptions(co)
 	client := &Client{
 		opts: co,
 	}
-	initOptions(co)
+
 	var (
+		err    error
 		cn     conn.Conn
 		cnOpts []conn.ClientConnOption
 		mp     multiplexer.Multiplexer
@@ -91,7 +108,7 @@ ERR:
 	return nil, err
 }
 
-func initOptions(co *options.ClientOptions) {
+func initOptions(co *ClientOptions) {
 	if co.Timer == nil {
 		co.Timer = timer.NewTimer()
 		co.TimerOutside = false // needs to be collected after Client Close

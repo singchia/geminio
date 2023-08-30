@@ -8,6 +8,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
@@ -77,7 +78,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			},
 			fsm:          yafsm.NewFSM(),
 			netconn:      netconn,
-			side:         ServerSide,
+			side:         geminio.RecipientSide,
 			connOK:       true,
 			readInSize:   128,
 			writeOutSize: 128,

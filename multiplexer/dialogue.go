@@ -7,6 +7,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
@@ -164,8 +165,9 @@ func (dg *dialogue) DialogueID() uint64 {
 	return dg.dialogueID
 }
 
-func (dg *dialogue) Side() Side {
-	return ServerSide
+// TODO
+func (dg *dialogue) Side() geminio.Side {
+	return geminio.RecipientSide
 }
 
 func (dg *dialogue) Write(pkt packet.Packet) error {

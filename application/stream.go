@@ -127,6 +127,10 @@ func (sm *stream) Meta() []byte {
 	return sm.meta
 }
 
+func (sm *stream) Side() geminio.Side {
+	return geminio.Side(sm.dg.Side())
+}
+
 // main handle logic
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
