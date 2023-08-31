@@ -127,6 +127,10 @@ func (sm *stream) Meta() []byte {
 	return sm.meta
 }
 
+func (sm *stream) Side() geminio.Side {
+	return geminio.Side(sm.dg.Side())
+}
+
 // main handle logic
 func (sm *stream) handlePkt() {
 	readInCh := sm.dg.ReadC()
@@ -491,7 +495,7 @@ func (sm *stream) fini() {
 	sm.mtx.Unlock()
 
 	for range sm.writeInCh {
-		// TODO we show care about msg in writeInCh buffer, it may contains message, request...
+		// TODO we should care about msg in writeInCh buffer, it may contains message, request...
 	}
 	// collect channels
 	sm.writeInCh = nil
@@ -505,6 +509,9 @@ func (sm *stream) fini() {
 		sm.tmr.Close()
 	}
 	sm.tmr = nil
+
+	// collect close
+	close(sm.closeCh)
 
 	sm.log.Debugf("stream finished, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())

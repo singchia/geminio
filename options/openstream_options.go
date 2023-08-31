@@ -4,6 +4,10 @@ type OpenStreamOptions struct {
 	Meta []byte
 }
 
+func (opt *OpenStreamOptions) SetMeta(meta []byte) {
+	opt.Meta = meta
+}
+
 func OpenStream() *OpenStreamOptions {
 	return &OpenStreamOptions{}
 }

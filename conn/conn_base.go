@@ -7,6 +7,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/iodefine"
 	"github.com/singchia/go-timer/v2"
@@ -43,7 +44,7 @@ type connOpts struct {
 
 	waitTimeout uint64
 	meta        []byte
-	pf          *packet.PacketFactory
+	pf          packet.PacketFactory
 	log         log.Logger
 	// options for future usage
 	retain bool
@@ -56,7 +57,7 @@ type baseConn struct {
 
 	fsm     *yafsm.FSM
 	netconn net.Conn
-	side    Side
+	side    geminio.Side
 	onlined bool
 	// sync hub
 	shub *synchub.SyncHub
@@ -240,7 +241,7 @@ func (bc *baseConn) RemoteAddr() net.Addr {
 	return bc.netconn.RemoteAddr()
 }
 
-func (bc *baseConn) Side() Side {
+func (bc *baseConn) Side() geminio.Side {
 	return bc.side
 }
 

@@ -8,6 +8,7 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
+	geminio "github.com/singchia/geminio"
 	multiplexer "github.com/singchia/geminio/multiplexer"
 	packet "github.com/singchia/geminio/packet"
 )
@@ -75,6 +76,21 @@ func (m *MockMultiplexer) ClosedDialogue() (multiplexer.Dialogue, error) {
 func (mr *MockMultiplexerMockRecorder) ClosedDialogue() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClosedDialogue", reflect.TypeOf((*MockMultiplexer)(nil).ClosedDialogue))
+}
+
+// GetDialogue mocks base method.
+func (m *MockMultiplexer) GetDialogue(clientID, dialogueID uint64) (multiplexer.Dialogue, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDialogue", clientID, dialogueID)
+	ret0, _ := ret[0].(multiplexer.Dialogue)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDialogue indicates an expected call of GetDialogue.
+func (mr *MockMultiplexerMockRecorder) GetDialogue(clientID, dialogueID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDialogue", reflect.TypeOf((*MockMultiplexer)(nil).GetDialogue), clientID, dialogueID)
 }
 
 // ListDialogues mocks base method.
@@ -310,10 +326,10 @@ func (mr *MockDialogueDescriberMockRecorder) NegotiatingID() *gomock.Call {
 }
 
 // Side mocks base method.
-func (m *MockDialogueDescriber) Side() multiplexer.Side {
+func (m *MockDialogueDescriber) Side() geminio.Side {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Side")
-	ret0, _ := ret[0].(multiplexer.Side)
+	ret0, _ := ret[0].(geminio.Side)
 	return ret0
 }
 
@@ -444,10 +460,10 @@ func (mr *MockDialogueMockRecorder) ReadC() *gomock.Call {
 }
 
 // Side mocks base method.
-func (m *MockDialogue) Side() multiplexer.Side {
+func (m *MockDialogue) Side() geminio.Side {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Side")
-	ret0, _ := ret[0].(multiplexer.Side)
+	ret0, _ := ret[0].(geminio.Side)
 	return ret0
 }
 

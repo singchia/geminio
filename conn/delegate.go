@@ -1,8 +1,10 @@
 package conn
 
+import "github.com/singchia/geminio/delegate"
+
 type Delegate interface {
-	ConnOnline(ConnDescriber) error
-	ConnOffline(ConnDescriber) error
+	ConnOnline(delegate.ConnDescriber) error
+	ConnOffline(delegate.ConnDescriber) error
 }
 
 type ClientConnDelegate interface {
@@ -11,6 +13,6 @@ type ClientConnDelegate interface {
 
 type ServerConnDelegate interface {
 	Delegate
-	Heartbeat(ConnDescriber) error
+	Heartbeat(delegate.ConnDescriber) error
 	GetClientIDByMeta(meta []byte) (uint64, error)
 }

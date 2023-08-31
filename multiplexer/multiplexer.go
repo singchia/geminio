@@ -3,6 +3,7 @@ package multiplexer
 import (
 	"errors"
 
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/packet"
 )
 
@@ -51,7 +52,7 @@ type DialogueDescriber interface {
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
-	Side() Side
+	Side() geminio.Side
 }
 
 type Dialogue interface {
@@ -64,5 +65,5 @@ type Dialogue interface {
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
-	Side() Side
+	Side() geminio.Side
 }

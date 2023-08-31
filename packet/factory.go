@@ -2,20 +2,52 @@ package packet
 
 import "github.com/singchia/geminio/pkg/id"
 
-type PacketFactory struct {
+type PacketFactory interface {
+	NewPacketID() uint64
+	// conn layer
+	NewConnPacket(wanted uint64, peersCall bool, heartbeat Heartbeat, meta []byte) *ConnPacket
+	NewConnAckPacket(packetID uint64, confirmedClientID uint64, err error) *ConnAckPacket
+	NewDisConnPacket() *DisConnPacket
+	NewDisConnAckPacket(packetID uint64, err error) *DisConnAckPacket
+	NewHeartbeatPacket() *HeartbeatPacket
+	NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPacket
+	// session layer
+	NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket
+	NewSessionAckPacket(packetID uint64, negotiateID uint64, confirmedID uint64, err error) *SessionAckPacket
+	NewDismissPacket(sessionID uint64) *DismissPacket
+	NewDismissAckPacket(packetID uint64, sessionID uint64, err error) *DismissAckPacket
+	// application layer
+	NewMessagePacket(key, value []byte) *MessagePacket
+	NewMessagePacketWithIDAndSessionID(id, sessionID uint64, key, value []byte) *MessagePacket
+	NewMessagePacketWithSessionID(sessionID uint64, key, value, custom []byte) *MessagePacket
+	NewMessageAckPacket(packetID uint64, err error) *MessageAckPacket
+	NewMessageAckPacketWithSessionID(sessionID, packetID uint64, err error) *MessageAckPacket
+	NewRequestPacket(pattern, data []byte) *RequestPacket
+	NewRequestCancelPacketWithIDAndSessionID(id, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket
+	NewRequestPacketWithIDAndSessionID(id, sessionID uint64, pattern, data []byte) *RequestPacket
+	NewResponsePacket(requestPacketID uint64, pattern, data []byte, err error) *ResponsePacket
+	NewStreamPacket(data []byte) *StreamPacket
+	NewStreamPacketWithSessionID(sessionID uint64, data []byte) *StreamPacket
+	NewRegisterPacket(method []byte) *RegisterPacket
+	NewRegisterPacketWithSessionID(sessionID uint64, method []byte) *RegisterPacket
+	NewRegisterAckPacket(packetID uint64, err error) *RegisterAckPacket
+	NewRegisterAckPacketWithSessionID(sessionID uint64, packetID uint64, err error) *RegisterAckPacket
+}
+
+type packetFactory struct {
 	packetIDs id.IDFactory
 }
 
-func NewPacketFactory(packetIDs *id.IDCounter) *PacketFactory {
-	return &PacketFactory{packetIDs}
+func NewPacketFactory(packetIDs *id.IDCounter) PacketFactory {
+	return &packetFactory{packetIDs}
 }
 
-func (pf *PacketFactory) NewPacketID() uint64 {
+func (pf *packetFactory) NewPacketID() uint64 {
 	return pf.packetIDs.GetID()
 }
 
 // connection layer packets
-func (pf *PacketFactory) NewConnPacket(wantedClientID uint64, clientIDPeersCall bool,
+func (pf *packetFactory) NewConnPacket(wantedClientID uint64, clientIDPeersCall bool,
 	heartbeat Heartbeat, meta []byte) *ConnPacket {
 	packetID := pf.packetIDs.GetID()
 	connPkt := &ConnPacket{
@@ -38,7 +70,7 @@ func (pf *PacketFactory) NewConnPacket(wantedClientID uint64, clientIDPeersCall 
 }
 
 // 协商的ClientID
-func (pf *PacketFactory) NewConnAckPacket(packetID uint64,
+func (pf *packetFactory) NewConnAckPacket(packetID uint64,
 	confirmedClientID uint64, err error) *ConnAckPacket {
 	connAckPkt := &ConnAckPacket{
 		PacketHeader: &PacketHeader{
@@ -58,7 +90,7 @@ func (pf *PacketFactory) NewConnAckPacket(packetID uint64,
 	return connAckPkt
 }
 
-func (pf *PacketFactory) NewDisConnPacket() *DisConnPacket {
+func (pf *packetFactory) NewDisConnPacket() *DisConnPacket {
 	packetID := pf.packetIDs.GetID()
 	disConnPkt := &DisConnPacket{
 		PacketHeader: &PacketHeader{
@@ -71,7 +103,7 @@ func (pf *PacketFactory) NewDisConnPacket() *DisConnPacket {
 	return disConnPkt
 }
 
-func (pf *PacketFactory) NewDisConnAckPacket(packetID uint64,
+func (pf *packetFactory) NewDisConnAckPacket(packetID uint64,
 	err error) *DisConnAckPacket {
 	disConnAckPkt := &DisConnAckPacket{
 		PacketHeader: &PacketHeader{
@@ -90,7 +122,7 @@ func (pf *PacketFactory) NewDisConnAckPacket(packetID uint64,
 	return disConnAckPkt
 }
 
-func (pf *PacketFactory) NewHeartbeatPacket() *HeartbeatPacket {
+func (pf *packetFactory) NewHeartbeatPacket() *HeartbeatPacket {
 	packetID := pf.packetIDs.GetID()
 	hbPkt := &HeartbeatPacket{
 		PacketHeader: &PacketHeader{
@@ -103,7 +135,7 @@ func (pf *PacketFactory) NewHeartbeatPacket() *HeartbeatPacket {
 	return hbPkt
 }
 
-func (pf *PacketFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPacket {
+func (pf *packetFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPacket {
 	hbAckPkt := &HeartbeatAckPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -116,7 +148,7 @@ func (pf *PacketFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPac
 }
 
 // session layer packets
-func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket {
+func (pf *packetFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket {
 	packetID := pf.packetIDs.GetID()
 	snPkt := &SessionPacket{
 		PacketHeader: &PacketHeader{
@@ -136,7 +168,7 @@ func (pf *PacketFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall
 	return snPkt
 }
 
-func (pf *PacketFactory) NewSessionAckPacket(packetID uint64, negotiateID uint64,
+func (pf *packetFactory) NewSessionAckPacket(packetID uint64, negotiateID uint64,
 	confirmedSessionID uint64, err error) *SessionAckPacket {
 	snAckPkt := &SessionAckPacket{
 		PacketHeader: &PacketHeader{
@@ -155,7 +187,7 @@ func (pf *PacketFactory) NewSessionAckPacket(packetID uint64, negotiateID uint64
 	return snAckPkt
 }
 
-func (pf *PacketFactory) NewDismissPacket(sessionID uint64) *DismissPacket {
+func (pf *packetFactory) NewDismissPacket(sessionID uint64) *DismissPacket {
 	packetID := pf.packetIDs.GetID()
 	disPkt := &DismissPacket{
 		PacketHeader: &PacketHeader{
@@ -170,7 +202,7 @@ func (pf *PacketFactory) NewDismissPacket(sessionID uint64) *DismissPacket {
 	return disPkt
 }
 
-func (pf *PacketFactory) NewDismissAckPacket(packetID uint64,
+func (pf *packetFactory) NewDismissAckPacket(packetID uint64,
 	sessionID uint64, err error) *DismissAckPacket {
 	disAckPkt := &DismissAckPacket{
 		PacketHeader: &PacketHeader{
@@ -189,7 +221,7 @@ func (pf *PacketFactory) NewDismissAckPacket(packetID uint64,
 }
 
 // application layer packets
-func (pf *PacketFactory) NewMessagePacket(key, value []byte) *MessagePacket {
+func (pf *packetFactory) NewMessagePacket(key, value []byte) *MessagePacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{
 		PacketHeader: &PacketHeader{
@@ -207,14 +239,14 @@ func (pf *PacketFactory) NewMessagePacket(key, value []byte) *MessagePacket {
 	return msgPkt
 }
 
-func (pf *PacketFactory) NewMessagePacketWithIDAndSessionID(id, sessionID uint64, key, value []byte) *MessagePacket {
+func (pf *packetFactory) NewMessagePacketWithIDAndSessionID(id, sessionID uint64, key, value []byte) *MessagePacket {
 	pkt := pf.NewMessagePacket(key, value)
 	pkt.PacketID = id
 	pkt.sessionID = sessionID
 	return pkt
 }
 
-func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
+func (pf *packetFactory) NewMessagePacketWithSessionID(sessionID uint64,
 	key, value, custom []byte) *MessagePacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{
@@ -234,7 +266,7 @@ func (pf *PacketFactory) NewMessagePacketWithSessionID(sessionID uint64,
 	return msgPkt
 }
 
-func (pf *PacketFactory) NewMessageAckPacket(packetID uint64, err error) *MessageAckPacket {
+func (pf *packetFactory) NewMessageAckPacket(packetID uint64, err error) *MessageAckPacket {
 	msgAckPkt := &MessageAckPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -250,13 +282,13 @@ func (pf *PacketFactory) NewMessageAckPacket(packetID uint64, err error) *Messag
 	return msgAckPkt
 }
 
-func (pf *PacketFactory) NewMessageAckPacketWithSessionID(sessionID, packetID uint64, err error) *MessageAckPacket {
+func (pf *packetFactory) NewMessageAckPacketWithSessionID(sessionID, packetID uint64, err error) *MessageAckPacket {
 	pkt := pf.NewMessageAckPacket(packetID, err)
 	pkt.sessionID = sessionID
 	return pkt
 }
 
-func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
+func (pf *packetFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 	packetID := pf.packetIDs.GetID()
 	msgPkt := &MessagePacket{
 		PacketHeader: &PacketHeader{
@@ -273,7 +305,7 @@ func (pf *PacketFactory) NewRequestPacket(pattern, data []byte) *RequestPacket {
 	return &RequestPacket{msgPkt}
 }
 
-func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket {
+func (pf *packetFactory) NewRequestCancelPacketWithIDAndSessionID(id, sessionID uint64, cancelType RequestCancelType) *RequestCancelPacket {
 	reqCelPkt := &RequestCancelPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -287,14 +319,14 @@ func (pf *PacketFactory) NewRequestCancelPacketWithIDAndSessionID(id, sessionID 
 	return reqCelPkt
 }
 
-func (pf *PacketFactory) NewRequestPacketWithIDAndSessionID(id, sessionID uint64, pattern, data []byte) *RequestPacket {
+func (pf *packetFactory) NewRequestPacketWithIDAndSessionID(id, sessionID uint64, pattern, data []byte) *RequestPacket {
 	pkt := pf.NewRequestPacket(pattern, data)
 	pkt.PacketID = id
 	pkt.sessionID = sessionID
 	return pkt
 }
 
-func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
+func (pf *packetFactory) NewResponsePacket(requestPacketID uint64,
 	pattern, data []byte, err error) *ResponsePacket {
 	msgAckPkt := &MessageAckPacket{
 		PacketHeader: &PacketHeader{
@@ -314,7 +346,7 @@ func (pf *PacketFactory) NewResponsePacket(requestPacketID uint64,
 	return &ResponsePacket{msgAckPkt}
 }
 
-func (pf *PacketFactory) NewStreamPacket(data []byte) *StreamPacket {
+func (pf *packetFactory) NewStreamPacket(data []byte) *StreamPacket {
 	packetID := pf.packetIDs.GetID()
 	streamPkt := &StreamPacket{
 		PacketHeader: &PacketHeader{
@@ -328,13 +360,13 @@ func (pf *PacketFactory) NewStreamPacket(data []byte) *StreamPacket {
 	return streamPkt
 }
 
-func (pf *PacketFactory) NewStreamPacketWithSessionID(sessionID uint64, data []byte) *StreamPacket {
+func (pf *packetFactory) NewStreamPacketWithSessionID(sessionID uint64, data []byte) *StreamPacket {
 	pkt := pf.NewStreamPacket(data)
 	pkt.sessionID = sessionID
 	return pkt
 }
 
-func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
+func (pf *packetFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 	packetID := pf.packetIDs.GetID()
 	registerPkt := &RegisterPacket{
 		PacketHeader: &PacketHeader{
@@ -348,13 +380,13 @@ func (pf *PacketFactory) NewRegisterPacket(method []byte) *RegisterPacket {
 	return registerPkt
 }
 
-func (pf *PacketFactory) NewRegisterPacketWithSessionID(sessionID uint64, method []byte) *RegisterPacket {
+func (pf *packetFactory) NewRegisterPacketWithSessionID(sessionID uint64, method []byte) *RegisterPacket {
 	pkt := pf.NewRegisterPacket(method)
 	pkt.sessionID = sessionID
 	return pkt
 }
 
-func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *RegisterAckPacket {
+func (pf *packetFactory) NewRegisterAckPacket(packetID uint64, err error) *RegisterAckPacket {
 	registerAckPkt := &RegisterAckPacket{
 		PacketHeader: &PacketHeader{
 			Version:  V01,
@@ -370,7 +402,7 @@ func (pf *PacketFactory) NewRegisterAckPacket(packetID uint64, err error) *Regis
 	return registerAckPkt
 }
 
-func (pf *PacketFactory) NewRegisterAckPacketWithSessionID(sessionID uint64, packetID uint64, err error) *RegisterAckPacket {
+func (pf *packetFactory) NewRegisterAckPacketWithSessionID(sessionID uint64, packetID uint64, err error) *RegisterAckPacket {
 	pkt := pf.NewRegisterAckPacket(packetID, err)
 	pkt.sessionID = sessionID
 	return pkt

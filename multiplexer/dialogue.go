@@ -7,6 +7,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
@@ -37,25 +38,17 @@ const (
 	ET_FINI        = "fini"
 )
 
-type dialogueOpts struct {
-	// packet factory
-	pf *packet.PacketFactory
-	// logger
-	log log.Logger
+type dialogue struct {
+	// options for timer, packet factory, log, delegate and meta
+	*opts
 	// delegate
 	dlgt Delegate
-	// timer
-	tmr        timer.Timer
-	tmrOutside bool
 	// meta
 	meta []byte
-}
 
-type dialogue struct {
 	// under layer
 	cn conn.Conn
-	// options
-	dialogueOpts
+
 	onlined   bool
 	closewait synchub.Sync
 	// dialogue id
@@ -90,30 +83,9 @@ func OptionDialogueState(state string) DialogueOption {
 	}
 }
 
-// Set the packet factory for packet generating
-func OptionDialoguePacketFactory(pf *packet.PacketFactory) DialogueOption {
-	return func(dg *dialogue) {
-		dg.pf = pf
-	}
-}
-
-func OptionDialogueLogger(log log.Logger) DialogueOption {
-	return func(dg *dialogue) {
-		dg.log = log
-	}
-}
-
-// Set delegate to know online and offline events
 func OptionDialogueDelegate(dlgt Delegate) DialogueOption {
 	return func(dg *dialogue) {
 		dg.dlgt = dlgt
-	}
-}
-
-func OptionDialogueTimer(tmr timer.Timer) DialogueOption {
-	return func(dg *dialogue) {
-		dg.tmr = tmr
-		dg.tmrOutside = true
 	}
 }
 
@@ -131,11 +103,11 @@ func OptionDialogueNegotiatingID(negotiatingID uint64, dialogueIDPeersCall bool)
 	}
 }
 
-func NewDialogue(cn conn.Conn, opts ...DialogueOption) (*dialogue, error) {
+func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogue, error) {
 	dg := &dialogue{
-		dialogueOpts: dialogueOpts{
-			meta: cn.Meta(),
-		},
+		opts: baseOpts,
+		//dialogueOpts: dialogueOpts{},
+		meta:         cn.Meta(),
 		dialogueID:   packet.SessionIDNull,
 		cn:           cn,
 		fsm:          yafsm.NewFSM(),
@@ -193,8 +165,9 @@ func (dg *dialogue) DialogueID() uint64 {
 	return dg.dialogueID
 }
 
-func (dg *dialogue) Side() Side {
-	return ServerSide
+// TODO
+func (dg *dialogue) Side() geminio.Side {
+	return geminio.RecipientSide
 }
 
 func (dg *dialogue) Write(pkt packet.Packet) error {

@@ -1,6 +1,8 @@
 package multiplexer
 
+import "github.com/singchia/geminio/delegate"
+
 type Delegate interface {
-	DialogueOnline(DialogueDescriber) error
-	DialogueOffline(DialogueDescriber) error
+	DialogueOnline(delegate.DialogueDescriber) error
+	DialogueOffline(delegate.DialogueDescriber) error
 }

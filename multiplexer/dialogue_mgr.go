@@ -6,24 +6,30 @@ import (
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
-type multiplexerOpts struct {
-	// global client ID factory, set nil at client side
-	dialogueIDs id.IDFactory
+type opts struct {
+	// timer
+	tmr        timer.Timer
+	tmrOutside bool
 	// packet factory
-	pf *packet.PacketFactory
+	pf packet.PacketFactory
 	// logger
 	log log.Logger
 	// delegate
 	dlgt Delegate
-	// timer
-	tmr        timer.Timer
-	tmrOutside bool
+}
+
+type multiplexerOpts struct {
+	*opts
+	// global client ID factory, set nil at client side
+	dialogueIDs id.IDFactory
 	// for outside usage
 	dialogueAcceptCh        chan *dialogue
 	dialogueAcceptChOutside bool
@@ -33,10 +39,10 @@ type multiplexerOpts struct {
 }
 
 type dialogueMgr struct {
-	// under layer
-	cn conn.Conn
 	// options
 	*multiplexerOpts
+	// under layer
+	cn conn.Conn
 
 	// close channel
 	closeCh chan struct{}
@@ -67,13 +73,15 @@ func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	}
 }
 
+// Set delegate to know online and offline events
 func OptionDelegate(dlgt Delegate) MultiplexerOption {
 	return func(opts *multiplexerOpts) {
 		opts.dlgt = dlgt
 	}
 }
 
-func OptionPacketFactory(pf *packet.PacketFactory) MultiplexerOption {
+// Set the packet factory for packet generating
+func OptionPacketFactory(pf packet.PacketFactory) MultiplexerOption {
 	return func(opts *multiplexerOpts) {
 		opts.pf = pf
 	}
@@ -92,9 +100,11 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	}
 }
 
-func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, error) {
+func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (*dialogueMgr, error) {
 	dm := &dialogueMgr{
-		multiplexerOpts:      &multiplexerOpts{},
+		multiplexerOpts: &multiplexerOpts{
+			opts: &opts{},
+		},
 		cn:                   cn,
 		mgrOK:                true,
 		dialogues:            make(map[uint64]*dialogue),
@@ -102,7 +112,7 @@ func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 		closeCh:              make(chan struct{}),
 	}
 	// dialogue id counter
-	if dm.cn.Side() == conn.ServerSide {
+	if dm.cn.Side() == geminio.RecipientSide {
 		dm.dialogueIDs = id.NewIDCounter(id.Even)
 		dm.dialogueIDs.ReserveID(packet.SessionID1)
 	} else {
@@ -110,19 +120,20 @@ func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 		dm.dialogueIDs.ReserveID(packet.SessionID1)
 	}
 	// options
-	for _, opt := range opts {
+	for _, opt := range mpopts {
 		opt(dm.multiplexerOpts)
 	}
 	// sync hub
-	if !dm.tmrOutside {
+	if dm.tmr == nil {
 		dm.tmr = timer.NewTimer()
+		dm.tmrOutside = true
 	}
 	// log
 	if dm.log == nil {
 		dm.log = log.DefaultLog
 	}
 	// add default dialogue
-	dg, err := NewDialogue(cn,
+	dg, err := NewDialogue(cn, dm.multiplexerOpts.opts,
 		OptionDialogueState(SESSIONED),
 		OptionDialogueDelegate(dm))
 	if err != nil {
@@ -138,7 +149,7 @@ func NewDialogueMgr(cn conn.Conn, opts ...MultiplexerOption) (*dialogueMgr, erro
 	return dm, nil
 }
 
-func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
+func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
@@ -162,7 +173,7 @@ func (dm *dialogueMgr) DialogueOnline(dg DialogueDescriber) error {
 	return nil
 }
 
-func (dm *dialogueMgr) DialogueOffline(dg DialogueDescriber) error {
+func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
@@ -180,13 +191,13 @@ func (dm *dialogueMgr) DialogueOffline(dg DialogueDescriber) error {
 }
 
 func (dm *dialogueMgr) getID() uint64 {
-	if dm.cn.Side() == conn.ClientSide {
+	if dm.cn.Side() == geminio.InitiatorSide {
 		return packet.SessionIDNull
 	}
 	return dm.dialogueIDs.GetID()
 }
 
-// OpenDialogue blocks until success or failed
+// OpenDialogue blocks until succeed or failed
 func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	dm.mtx.RLock()
 	if !dm.mgrOK {
@@ -196,8 +207,8 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	dm.mtx.RUnlock()
 
 	negotiatingID := dm.dialogueIDs.GetID()
-	dialogueIDPeersCall := dm.cn.Side() == conn.ClientSide
-	dg, err := NewDialogue(dm.cn,
+	dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
+	dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 		OptionDialogueDelegate(dm))
 	if err != nil {
@@ -300,8 +311,8 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 	case *packet.SessionPacket:
 		// new negotiating dialogue
 		negotiatingID := dm.dialogueIDs.GetID()
-		dialogueIDPeersCall := dm.cn.Side() == conn.ClientSide
-		dg, err := NewDialogue(dm.cn,
+		dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
+		dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 			OptionDialogueDelegate(dm))
 		if err != nil {
