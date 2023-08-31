@@ -26,8 +26,9 @@ type DialogueDescriber interface {
 type Delegate interface {
 	ConnOnline(ConnDescriber) error
 	ConnOffline(ConnDescriber) error
+	Heartbeat(ConnDescriber) error
 	DialogueOnline(DialogueDescriber) error
 	DialogueOffline(DialogueDescriber) error
-	RemoteRegistration(method string, clientId uint64, streamId uint64)
-	GetClientIdByMeta(meta []byte) (uint64, error)
+	RemoteRegistration(method string, clientID uint64, streamID uint64)
+	GetClientIDByMeta(meta []byte) (uint64, error)
 }
