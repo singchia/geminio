@@ -405,3 +405,5 @@ func (rc *RetryClient) Receive(ctx context.Context) (geminio.Message, error) {
 	}
 	return msg, nil
 }
+
+// Raw
