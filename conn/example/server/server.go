@@ -15,6 +15,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
 )
@@ -30,9 +31,9 @@ func newServer() *server {
 	}
 }
 
-func (s *server) ConnOnline(_ conn.ConnDescriber) error  { return nil }
-func (s *server) ConnOffline(_ conn.ConnDescriber) error { return nil }
-func (s *server) Heartbeat(_ conn.ConnDescriber) error   { return nil }
+func (s *server) ConnOnline(_ delegate.ConnDescriber) error  { return nil }
+func (s *server) ConnOffline(_ delegate.ConnDescriber) error { return nil }
+func (s *server) Heartbeat(_ delegate.ConnDescriber) error   { return nil }
 func (s *server) GetClientIDByMeta(meta []byte) (uint64, error) {
 	return s.idFactory.GetID(), nil
 }

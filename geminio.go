@@ -86,7 +86,7 @@ type Messager interface {
 	NewMessage(data []byte) Message
 
 	Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
-	PublishAsync(ctx context.Context, msg Message, publish chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
+	PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
 	Receive(ctx context.Context) (Message, error)
 }
 
