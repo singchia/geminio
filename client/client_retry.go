@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -407,3 +408,132 @@ func (rc *RetryClient) Receive(ctx context.Context) (geminio.Message, error) {
 }
 
 // Raw
+func (rc *RetryClient) Read(b []byte) (int, error) {
+	if atomic.LoadInt32(rc.ok) != 1 {
+		// TODO optimize the error
+		return 0, io.EOF
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	n, rerr := cur.Read(b)
+	if rerr != nil {
+		if rerr == io.EOF && atomic.LoadInt32(rc.ok) == 1 {
+			// under layer EOF but not closed, we should retry the end,
+			// pass the old end for comparition
+			ierr := rc.reinit(cur)
+			if ierr != nil {
+				if ierr == io.EOF {
+					// reinit should never return io.EOF, if do BUG!!
+					rc.opts.Log.Errorf("reinit got io.EOF after Read err: %s", rerr)
+					return 0, ierr
+				}
+				return 0, ierr
+			}
+			// retry succeed, recursive the Read
+			return rc.Read(b)
+		}
+		return 0, rerr
+	}
+	return n, nil
+}
+
+func (rc *RetryClient) Write(b []byte) (int, error) {
+	if atomic.LoadInt32(rc.ok) != 1 {
+		// TODO optimize the error
+		return 0, io.EOF
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	n, werr := cur.Write(b)
+	if werr != nil {
+		if werr == io.EOF && atomic.LoadInt32(rc.ok) == 1 {
+			// under layer EOF but not closed, we should retry the end,
+			// pass the old end for comparition
+			ierr := rc.reinit(cur)
+			if ierr != nil {
+				if ierr == io.EOF {
+					// reinit should never return io.EOF, if do BUG!!
+					rc.opts.Log.Errorf("reinit got io.EOF after Write err: %s", werr)
+					return 0, ierr
+				}
+				return 0, ierr
+			}
+			// retry succeed, recursive the Write
+			return rc.Write(b)
+		}
+		return 0, werr
+	}
+	return n, nil
+}
+
+func (rc *RetryClient) Close() error {
+	var err error
+	rc.onceClose.Do(func() {
+		cur := (*application.End)(atomic.LoadPointer(&rc.end))
+		// set rc.ok false, no more reconnect
+		atomic.StoreInt32(rc.ok, 0)
+		err = cur.Close()
+	})
+	return err
+}
+
+func (rc *RetryClient) LocalAddr() net.Addr {
+	if rc.end == nil {
+		return nil
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.LocalAddr()
+}
+
+func (rc *RetryClient) RemoteAddr() net.Addr {
+	if rc.end == nil {
+		return nil
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.RemoteAddr()
+}
+
+func (rc *RetryClient) SetDeadline(t time.Time) error {
+	if atomic.LoadInt32(rc.ok) != 1 {
+		// TODO optimize the error
+		return io.EOF
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.SetDeadline(t)
+}
+
+func (rc *RetryClient) SetReadDeadline(t time.Time) error {
+	if atomic.LoadInt32(rc.ok) != 1 {
+		// TODO optimize the error
+		return io.EOF
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.SetReadDeadline(t)
+}
+
+func (rc *RetryClient) SetWriteDeadline(t time.Time) error {
+	if atomic.LoadInt32(rc.ok) != 1 {
+		// TODO optimize the error
+		return io.EOF
+	}
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.SetWriteDeadline(t)
+}
+
+func (rc *RetryClient) StreamID() uint64 {
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.StreamID()
+}
+
+func (rc *RetryClient) ClientID() uint64 {
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.ClientID()
+}
+
+func (rc *RetryClient) Meta() []byte {
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.Meta()
+}
+
+func (rc *RetryClient) Side() geminio.Side {
+	cur := (*application.End)(atomic.LoadPointer(&rc.end))
+	return cur.Side()
+}

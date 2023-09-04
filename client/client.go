@@ -122,8 +122,10 @@ func initOptions(co *ClientOptions) {
 }
 
 func (client *Client) Close() error {
+	err := client.End.Close()
 	if client.opts.TimerOutside {
+		// TODO in case of timer closed before connection closed
 		client.opts.Timer.Close()
 	}
-	return client.End.Close()
+	return err
 }
