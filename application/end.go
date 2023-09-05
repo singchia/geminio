@@ -135,3 +135,12 @@ func (end *End) ListStreams() []geminio.Stream {
 	})
 	return streams
 }
+
+func (end *End) Close() error {
+	end.multiplexer.Close()
+	end.cn.Close()
+	if !end.tmrOutside {
+		end.tmr.Close()
+	}
+	return nil
+}
