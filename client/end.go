@@ -15,12 +15,13 @@ import (
 
 type Dialer func() (net.Conn, error)
 
-type Client struct {
-	opts *ClientOptions
+type ClientEnd struct {
+	// we need the opts to hold resources to close
+	opts *EndOptions
 	geminio.End
 }
 
-func New(network, address string, opts ...*ClientOptions) (geminio.End, error) {
+func NewEnd(network, address string, opts ...*EndOptions) (geminio.End, error) {
 	// connection
 	netcn, err := net.Dial(network, address)
 	if err != nil {
@@ -29,7 +30,7 @@ func New(network, address string, opts ...*ClientOptions) (geminio.End, error) {
 	return new(netcn, opts...)
 }
 
-func NewWithDialer(dialer Dialer, opts ...*ClientOptions) (geminio.End, error) {
+func NewEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
 	netcn, err := dialer()
 	if err != nil {
 		return nil, err
@@ -37,16 +38,16 @@ func NewWithDialer(dialer Dialer, opts ...*ClientOptions) (geminio.End, error) {
 	return new(netcn, opts...)
 }
 
-func NewWithConn(conn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
+func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	return new(conn, opts...)
 }
 
-func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
+func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
-	co := MergeClientOptions(opts...)
-	initOptions(co)
-	client := &Client{
-		opts: co,
+	eo := MergeEndOptions(opts...)
+	initOptions(eo)
+	client := &ClientEnd{
+		opts: eo,
 	}
 
 	var (
@@ -62,14 +63,14 @@ func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
 
 	// connection layer
 	cnOpts = []conn.ClientConnOption{
-		conn.OptionClientConnPacketFactory(co.PacketFactory),
-		conn.OptionClientConnDelegate(co.Delegate),
-		conn.OptionClientConnLogger(co.Log),
-		conn.OptionClientConnTimer(co.Timer),
-		conn.OptionClientConnMeta(co.Meta),
+		conn.OptionClientConnPacketFactory(eo.PacketFactory),
+		conn.OptionClientConnDelegate(eo.Delegate),
+		conn.OptionClientConnLogger(eo.Log),
+		conn.OptionClientConnTimer(eo.Timer),
+		conn.OptionClientConnMeta(eo.Meta),
 	}
-	if co.ClientID != nil {
-		cnOpts = append(cnOpts, conn.OptionClientConnClientID(*co.ClientID))
+	if eo.ClientID != nil {
+		cnOpts = append(cnOpts, conn.OptionClientConnClientID(*eo.ClientID))
 	}
 	cn, err = conn.NewClientConn(netcn, cnOpts...)
 	if err != nil {
@@ -77,10 +78,10 @@ func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
 	}
 	// multiplexer
 	mpOpts = []multiplexer.MultiplexerOption{
-		multiplexer.OptionPacketFactory(co.PacketFactory),
-		multiplexer.OptionDelegate(co.Delegate),
-		multiplexer.OptionLogger(co.Log),
-		multiplexer.OptionTimer(co.Timer),
+		multiplexer.OptionPacketFactory(eo.PacketFactory),
+		multiplexer.OptionDelegate(eo.Delegate),
+		multiplexer.OptionLogger(eo.Log),
+		multiplexer.OptionTimer(eo.Timer),
 		multiplexer.OptionMultiplexerAcceptDialogue(),
 	}
 	mp, err = multiplexer.NewDialogueMgr(cn, mpOpts...)
@@ -89,10 +90,10 @@ func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
 	}
 	// application
 	epOpts = []application.EndOption{
-		application.OptionEndPacketFactory(co.PacketFactory),
-		application.OptionEndDelegate(co.Delegate),
-		application.OptionEndLogger(co.Log),
-		application.OptionEndTimer(co.Timer),
+		application.OptionEndPacketFactory(eo.PacketFactory),
+		application.OptionEndDelegate(eo.Delegate),
+		application.OptionEndLogger(eo.Log),
+		application.OptionEndTimer(eo.Timer),
 	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {
@@ -102,28 +103,28 @@ func new(netcn net.Conn, opts ...*ClientOptions) (geminio.End, error) {
 	client.End = ep
 	return client, nil
 ERR:
-	if !co.TimerOutside {
-		co.Timer.Close()
+	if !eo.TimerOutside {
+		eo.Timer.Close()
 	}
 	return nil, err
 }
 
-func initOptions(co *ClientOptions) {
-	if co.Timer == nil {
-		co.Timer = timer.NewTimer()
-		co.TimerOutside = false // needs to be collected after Client Close
+func initOptions(eo *EndOptions) {
+	if eo.Timer == nil {
+		eo.Timer = timer.NewTimer()
+		eo.TimerOutside = false // needs to be collected after Client Close
 	}
-	if co.Log == nil {
-		co.Log = log.DefaultLog
+	if eo.Log == nil {
+		eo.Log = log.DefaultLog
 	}
-	if co.PacketFactory == nil {
-		co.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
+	if eo.PacketFactory == nil {
+		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
 	}
 }
 
-func (client *Client) Close() error {
+func (client *ClientEnd) Close() error {
 	err := client.End.Close()
-	if client.opts.TimerOutside {
+	if !client.opts.TimerOutside {
 		// TODO in case of timer closed before connection closed
 		client.opts.Timer.Close()
 	}
