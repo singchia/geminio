@@ -25,3 +25,11 @@ func (so *ServerOptions) SetTimer(timer timer.Timer) {
 func (so *ServerOptions) SetPacketFactory(packetFactory packet.PacketFactory) {
 	so.PacketFactory = packetFactory
 }
+
+func (so *ServerOptions) SetLog(log log.Logger) {
+	so.Log = log
+}
+
+func (so *ServerOptions) SetDelegate(delegate delegate.Delegate) {
+	so.Delegate = delegate
+}
