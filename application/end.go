@@ -26,30 +26,30 @@ type opts struct {
 
 type EndOption func(*End)
 
-// OptionEndPacketFactory sets the packet factory for End and Streams from the End
-func OptionEndPacketFactory(pf packet.PacketFactory) EndOption {
+// OptionPacketFactory sets the packet factory for End and Streams from the End
+func OptionPacketFactory(pf packet.PacketFactory) EndOption {
 	return func(end *End) {
 		end.pf = pf
 	}
 }
 
-// OptionEndLogger sets logger for End and Streams from the End
-func OptionEndLogger(log log.Logger) EndOption {
+// OptionLogger sets logger for End and Streams from the End
+func OptionLogger(log log.Logger) EndOption {
 	return func(end *End) {
 		end.log = log
 	}
 }
 
-// OptionEndTimer sets timer for End and Streams from the End
-func OptionEndTimer(tmr timer.Timer) EndOption {
+// OptionTimer sets timer for End and Streams from the End
+func OptionTimer(tmr timer.Timer) EndOption {
 	return func(end *End) {
 		end.tmr = tmr
 		end.tmrOutside = true
 	}
 }
 
-// OptionEndDelegate sets delegate for End and Streams from the End
-func OptionEndDelegate(dlgt delegate.Delegate) EndOption {
+// OptionDelegate sets delegate for End and Streams from the End
+func OptionDelegate(dlgt delegate.Delegate) EndOption {
 	return func(end *End) {
 		end.dlgt = dlgt
 	}

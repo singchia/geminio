@@ -100,7 +100,7 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	}
 }
 
-func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (*dialogueMgr, error) {
+func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, error) {
 	dm := &dialogueMgr{
 		multiplexerOpts: &multiplexerOpts{
 			opts: &opts{},
@@ -126,7 +126,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (*dialogueMgr, er
 	// sync hub
 	if dm.tmr == nil {
 		dm.tmr = timer.NewTimer()
-		dm.tmrOutside = true
+		dm.tmrOutside = false
 	}
 	// log
 	if dm.log == nil {

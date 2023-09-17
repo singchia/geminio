@@ -24,6 +24,7 @@ type ServerConn struct {
 	dlgt ServerConnDelegate
 
 	// global client ID factory
+	clientID  uint64
 	clientIDs id.IDFactory
 
 	closeOnce *sync.Once
@@ -66,6 +67,12 @@ func OptionServerConnBufferSize(read, write int) ServerConnOption {
 	return func(sc *ServerConn) {
 		sc.readOutSize = read
 		sc.writeInSize = write
+	}
+}
+
+func OptionServerConnClientID(clientID uint64) ServerConnOption {
+	return func(sc *ServerConn) {
+		sc.clientID = clientID
 	}
 }
 
@@ -286,7 +293,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	sc.meta = pkt.ConnData.Meta
 	if pkt.ClientIDAcquire() {
 		if sc.dlgt != nil {
-			sc.clientID, err = sc.dlgt.GetClientIDByMeta(sc.meta)
+			sc.clientID, err = sc.dlgt.GetClientID(sc.meta)
 		} else {
 			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
 		}

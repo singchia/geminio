@@ -14,5 +14,5 @@ type ClientConnDelegate interface {
 type ServerConnDelegate interface {
 	Delegate
 	Heartbeat(delegate.ConnDescriber) error
-	GetClientIDByMeta(meta []byte) (uint64, error)
+	GetClientID(meta []byte) (uint64, error)
 }
