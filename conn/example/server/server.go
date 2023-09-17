@@ -34,7 +34,7 @@ func newServer() *server {
 func (s *server) ConnOnline(_ delegate.ConnDescriber) error  { return nil }
 func (s *server) ConnOffline(_ delegate.ConnDescriber) error { return nil }
 func (s *server) Heartbeat(_ delegate.ConnDescriber) error   { return nil }
-func (s *server) GetClientIDByMeta(meta []byte) (uint64, error) {
+func (s *server) GetClientID(meta []byte) (uint64, error) {
 	return s.idFactory.GetID(), nil
 }
 

@@ -1,4 +1,4 @@
-package client
+package server
 
 import (
 	"net"
@@ -13,48 +13,28 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
-type Dialer func() (net.Conn, error)
-
-type ClientEnd struct {
+type ServerEnd struct {
 	// we need the opts to hold resources to close
 	opts *EndOptions
 	geminio.End
 }
 
-func NewEnd(network, address string, opts ...*EndOptions) (geminio.End, error) {
-	// connection
-	netcn, err := net.Dial(network, address)
-	if err != nil {
-		return nil, err
-	}
-	return new(netcn, opts...)
-}
-
-func NewEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
-	netcn, err := dialer()
-	if err != nil {
-		return nil, err
-	}
-	return new(netcn, opts...)
-}
-
 func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
-	return new(conn, opts...)
+	return nil, nil
 }
 
 func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
 	initOptions(eo)
-	ce := &ClientEnd{
+	se := &ServerEnd{
 		opts: eo,
 	}
-
 	var (
 		err error
 		// connection
 		cn     conn.Conn
-		cnOpts []conn.ClientConnOption
+		cnOpts []conn.ServerConnOption
 		// multiplexer
 		mp     multiplexer.Multiplexer
 		mpOpts []multiplexer.MultiplexerOption
@@ -65,17 +45,16 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// we share packet factory, log, timer and delegate for follow 3 layers.
 
 	// connection layer
-	cnOpts = []conn.ClientConnOption{
-		conn.OptionClientConnPacketFactory(eo.PacketFactory),
-		conn.OptionClientConnDelegate(eo.Delegate),
-		conn.OptionClientConnLogger(eo.Log),
-		conn.OptionClientConnTimer(eo.Timer),
-		conn.OptionClientConnMeta(eo.Meta),
+	cnOpts = []conn.ServerConnOption{
+		conn.OptionServerConnPacketFactory(eo.PacketFactory),
+		conn.OptionServerConnDelegate(eo.Delegate),
+		conn.OptionServerConnLogger(eo.Log),
+		conn.OptionServerConnTimer(eo.Timer),
 	}
 	if eo.ClientID != nil {
-		cnOpts = append(cnOpts, conn.OptionClientConnClientID(*eo.ClientID))
+		cnOpts = append(cnOpts, conn.OptionServerConnClientID(*eo.ClientID))
 	}
-	cn, err = conn.NewClientConn(netcn, cnOpts...)
+	cn, err = conn.NewServerConn(netcn, cnOpts...)
 	if err != nil {
 		goto ERR
 	}
@@ -86,6 +65,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		multiplexer.OptionLogger(eo.Log),
 		multiplexer.OptionTimer(eo.Timer),
 		multiplexer.OptionMultiplexerAcceptDialogue(),
+		multiplexer.OptionMultiplexerClosedDialogue(),
 	}
 	mp, err = multiplexer.NewDialogueMgr(cn, mpOpts...)
 	if err != nil {
@@ -102,9 +82,8 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	if err != nil {
 		goto ERR
 	}
-	// client
-	ce.End = ep
-	return ce, nil
+	se.End = ep
+	return se, nil
 ERR:
 	if !eo.TimerOutside {
 		eo.Timer.Close()
@@ -115,21 +94,21 @@ ERR:
 func initOptions(eo *EndOptions) {
 	if eo.Timer == nil {
 		eo.Timer = timer.NewTimer()
-		eo.TimerOutside = false // needs to be collected after ClientEnd Close
+		eo.TimerOutside = false // needs to be collected after ServerEnd Close
 	}
 	if eo.Log == nil {
 		eo.Log = log.DefaultLog
 	}
 	if eo.PacketFactory == nil {
-		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
+		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Even))
 	}
 }
 
-func (ce *ClientEnd) Close() error {
-	err := ce.End.Close()
-	if !ce.opts.TimerOutside {
+func (se *ServerEnd) Close() error {
+	err := se.End.Close()
+	if !se.opts.TimerOutside {
 		// TODO in case of timer closed before connection closed
-		ce.opts.Timer.Close()
+		se.opts.Timer.Close()
 	}
 	return err
 }

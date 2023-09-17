@@ -46,6 +46,11 @@ type ServerDialogueDelegate interface {
 	ClientDialogueDelegate
 }
 
+// application layer delegation
+type AppDelegate interface {
+	RemoteRegistration(method string, clientID uint64, streamID uint64)
+}
+
 // Delegate
 type Delegate interface {
 	ConnOnline(ConnDescriber) error

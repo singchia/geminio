@@ -13,7 +13,6 @@ import (
 	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/pkg/iodefine"
 	gsync "github.com/singchia/geminio/pkg/sync"
-	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
 
@@ -129,10 +128,12 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
 	dg.readOutCh = make(chan packet.Packet, dg.readOutSize)
 	dg.writeInCh = make(chan packet.Packet, dg.writeInSize)
-	// timer
-	if !dg.tmrOutside {
-		dg.tmr = timer.NewTimer()
-	}
+	// timer TODO test
+	/*
+		if !dg.tmrOutside {
+			dg.tmr = timer.NewTimer()
+		}
+	*/
 	dg.shub = synchub.NewSyncHub(synchub.OptionTimer(dg.tmr))
 	// packet factory
 	if dg.pf == nil {
@@ -648,11 +649,13 @@ func (dg *dialogue) fini() {
 	dg.writeInCh, dg.writeOutCh = nil, nil
 	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
 
-	// collect timer
-	if !dg.tmrOutside {
-		dg.tmr.Close()
-	}
-	dg.tmr = nil
+	// collect timer TODO test
+	/*
+		if !dg.tmrOutside {
+			dg.tmr.Close()
+		}
+		dg.tmr = nil
+	*/
 	// collect fsm
 	dg.fsm.EmitEvent(ET_FINI)
 	dg.fsm.Close()
