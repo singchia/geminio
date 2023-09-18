@@ -20,7 +20,7 @@ type ServerEnd struct {
 }
 
 func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
-	return nil, nil
+	return new(conn, opts...)
 }
 
 func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
