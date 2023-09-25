@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/jumboframes/armorigo/log"
@@ -118,6 +119,7 @@ func initOptions(eo *EndOptions) {
 		eo.TimerOutside = false // needs to be collected after ClientEnd Close
 	}
 	if eo.Log == nil {
+		fmt.Println("singchia watching")
 		eo.Log = log.DefaultLog
 	}
 	if eo.PacketFactory == nil {

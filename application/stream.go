@@ -229,7 +229,7 @@ func (sm *stream) handleInMessageAckPacket(pkt *packet.MessageAckPacket) iodefin
 	sm.log.Tracef("read message ack packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	acked := sm.shub.Ack(pkt.ID(), nil)
-	sm.log.Tracef("message ack packet acked: %b, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+	sm.log.Tracef("message ack packet acked: %t, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		acked, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
 }
