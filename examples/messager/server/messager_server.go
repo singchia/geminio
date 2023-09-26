@@ -39,6 +39,7 @@ func main() {
 		log.Errorf("parse log level err: %s", err)
 		return
 	}
+
 	log := log.NewLog()
 	log.SetLevel(lvl)
 	opt := server.NewEndOptions()
@@ -48,10 +49,6 @@ func main() {
 		log.Errorf("server listen err: %s", err)
 		return
 	}
-
-	tmr = timer.NewTimer()
-	syncHub = synchub.NewSyncHub(synchub.OptionTimer(tmr))
-	idCounter = id.NewIDCounter(id.Unique)
 
 	go func() {
 		for {

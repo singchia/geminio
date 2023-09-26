@@ -16,7 +16,7 @@ func Receive(end geminio.End) {
 			return
 		}
 		msg.Done()
-		log.Info("> ", msg.ClientID(), msg.StreamID(), msg.Data())
+		log.Info("> ", msg.ClientID(), msg.StreamID(), string(msg.Data()))
 	}
 }
 
