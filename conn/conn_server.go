@@ -1,7 +1,6 @@
 package conn
 
 import (
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -23,8 +22,7 @@ type ServerConn struct {
 	// linke Online Offline, etc.
 	dlgt ServerConnDelegate
 
-	// global client ID factory
-	clientID  uint64
+	// default global client ID factory
 	clientIDs id.IDFactory
 
 	closeOnce *sync.Once
@@ -94,7 +92,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 		},
 
 		closeOnce: new(sync.Once),
-		clientIDs: id.NewIDCounter(id.Unique),
+		clientIDs: id.DefaultUniqueIDCounter,
 	}
 	sc.cn = sc
 	// options
@@ -306,7 +304,6 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 		}
 	} else {
 		// TODO server must use this clientID, we should check if the clientID legal
-		fmt.Println("singchia watching")
 		sc.clientID = pkt.ClientID
 	}
 

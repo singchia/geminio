@@ -17,6 +17,10 @@ const (
 	Unique Mode = "unique"
 )
 
+var (
+	DefaultUniqueIDCounter = NewIDCounter(Unique)
+)
+
 type IDCounter struct {
 	counter uint32
 	once    *sync.Once

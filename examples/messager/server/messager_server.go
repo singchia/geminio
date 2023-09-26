@@ -24,6 +24,7 @@ func main() {
 	pprof := flag.String("pprof", "", "pprof address to listen")
 	network := flag.String("network", "tcp", "network to listen")
 	address := flag.String("address", "127.0.0.1:1202", "address to listen")
+	level := flag.String("level", "info", "trace, debug, info, warn, error")
 	count := flag.Int("count", 10, "message count")
 
 	flag.Parse()
@@ -33,16 +34,21 @@ func main() {
 			http.ListenAndServe(*pprof, nil)
 		}()
 	}
+	lvl, err := log.ParseLevel(*level)
+	if err != nil {
+		log.Errorf("parse log level err: %s", err)
+		return
+	}
 
-	ln, err := server.Listen(*network, *address)
+	log := log.NewLog()
+	log.SetLevel(lvl)
+	opt := server.NewEndOptions()
+	opt.SetLog(log)
+	ln, err := server.Listen(*network, *address, opt)
 	if err != nil {
 		log.Errorf("server listen err: %s", err)
 		return
 	}
-
-	tmr = timer.NewTimer()
-	syncHub = synchub.NewSyncHub(synchub.OptionTimer(tmr))
-	idCounter = id.NewIDCounter(id.Unique)
 
 	go func() {
 		for {

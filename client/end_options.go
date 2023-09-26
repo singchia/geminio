@@ -57,6 +57,21 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 			eo.Timer = opt.Timer
 			eo.TimerOutside = false
 		}
+		if opt.PacketFactory != nil {
+			eo.PacketFactory = opt.PacketFactory
+		}
+		if opt.Log != nil {
+			eo.Log = opt.Log
+		}
+		if opt.Delegate != nil {
+			eo.Delegate = opt.Delegate
+		}
+		if opt.Meta != nil {
+			eo.Meta = opt.Meta
+		}
+		if opt.ClientID != nil {
+			eo.ClientID = opt.ClientID
+		}
 	}
 	return eo
 }
