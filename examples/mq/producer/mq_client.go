@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"net"
 	"net/http"
 
 	"github.com/jumboframes/armorigo/log"
@@ -28,4 +29,7 @@ func main() {
 	log.SetLevel(lvl)
 
 	// new producer
+	_ = func() (net.Conn, error) {
+		return net.Dial("tcp", *broker)
+	}
 }

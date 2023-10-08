@@ -10,7 +10,6 @@ import (
 	"unsafe"
 
 	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/application"
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/options"
 )
@@ -35,7 +34,7 @@ type RetryEnd struct {
 	hijackRPC     geminio.HijackRPC
 }
 
-func NewRetryWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
+func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	co := MergeEndOptions(opts...)
 	initOptions(co)
@@ -48,33 +47,37 @@ func NewRetryWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error)
 		onceClose: &sync.Once{},
 		rpcs:      make(map[string]geminio.RPC),
 	}
+	// replace outside delegate to ours
+	re.opts.delegate = re.opts.Delegate
+	re.opts.Delegate = re
 	end, err := re.getEnd()
 	if err != nil {
 		goto ERR
 	}
 	re.end = unsafe.Pointer(end)
+	return re, nil
 ERR:
 	atomic.StoreInt32(re.ok, 0)
-	return nil, nil
+	return nil, err
 }
 
-func (re *RetryEnd) getEnd() (*application.End, error) {
+func (re *RetryEnd) getEnd() (*ClientEnd, error) {
 	end, err := NewEndWithDialer(re.dialer, re.opts)
 	if err != nil {
 		return nil, err
 	}
-	if re.opts.Delegate != nil {
-		re.opts.Delegate.ConnOnline(end)
+	if re.opts.delegate != nil {
+		re.opts.delegate.ConnOnline(end)
 	}
-	return end.(*application.End), nil
+	return end.(*ClientEnd), nil
 }
 
-func (re *RetryEnd) reinit(old *application.End) error {
+func (re *RetryEnd) reinit(old *ClientEnd) error {
 	// the reinit take times
 	re.retry.Lock()
 	defer re.retry.Unlock()
 
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	if cur != old {
 		// already reinited
 		return nil
@@ -110,15 +113,15 @@ func (re *RetryEnd) reinit(old *application.End) error {
 
 	// after retry the end succeed, after hijack and register legacy functions,
 	// the brand new end online
-	if re.opts.Delegate != nil {
-		re.opts.Delegate.ConnOnline(new)
+	if re.opts.delegate != nil {
+		re.opts.delegate.ConnOnline(new)
 	}
 	return nil
 }
 
 // wrappered delegate
 func (re *RetryEnd) ConnOnline(conn delegate.ConnDescriber) error {
-	delegate := re.opts.Delegate
+	delegate := re.opts.delegate
 	if delegate != nil {
 		return delegate.ConnOnline(conn)
 	}
@@ -126,7 +129,7 @@ func (re *RetryEnd) ConnOnline(conn delegate.ConnDescriber) error {
 }
 
 func (re *RetryEnd) ConnOffline(conn delegate.ConnDescriber) error {
-	delegate := re.opts.Delegate
+	delegate := re.opts.delegate
 	if delegate != nil {
 		// The offline is just a notification, we're still keep on trying reconnct
 		err := delegate.ConnOffline(conn)
@@ -136,7 +139,7 @@ func (re *RetryEnd) ConnOffline(conn delegate.ConnDescriber) error {
 	}
 	fn := func() {
 		for atomic.LoadInt32(re.ok) == 1 {
-			end := (*application.End)(atomic.LoadPointer(&re.end))
+			end := (*ClientEnd)(atomic.LoadPointer(&re.end))
 			err := re.reinit(end)
 			if err != nil {
 				re.opts.Log.Infof("retry client offline and retry failed: %s", err)
@@ -152,7 +155,7 @@ func (re *RetryEnd) ConnOffline(conn delegate.ConnDescriber) error {
 }
 
 func (re *RetryEnd) Heartbeat(conn delegate.ConnDescriber) error {
-	delegate := re.opts.Delegate
+	delegate := re.opts.delegate
 	if delegate != nil {
 		return delegate.Heartbeat(conn)
 	}
@@ -160,7 +163,7 @@ func (re *RetryEnd) Heartbeat(conn delegate.ConnDescriber) error {
 }
 
 func (re *RetryEnd) DialogueOnline(dialogue delegate.DialogueDescriber) error {
-	delegate := re.opts.Delegate
+	delegate := re.opts.delegate
 	if delegate != nil {
 		return delegate.DialogueOnline(dialogue)
 	}
@@ -168,7 +171,7 @@ func (re *RetryEnd) DialogueOnline(dialogue delegate.DialogueDescriber) error {
 }
 
 func (re *RetryEnd) DialogueOffline(dialogue delegate.DialogueDescriber) error {
-	delegate := re.opts.Delegate
+	delegate := re.opts.delegate
 	if delegate != nil {
 		return delegate.DialogueOffline(dialogue)
 	}
@@ -177,7 +180,55 @@ func (re *RetryEnd) DialogueOffline(dialogue delegate.DialogueDescriber) error {
 
 func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID uint64) {}
 
-func (re *RetryEnd) GetClientIDByMeta(meta []byte) (uint64, error) { return 0, nil }
+func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
+
+// Multiplexer
+func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	if atomic.LoadInt32(re.ok) != 1 {
+		// TODO optimize the error
+		return nil, io.EOF
+	}
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
+	sm, oerr := cur.OpenStream(opts...)
+	if oerr != nil {
+		if oerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
+			// under layer EOF but not closed, we should retry the end,
+			// pass the old end for comparition
+			ierr := re.reinit(cur)
+			if ierr != nil {
+				if ierr == io.EOF {
+					// reinit should never return io.EOF, if do BUG!!
+					re.opts.Log.Errorf("reinit got io.EOF after Call err: %s", oerr)
+					return nil, ierr
+				}
+				// some other error, maybe ErrInvalidConn, ErrClosed
+				return nil, ierr
+			}
+			// retry succeed, recursive the Call
+			return re.OpenStream(opts...)
+		}
+		return nil, oerr
+	}
+	return sm, nil
+}
+
+func (re *RetryEnd) AcceptStream() (geminio.Stream, error) {
+	if atomic.LoadInt32(re.ok) != 1 {
+		// TODO optimize the error
+		return nil, io.EOF
+	}
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
+	return cur.AcceptStream()
+}
+
+func (re *RetryEnd) ListStreams() []geminio.Stream {
+	if atomic.LoadInt32(re.ok) != 1 {
+		// TODO optimize the error
+		return nil
+	}
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
+	return cur.ListStreams()
+}
 
 // RPCer
 func (re *RetryEnd) NewRequest(data []byte) geminio.Request {
@@ -190,7 +241,7 @@ func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request
 		// TODO optimize the error
 		return nil, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	rsp, cerr := cur.Call(ctx, method, req, opts...)
 	if cerr != nil {
 		if cerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -220,7 +271,7 @@ func (re *RetryEnd) CallAsync(ctx context.Context, method string, req geminio.Re
 		// TODO optimize the error
 		return nil, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	call, cerr := cur.CallAsync(ctx, method, req, ch, opts...)
 	if cerr != nil {
 		if cerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -254,7 +305,7 @@ func (re *RetryEnd) register(ctx context.Context, method string, rpc geminio.RPC
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	rerr := cur.Register(ctx, method, rpc)
 	if rerr != nil {
 		if rerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -289,7 +340,7 @@ func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	herr := cur.Hijack(rpc, opts...)
 	if herr != nil {
 		if herr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -317,7 +368,7 @@ func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions
 
 // Messager
 func (re *RetryEnd) NewMessage(data []byte) geminio.Message {
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.NewMessage(data)
 }
 
@@ -327,7 +378,7 @@ func (re *RetryEnd) Publish(ctx context.Context, msg geminio.Message,
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	perr := cur.Publish(ctx, msg, opts...)
 	if perr != nil {
 		if perr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -356,7 +407,7 @@ func (re *RetryEnd) PublishAsync(ctx context.Context, msg geminio.Message, ch ch
 		// TODO optimize the error
 		return nil, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	pub, perr := cur.PublishAsync(ctx, msg, ch, opts...)
 	if perr != nil {
 		if perr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -384,7 +435,7 @@ func (re *RetryEnd) Receive(ctx context.Context) (geminio.Message, error) {
 		// TODO optimize the error
 		return nil, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	msg, rerr := cur.Receive(ctx)
 	if rerr != nil {
 		if rerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -413,7 +464,7 @@ func (re *RetryEnd) Read(b []byte) (int, error) {
 		// TODO optimize the error
 		return 0, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	n, rerr := cur.Read(b)
 	if rerr != nil {
 		if rerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -441,7 +492,7 @@ func (re *RetryEnd) Write(b []byte) (int, error) {
 		// TODO optimize the error
 		return 0, io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	n, werr := cur.Write(b)
 	if werr != nil {
 		if werr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
@@ -467,7 +518,7 @@ func (re *RetryEnd) Write(b []byte) (int, error) {
 func (re *RetryEnd) Close() error {
 	var err error
 	re.onceClose.Do(func() {
-		cur := (*application.End)(atomic.LoadPointer(&re.end))
+		cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 		// set re.ok false, no more reconnect
 		atomic.StoreInt32(re.ok, 0)
 		err = cur.Close()
@@ -479,7 +530,7 @@ func (re *RetryEnd) LocalAddr() net.Addr {
 	if re.end == nil {
 		return nil
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.LocalAddr()
 }
 
@@ -487,7 +538,7 @@ func (re *RetryEnd) RemoteAddr() net.Addr {
 	if re.end == nil {
 		return nil
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.RemoteAddr()
 }
 
@@ -496,7 +547,7 @@ func (re *RetryEnd) SetDeadline(t time.Time) error {
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.SetDeadline(t)
 }
 
@@ -505,7 +556,7 @@ func (re *RetryEnd) SetReadDeadline(t time.Time) error {
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.SetReadDeadline(t)
 }
 
@@ -514,26 +565,26 @@ func (re *RetryEnd) SetWriteDeadline(t time.Time) error {
 		// TODO optimize the error
 		return io.EOF
 	}
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.SetWriteDeadline(t)
 }
 
 func (re *RetryEnd) StreamID() uint64 {
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.StreamID()
 }
 
 func (re *RetryEnd) ClientID() uint64 {
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.ClientID()
 }
 
 func (re *RetryEnd) Meta() []byte {
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.Meta()
 }
 
 func (re *RetryEnd) Side() geminio.Side {
-	cur := (*application.End)(atomic.LoadPointer(&re.end))
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
 	return cur.Side()
 }

@@ -42,7 +42,7 @@ func main() {
 	}
 	opt := client.NewEndOptions()
 	opt.SetLog(log)
-	end, err := client.NewEndWithDialer(dialer, opt)
+	end, err := client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {
 		log.Errorf("new end err: %s", err)
 		return

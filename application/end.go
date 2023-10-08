@@ -64,6 +64,7 @@ type End struct {
 	streams     sync.Map
 	// End holds the default stream
 	*stream
+	onceClose *sync.Once
 
 	dlgt delegate.Delegate
 }
@@ -75,6 +76,7 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 		opts:        &opts{},
 		cn:          cn,
 		multiplexer: multiplexer,
+		onceClose:   new(sync.Once),
 	}
 	for _, opt := range options {
 		opt(end)
@@ -137,10 +139,12 @@ func (end *End) ListStreams() []geminio.Stream {
 }
 
 func (end *End) Close() error {
-	end.multiplexer.Close()
-	end.cn.Close()
-	if !end.tmrOutside {
-		end.tmr.Close()
-	}
+	end.onceClose.Do(func() {
+		end.multiplexer.Close()
+		end.cn.Close()
+		if !end.tmrOutside {
+			end.tmr.Close()
+		}
+	})
 	return nil
 }

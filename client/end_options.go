@@ -14,6 +14,7 @@ type EndOptions struct {
 	PacketFactory packet.PacketFactory
 	Log           log.Logger
 	Delegate      delegate.Delegate
+	delegate      delegate.Delegate
 	ClientID      *uint64
 	Meta          []byte
 }
