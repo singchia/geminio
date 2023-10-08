@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"net/http"
+	_ "net/http/pprof"
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"

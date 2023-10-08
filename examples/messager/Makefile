@@ -1,17 +1,17 @@
-GOHOSTOS:=$(shell go env GOHOSTOS)
-GOARCH:=$(shell go env GOARCH)
+GOHOSTOS?=$(shell go env GOHOSTOS)
+GOARCH?=$(shell go env GOARCH)
 
 .PHONY: all
-all: mc ms
+all: message_client message_server
 
 .PHONY: clean
 clean:
-	rm mc ms
+	rm message_client message_server
 
-mc: client/*.go share/*.go
+message_client: client/*.go share/*.go
 	CGO_ENABLED=0 GOOS=$(GOHOSTOS) GOARCH=$(GOARCH) \
-		go build -trimpath -ldflags "-s -w" -o mc client/messager_client.go
+		go build -trimpath -ldflags "-s -w" -o message_client client/messager_client.go
 
-ms: server/*.go share/*.go
+message_server: server/*.go share/*.go
 	CGO_ENABLED=0 GOOS=$(GOHOSTOS) GOARCH=$(GOARCH) \
-		go build -trimpath -ldflags "-s -w" -o ms server/messager_server.go
+		go build -trimpath -ldflags "-s -w" -o message_server server/messager_server.go

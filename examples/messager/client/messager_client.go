@@ -36,6 +36,7 @@ func main() {
 	log := log.NewLog()
 	log.SetLevel(lvl)
 
+	// new client
 	dialer := func() (net.Conn, error) {
 		return net.Dial(*network, *address)
 	}

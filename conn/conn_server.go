@@ -459,7 +459,6 @@ func (sc *ServerConn) fini() {
 	sc.fsm.Close()
 	sc.fsm = nil
 	// collect id
-	sc.clientIDs.Close()
 	sc.clientIDs = nil
 	// collect channels
 	sc.readInCh, sc.writeInCh, sc.writeOutCh = nil, nil, nil
