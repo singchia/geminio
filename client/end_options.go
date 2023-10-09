@@ -10,17 +10,23 @@ import (
 
 type EndOptions struct {
 	Timer         timer.Timer
-	TimerOutside  bool
+	TimerOwner    interface{}
 	PacketFactory packet.PacketFactory
 	Log           log.Logger
 	Delegate      delegate.Delegate
+	delegate      delegate.Delegate
 	ClientID      *uint64
 	Meta          []byte
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
 	eo.Timer = timer
-	eo.TimerOutside = true
+	eo.TimerOwner = nil
+}
+
+func (eo *EndOptions) setTimer(timer timer.Timer, owner interface{}) {
+	eo.Timer = timer
+	eo.TimerOwner = owner
 }
 
 func (eo *EndOptions) SetPacketFactory(packetFactory packet.PacketFactory) {
@@ -55,7 +61,7 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 		if opt.Timer != nil {
 			eo.Timer = opt.Timer
-			eo.TimerOutside = false
+			eo.TimerOwner = opt.TimerOwner
 		}
 		if opt.PacketFactory != nil {
 			eo.PacketFactory = opt.PacketFactory

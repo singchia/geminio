@@ -36,12 +36,13 @@ func main() {
 	log := log.NewLog()
 	log.SetLevel(lvl)
 
+	// new client
 	dialer := func() (net.Conn, error) {
 		return net.Dial(*network, *address)
 	}
 	opt := client.NewEndOptions()
 	opt.SetLog(log)
-	end, err := client.NewEndWithDialer(dialer, opt)
+	end, err := client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {
 		log.Errorf("new end err: %s", err)
 		return
