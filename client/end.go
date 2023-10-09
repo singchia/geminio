@@ -49,6 +49,10 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	ce := &ClientEnd{
 		opts: eo,
 	}
+	if eo.Timer == nil {
+		eo.Timer = timer.NewTimer()
+		eo.TimerOwner = ce
+	}
 
 	var (
 		err error
@@ -106,30 +110,26 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	ce.End = ep
 	return ce, nil
 ERR:
-	if !eo.TimerOutside {
+	if eo.TimerOwner == ce {
 		eo.Timer.Close()
 	}
 	return nil, err
 }
 
-func initOptions(eo *EndOptions) {
-	if eo.Timer == nil {
-		eo.Timer = timer.NewTimer()
-		eo.TimerOutside = false // needs to be collected after ClientEnd Close
+func (ce *ClientEnd) Close() error {
+	err := ce.End.Close()
+	if ce.opts.TimerOwner == ce {
+		// TODO in case of timer closed before connection closed
+		ce.opts.Timer.Close()
 	}
+	return err
+}
+
+func initOptions(eo *EndOptions) {
 	if eo.Log == nil {
 		eo.Log = log.DefaultLog
 	}
 	if eo.PacketFactory == nil {
 		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
 	}
-}
-
-func (ce *ClientEnd) Close() error {
-	err := ce.End.Close()
-	if !ce.opts.TimerOutside {
-		// TODO in case of timer closed before connection closed
-		ce.opts.Timer.Close()
-	}
-	return err
 }

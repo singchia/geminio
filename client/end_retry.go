@@ -12,6 +12,7 @@ import (
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/options"
+	"github.com/singchia/go-timer/v2"
 )
 
 type RetryEnd struct {
@@ -36,17 +37,21 @@ type RetryEnd struct {
 
 func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
 	// options
-	co := MergeEndOptions(opts...)
-	initOptions(co)
+	eo := MergeEndOptions(opts...)
+	initOptions(eo)
 	ok := int32(1)
-
 	re := &RetryEnd{
-		opts:      co,
+		opts:      eo,
 		dialer:    dialer,
 		ok:        &ok,
 		onceClose: &sync.Once{},
 		rpcs:      make(map[string]geminio.RPC),
 	}
+	if eo.Timer == nil {
+		eo.Timer = timer.NewTimer()
+		eo.TimerOwner = re
+	}
+
 	// replace outside delegate to ours
 	re.opts.delegate = re.opts.Delegate
 	re.opts.Delegate = re
@@ -58,6 +63,9 @@ func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, err
 	return re, nil
 ERR:
 	atomic.StoreInt32(re.ok, 0)
+	if eo.TimerOwner == re {
+		eo.Timer.Close()
+	}
 	return nil, err
 }
 
@@ -522,6 +530,9 @@ func (re *RetryEnd) Close() error {
 		// set re.ok false, no more reconnect
 		atomic.StoreInt32(re.ok, 0)
 		err = cur.Close()
+		if re.opts.TimerOwner == re {
+			re.opts.Timer.Close()
+		}
 	})
 	return err
 }
