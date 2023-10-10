@@ -76,6 +76,32 @@ func (broker *Broker) Handle(end geminio.End) error {
 		broker.mtx.RUnlock()
 	}
 	// destory the end
+	// the consumer and producer will end here
+	broker.mtx.Lock()
+	client, ok := broker.clients[end.ClientID()]
+	if ok {
+		delete(broker.clients, client.end.ClientID())
+		// remove the consumer
+		consumers, ok := broker.consumerTopics[client.topic]
+		if ok {
+			for k, v := range consumers {
+				if k == end.ClientID() {
+					// to make the consumer quit
+					close(v)
+					delete(consumers, end.ClientID())
+				}
+			}
+			if len(consumers) == 0 {
+				// no such topic consumer, end the syncer
+				syncer, ok := broker.syncers[client.topic]
+				if ok {
+					close(syncer)
+					delete(broker.syncers, client.topic)
+				}
+			}
+		}
+	}
+	broker.mtx.Unlock()
 	return err
 }
 
