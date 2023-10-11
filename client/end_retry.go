@@ -240,7 +240,8 @@ func (re *RetryEnd) ListStreams() []geminio.Stream {
 
 // RPCer
 func (re *RetryEnd) NewRequest(data []byte) geminio.Request {
-	return re.NewRequest(data)
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
+	return cur.NewRequest(data)
 }
 
 func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request,

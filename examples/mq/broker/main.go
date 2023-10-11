@@ -48,6 +48,7 @@ func main() {
 				log.Errorf("accept err: %s", err)
 				break
 			}
+			log.Debugf("accept end: %v", end.ClientID())
 			go b.Handle(end)
 		}
 	}()

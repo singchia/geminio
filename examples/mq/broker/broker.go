@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	_ "net/http/pprof"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
@@ -35,8 +36,10 @@ type Broker struct {
 func NewBroker() *Broker {
 	b := &Broker{
 		mtx:            new(sync.RWMutex),
+		clients:        map[uint64]*roleEnd{},
 		producerTopics: map[string]chan string{},
 		consumerTopics: map[string]map[uint64]chan string{},
+		syncers:        map[string]chan struct{}{},
 	}
 	return b
 }
@@ -56,8 +59,10 @@ func (broker *Broker) Handle(end geminio.End) error {
 	for {
 		msg, err := end.Receive(context.TODO())
 		if err != nil {
+			log.Errorf("end receive err: %s", err)
 			break
 		}
+		log.Debugf("end receive msg: %s", string(msg.Data()))
 		broker.mtx.RLock()
 		client, ok := broker.clients[msg.ClientID()]
 		if !ok {

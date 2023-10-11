@@ -204,6 +204,8 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 		return sm.handleOutRequestPacket(realPkt)
 	case *packet.StreamPacket:
 		return sm.handleOutStreamPacket(realPkt)
+	case *packet.RegisterPacket:
+		return sm.handleOutRegisterPacket(realPkt)
 	}
 	// unknown packet
 	return iodefine.IOSuccess
@@ -222,7 +224,7 @@ func (sm *stream) handleInMessageAckPacket(pkt *packet.MessageAckPacket) iodefin
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read message ack packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %b",
+		sm.log.Tracef("read message ack packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %t",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
@@ -325,7 +327,7 @@ func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IO
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %b,",
+		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t,",
 			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
@@ -416,6 +418,16 @@ func (sm *stream) handleOutRequestPacket(pkt *packet.RequestPacket) iodefine.IOR
 		sm.log.Debugf("write request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		sm.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleOutRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write register packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
 	}
 	return iodefine.IOSuccess

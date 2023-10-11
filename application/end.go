@@ -1,9 +1,11 @@
 package application
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
+	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/delegate"
@@ -22,6 +24,8 @@ type opts struct {
 	// timer
 	tmr        timer.Timer
 	tmrOutside bool
+	// methods
+	methods []string
 }
 
 type EndOption func(*End)
@@ -52,6 +56,12 @@ func OptionTimer(tmr timer.Timer) EndOption {
 func OptionDelegate(dlgt delegate.Delegate) EndOption {
 	return func(end *End) {
 		end.dlgt = dlgt
+	}
+}
+
+func OptionWaitRemoteRPCs(methods []string) EndOption {
+	return func(end *End) {
+		end.methods = methods
 	}
 }
 
@@ -103,6 +113,16 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	}
 	end.stream = newStream(cn, dg, end.opts)
 	end.streams.Store(dg.DialogueID(), end.stream)
+	// wait for all remote RPCs registration
+	if end.opts.methods != nil && len(end.opts.methods) != 0 {
+		ifs := strings2interfaces(end.opts.methods...)
+		syncID := fmt.Sprintf(registrationFormat, cn.ClientID(), dg.DialogueID())
+		sync := end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
+		event := <-sync.C()
+		if event.Error != nil {
+			return nil, event.Error
+		}
+	}
 	return end, nil
 }
 

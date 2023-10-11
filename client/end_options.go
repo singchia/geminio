@@ -17,6 +17,7 @@ type EndOptions struct {
 	delegate      delegate.Delegate
 	ClientID      *uint64
 	Meta          []byte
+	Methods       []string
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -49,6 +50,10 @@ func (eo *EndOptions) SetMeta(meta []byte) {
 	eo.Meta = meta
 }
 
+func (eo *EndOptions) SetWaitRemoteRPCs(methods ...string) {
+	eo.Methods = methods
+}
+
 func NewEndOptions() *EndOptions {
 	return &EndOptions{}
 }
@@ -77,6 +82,9 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 		if opt.ClientID != nil {
 			eo.ClientID = opt.ClientID
+		}
+		if opt.Methods != nil {
+			eo.Methods = opt.Methods
 		}
 	}
 	return eo

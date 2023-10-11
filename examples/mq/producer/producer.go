@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/jumboframes/armorigo/log"
@@ -42,6 +45,7 @@ func main() {
 	}
 	opt := client.NewEndOptions()
 	opt.SetLog(log)
+	opt.SetWaitRemoteRPCs("claim")
 	end, err := client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {
 		log.Errorf("new end err: %s", err)
@@ -54,16 +58,23 @@ func main() {
 	}
 	data, _ := json.Marshal(role)
 	_, err = end.Call(context.TODO(), "claim", end.NewRequest(data))
+	if err != nil {
+		log.Errorf("call err: %s", err)
+		return
+	}
 
 	go func() {
-		log.Info("> ")
+		fmt.Print("> ")
 		// producer
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			text := scanner.Text()
-			log.Info("> ")
+			fmt.Print("> ")
 			err = end.Publish(context.TODO(), end.NewMessage([]byte(text)))
 			if err != nil {
+				if err == io.EOF {
+					break
+				}
 				log.Errorf("publish err: %s", err)
 				continue
 			}

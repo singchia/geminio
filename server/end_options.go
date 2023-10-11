@@ -15,6 +15,7 @@ type EndOptions struct {
 	Log           log.Logger
 	Delegate      delegate.Delegate
 	ClientID      *uint64
+	Methods       []string
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -36,6 +37,10 @@ func (eo *EndOptions) SetDelegate(delegate delegate.Delegate) {
 
 func (eo *EndOptions) SetClientID(clientID uint64) {
 	eo.ClientID = &clientID
+}
+
+func (eo *EndOptions) SetWaitRemoteRPCs(methods []string) {
+	eo.Methods = methods
 }
 
 func NewEndOptions() *EndOptions {
