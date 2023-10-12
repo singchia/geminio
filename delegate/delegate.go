@@ -46,18 +46,27 @@ type ServerDialogueDelegate interface {
 	ClientDialogueDelegate
 }
 
+type ClientDescriber interface {
+	ClientID() uint64
+}
+
 // application layer delegation
-type AppDelegate interface {
+type ApplicationDelegate interface {
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
 }
 
 // Delegate
 type Delegate interface {
+	// connection layer
 	ConnOnline(ConnDescriber) error
 	ConnOffline(ConnDescriber) error
 	Heartbeat(ConnDescriber) error
+	GetClientID(meta []byte) (uint64, error)
+	// dialogue layer
 	DialogueOnline(DialogueDescriber) error
 	DialogueOffline(DialogueDescriber) error
+	// application layer
+	EndOnline(ClientDescriber) error
+	EndOffline(ClientDescriber) error
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
-	GetClientID(meta []byte) (uint64, error)
 }

@@ -20,10 +20,10 @@ func getStream(ctl *gomock.Controller, readWait, writeWait time.Duration) *strea
 	tmr := timer.NewTimer()
 	sm := &stream{
 		opts: &opts{
-			log:        log.DefaultLog,
-			tmr:        tmr,
-			tmrOutside: true,
-			pf:         packet.NewPacketFactory(id.NewIDCounter(id.Even)),
+			log:      log.DefaultLog,
+			tmr:      tmr,
+			tmrOwner: nil,
+			pf:       packet.NewPacketFactory(id.NewIDCounter(id.Even)),
 		},
 		shub:          synchub.NewSyncHub(synchub.OptionTimer(tmr)),
 		streamOK:      true,

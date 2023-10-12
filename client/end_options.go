@@ -5,6 +5,7 @@ import (
 
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -88,4 +89,13 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 	}
 	return eo
+}
+
+func initEndOptions(eo *EndOptions) {
+	if eo.Log == nil {
+		eo.Log = log.DefaultLog
+	}
+	if eo.PacketFactory == nil {
+		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
+	}
 }

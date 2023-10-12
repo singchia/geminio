@@ -62,16 +62,21 @@ func (broker *Broker) Handle(end geminio.End) error {
 			log.Errorf("end receive err: %s", err)
 			break
 		}
-		log.Debugf("end receive msg: %s", string(msg.Data()))
 		broker.mtx.RLock()
 		client, ok := broker.clients[msg.ClientID()]
 		if !ok {
-			log.Errorf("client not found while receive msg")
+			log.Errorf("client: %d not found while receiving msg", msg.ClientID())
 			broker.mtx.RUnlock()
 			continue
 		}
 
 		ch, ok := broker.producerTopics[client.topic]
+		if !ok {
+			log.Errorf("client: %d topic: %s not found while receiving msg", msg.ClientID(), client.topic)
+			broker.mtx.RUnlock()
+			continue
+		}
+		log.Debugf("end: %d receive msg: %s topic: %s", msg.ClientID(), string(msg.Data()), client.topic)
 		select {
 		case ch <- string(msg.Data()):
 			msg.Done()

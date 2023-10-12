@@ -81,7 +81,7 @@ func NewDialogueHub(opts ...MultiplexerOption) (*dialogueHub, error) {
 	// sync hub
 	if dh.tmr == nil {
 		dh.tmr = timer.NewTimer()
-		dh.tmrOutside = false
+		dh.tmrOwner = dh
 	}
 	// log
 	if dh.log == nil {
@@ -338,7 +338,7 @@ func (dh *dialogueHub) fini() {
 	}
 
 	// collect timer
-	if !dh.tmrOutside {
+	if dh.tmrOwner == dh {
 		dh.tmr.Close()
 	}
 	dh.tmr = nil

@@ -1,9 +1,10 @@
-package consumer
+package main
 
 import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net"
 	"net/http"
 
@@ -38,8 +39,9 @@ func main() {
 	dialer := func() (net.Conn, error) {
 		return net.Dial("tcp", *broker)
 	}
-	opt := client.NewEndOptions()
+	opt := client.NewRetryEndOptions()
 	opt.SetLog(log)
+	opt.SetWaitRemoteRPCs("claim")
 	end, err := client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {
 		log.Errorf("new end err: %s", err)
@@ -52,6 +54,9 @@ func main() {
 	}
 	data, _ := json.Marshal(role)
 	_, err = end.Call(context.TODO(), "claim", end.NewRequest(data))
+	if err != nil {
+
+	}
 
 	go func() {
 		// consumer
@@ -62,7 +67,7 @@ func main() {
 				continue
 			}
 			msg.Done()
-			log.Info(">", string(msg.Data()))
+			fmt.Println(">", string(msg.Data()))
 		}
 	}()
 

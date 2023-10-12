@@ -390,7 +390,7 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 
 func (sc *ServerConn) handleOutHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
 	sc.writeOutCh <- pkt
-	sc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
+	sc.log.Debugf("send heartbeat ack succeed, clientID: %d, PacketID: %d, packetType: %s",
 		sc.clientID, pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
 }

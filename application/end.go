@@ -22,8 +22,8 @@ type opts struct {
 	// logger
 	log log.Logger
 	// timer
-	tmr        timer.Timer
-	tmrOutside bool
+	tmr      timer.Timer
+	tmrOwner interface{}
 	// methods
 	methods []string
 }
@@ -48,7 +48,7 @@ func OptionLogger(log log.Logger) EndOption {
 func OptionTimer(tmr timer.Timer) EndOption {
 	return func(end *End) {
 		end.tmr = tmr
-		end.tmrOutside = true
+		end.tmrOwner = nil
 	}
 }
 
@@ -98,7 +98,7 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	// if timer was't set, then new a timer
 	if end.tmr == nil {
 		end.tmr = timer.NewTimer()
-		end.tmrOutside = false
+		end.tmrOwner = end
 	}
 	// if log was't set, then use the global default log
 	if end.log == nil {
@@ -109,9 +109,9 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	// newStream start to roll the stream
 	dg, err := end.multiplexer.GetDialogue(cn.ClientID(), 1)
 	if err != nil {
-		return nil, err
+		goto ERR
 	}
-	end.stream = newStream(cn, dg, end.opts)
+	end.stream = newStream(end, cn, dg, end.opts)
 	end.streams.Store(dg.DialogueID(), end.stream)
 	// wait for all remote RPCs registration
 	if end.opts.methods != nil && len(end.opts.methods) != 0 {
@@ -122,6 +122,10 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 		if event.Error != nil {
 			return nil, event.Error
 		}
+	}
+ERR:
+	if end.tmrOwner == end {
+		end.tmr.Close()
 	}
 	return end, nil
 }
@@ -134,7 +138,7 @@ func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
 	if err != nil {
 		return nil, err
 	}
-	sm := newStream(end.cn, dg, end.opts)
+	sm := newStream(end, end.cn, dg, end.opts)
 	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
@@ -144,7 +148,7 @@ func (end *End) AcceptStream() (geminio.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
-	sm := newStream(end.cn, dg, end.opts)
+	sm := newStream(end, end.cn, dg, end.opts)
 	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
@@ -162,9 +166,20 @@ func (end *End) Close() error {
 	end.onceClose.Do(func() {
 		end.multiplexer.Close()
 		end.cn.Close()
-		if !end.tmrOutside {
+		if end.tmrOwner == end {
 			end.tmr.Close()
 		}
 	})
 	return nil
+}
+
+func (end *End) fini() {
+	end.log.Debugf("end finishing, clientID: %d", end.cn.ClientID())
+
+	if end.tmrOwner == end {
+		end.tmr.Close()
+	}
+	end.tmr = nil
+
+	end.log.Debugf("end finished, clientID: %d", end.cn.ClientID())
 }

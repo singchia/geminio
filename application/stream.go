@@ -41,6 +41,7 @@ type stream struct {
 	*gnet.UnimplementedConn
 	// options for End and stream, remember stream dones't own opts
 	*opts
+	end *End
 
 	// meta for the stream, which set by OpenStream
 	meta []byte
@@ -90,11 +91,12 @@ type stream struct {
 	closeCh chan struct{}
 }
 
-func newStream(cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
+func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
 	shub := synchub.NewSyncHub(synchub.OptionTimer(opts.tmr))
 	sm := &stream{
 		UnimplementedConn: &gnet.UnimplementedConn{},
 		opts:              opts,
+		end:               end,
 		shub:              shub,
 		cn:                cn,
 		dg:                dg,
@@ -169,6 +171,7 @@ func (sm *stream) handlePkt() {
 		}
 	}
 FINI:
+	sm.fini()
 }
 
 func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -517,13 +520,18 @@ func (sm *stream) fini() {
 	close(sm.streamCh)
 
 	// collect timer
-	if !sm.tmrOutside {
+	if sm.tmrOwner == sm {
 		sm.tmr.Close()
 	}
 	sm.tmr = nil
 
 	// collect close
 	close(sm.closeCh)
+
+	if sm.dg.DialogueID() == 1 {
+		// the master stream
+		sm.end.fini()
+	}
 
 	sm.log.Debugf("stream finished, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())

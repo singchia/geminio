@@ -43,7 +43,7 @@ func main() {
 	dialer := func() (net.Conn, error) {
 		return net.Dial("tcp", *broker)
 	}
-	opt := client.NewEndOptions()
+	opt := client.NewRetryEndOptions()
 	opt.SetLog(log)
 	opt.SetWaitRemoteRPCs("claim")
 	end, err := client.NewRetryEndWithDialer(dialer, opt)
