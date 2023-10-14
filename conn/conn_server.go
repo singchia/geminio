@@ -292,7 +292,9 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	if pkt.ClientIDAcquire() {
 		if sc.dlgt != nil {
 			sc.clientID, err = sc.dlgt.GetClientID(sc.meta)
-		} else {
+		}
+		if sc.clientID == 0 {
+			// if delegate returns 0 meaning use a ID by inner
 			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
 		}
 		if err != nil {

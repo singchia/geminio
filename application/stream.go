@@ -330,11 +330,11 @@ func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IO
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t,",
-			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
+		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
-	sm.log.Tracef("read response packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s,",
+	sm.log.Tracef("read response packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	rsp := &response{
 		data:      pkt.Data.Value,
@@ -370,6 +370,10 @@ func (sm *stream) handleInRegisterPacket(pkt *packet.RegisterPacket) iodefine.IO
 	// to notify the method is registing, in case of we're waiting for the method ready
 	syncID := fmt.Sprintf(registrationFormat, sm.cn.ClientID(), sm.dg.DialogueID())
 	sm.shub.DoneSub(syncID, method)
+
+	if sm.opts.dlgt != nil {
+		sm.opts.dlgt.RemoteRegistration(method, sm.cn.ClientID(), sm.dg.DialogueID())
+	}
 
 	return iodefine.IOSuccess
 }

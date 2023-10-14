@@ -70,3 +70,24 @@ type Delegate interface {
 	EndOffline(ClientDescriber) error
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
 }
+
+type UnimplementedDelegate struct{}
+
+func (dlgt *UnimplementedDelegate) ConnOnline(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) ConnOffline(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) Heartbeat(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) GetClientID(meta []byte) (uint64, error) { return 0, nil }
+
+func (dlgt *UnimplementedDelegate) DialogueOnline(DialogueDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) DialogueOffline(DialogueDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) EndOnline(ClientDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) EndOffline(ClientDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) RemoteRegistration(method string, clientID uint64, streamID uint64) {
+}

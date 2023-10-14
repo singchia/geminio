@@ -17,7 +17,9 @@ func NewRetryEndOptions() *RetryEndOptions {
 }
 
 func MergeRetryEndOptions(opts ...*RetryEndOptions) *RetryEndOptions {
-	eo := &RetryEndOptions{}
+	eo := &RetryEndOptions{
+		EndOptions: &EndOptions{},
+	}
 	for _, opt := range opts {
 		if opt == nil {
 			continue

@@ -17,6 +17,7 @@ import (
 
 type RetryEnd struct {
 	opts *RetryEndOptions
+	*delegate.UnimplementedDelegate
 
 	end unsafe.Pointer
 	ok  *int32
@@ -41,11 +42,12 @@ func NewRetryEndWithDialer(dialer Dialer, opts ...*RetryEndOptions) (geminio.End
 	initRetryEndOptions(eo)
 	ok := int32(1)
 	re := &RetryEnd{
-		opts:      eo,
-		dialer:    dialer,
-		ok:        &ok,
-		onceClose: &sync.Once{},
-		rpcs:      make(map[string]geminio.RPC),
+		opts:                  eo,
+		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
+		dialer:                dialer,
+		ok:                    &ok,
+		onceClose:             &sync.Once{},
+		rpcs:                  make(map[string]geminio.RPC),
 	}
 	if eo.Timer == nil {
 		eo.Timer = timer.NewTimer()
@@ -187,9 +189,31 @@ func (re *RetryEnd) DialogueOffline(dialogue delegate.DialogueDescriber) error {
 	return nil
 }
 
-func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID uint64) {}
+func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID uint64) {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		delegate.RemoteRegistration(method, clientID, streamID)
+	}
+}
 
+// only called at server side
 func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
+
+func (re *RetryEnd) EndOnline(client delegate.ClientDescriber) error {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		return delegate.EndOnline(client)
+	}
+	return nil
+}
+
+func (re *RetryEnd) EndOffline(client delegate.ClientDescriber) error {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		return delegate.EndOffline(client)
+	}
+	return nil
+}
 
 // Multiplexer
 func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {

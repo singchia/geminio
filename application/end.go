@@ -24,6 +24,8 @@ type opts struct {
 	// timer
 	tmr      timer.Timer
 	tmrOwner interface{}
+	// delegate
+	dlgt delegate.Delegate
 	// methods
 	methods []string
 }
@@ -75,8 +77,6 @@ type End struct {
 	// End holds the default stream
 	*stream
 	onceClose *sync.Once
-
-	dlgt delegate.Delegate
 }
 
 func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOption) (
@@ -175,11 +175,9 @@ func (end *End) Close() error {
 
 func (end *End) fini() {
 	end.log.Debugf("end finishing, clientID: %d", end.cn.ClientID())
-
 	if end.tmrOwner == end {
 		end.tmr.Close()
 	}
 	end.tmr = nil
-
 	end.log.Debugf("end finished, clientID: %d", end.cn.ClientID())
 }
