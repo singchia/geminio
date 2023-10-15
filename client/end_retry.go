@@ -16,7 +16,8 @@ import (
 )
 
 type RetryEnd struct {
-	opts *EndOptions
+	opts *RetryEndOptions
+	*delegate.UnimplementedDelegate
 
 	end unsafe.Pointer
 	ok  *int32
@@ -35,17 +36,18 @@ type RetryEnd struct {
 	hijackRPC     geminio.HijackRPC
 }
 
-func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
+func NewRetryEndWithDialer(dialer Dialer, opts ...*RetryEndOptions) (geminio.End, error) {
 	// options
-	eo := MergeEndOptions(opts...)
-	initOptions(eo)
+	eo := MergeRetryEndOptions(opts...)
+	initRetryEndOptions(eo)
 	ok := int32(1)
 	re := &RetryEnd{
-		opts:      eo,
-		dialer:    dialer,
-		ok:        &ok,
-		onceClose: &sync.Once{},
-		rpcs:      make(map[string]geminio.RPC),
+		opts:                  eo,
+		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
+		dialer:                dialer,
+		ok:                    &ok,
+		onceClose:             &sync.Once{},
+		rpcs:                  make(map[string]geminio.RPC),
 	}
 	if eo.Timer == nil {
 		eo.Timer = timer.NewTimer()
@@ -70,7 +72,7 @@ ERR:
 }
 
 func (re *RetryEnd) getEnd() (*ClientEnd, error) {
-	end, err := NewEndWithDialer(re.dialer, re.opts)
+	end, err := NewEndWithDialer(re.dialer, re.opts.EndOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -100,6 +102,7 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 		// doesn't mean to close the end
 		return err
 	}
+	atomic.StorePointer(&re.end, unsafe.Pointer(new))
 
 	// hijack
 	if re.hijackRPC != nil {
@@ -186,9 +189,31 @@ func (re *RetryEnd) DialogueOffline(dialogue delegate.DialogueDescriber) error {
 	return nil
 }
 
-func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID uint64) {}
+func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID uint64) {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		delegate.RemoteRegistration(method, clientID, streamID)
+	}
+}
 
+// only called at server side
 func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
+
+func (re *RetryEnd) EndOnline(client delegate.ClientDescriber) error {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		return delegate.EndOnline(client)
+	}
+	return nil
+}
+
+func (re *RetryEnd) EndOffline(client delegate.ClientDescriber) error {
+	delegate := re.opts.delegate
+	if delegate != nil {
+		return delegate.EndOffline(client)
+	}
+	return nil
+}
 
 // Multiplexer
 func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
@@ -240,7 +265,8 @@ func (re *RetryEnd) ListStreams() []geminio.Stream {
 
 // RPCer
 func (re *RetryEnd) NewRequest(data []byte) geminio.Request {
-	return re.NewRequest(data)
+	cur := (*ClientEnd)(atomic.LoadPointer(&re.end))
+	return cur.NewRequest(data)
 }
 
 func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request,

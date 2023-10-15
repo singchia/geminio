@@ -3,13 +3,10 @@ package client
 import (
 	"net"
 
-	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/application"
 	"github.com/singchia/geminio/conn"
 	"github.com/singchia/geminio/multiplexer"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -45,7 +42,7 @@ func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
-	initOptions(eo)
+	initEndOptions(eo)
 	ce := &ClientEnd{
 		opts: eo,
 	}
@@ -101,6 +98,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		application.OptionDelegate(eo.Delegate),
 		application.OptionLogger(eo.Log),
 		application.OptionTimer(eo.Timer),
+		application.OptionWaitRemoteRPCs(eo.Methods),
 	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {
@@ -123,13 +121,4 @@ func (ce *ClientEnd) Close() error {
 		ce.opts.Timer.Close()
 	}
 	return err
-}
-
-func initOptions(eo *EndOptions) {
-	if eo.Log == nil {
-		eo.Log = log.DefaultLog
-	}
-	if eo.PacketFactory == nil {
-		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
-	}
 }

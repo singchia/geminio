@@ -292,7 +292,9 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	if pkt.ClientIDAcquire() {
 		if sc.dlgt != nil {
 			sc.clientID, err = sc.dlgt.GetClientID(sc.meta)
-		} else {
+		}
+		if sc.clientID == 0 {
+			// if delegate returns 0 meaning use a ID by inner
 			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
 		}
 		if err != nil {
@@ -390,7 +392,7 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 
 func (sc *ServerConn) handleOutHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
 	sc.writeOutCh <- pkt
-	sc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
+	sc.log.Debugf("send heartbeat ack succeed, clientID: %d, PacketID: %d, packetType: %s",
 		sc.clientID, pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
 }

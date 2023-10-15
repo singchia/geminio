@@ -16,8 +16,8 @@ import (
 
 type opts struct {
 	// timer
-	tmr        timer.Timer
-	tmrOutside bool
+	tmr      timer.Timer
+	tmrOwner interface{}
 	// packet factory
 	pf packet.PacketFactory
 	// logger
@@ -96,7 +96,7 @@ func OptionLogger(log log.Logger) MultiplexerOption {
 func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	return func(opts *multiplexerOpts) {
 		opts.tmr = tmr
-		opts.tmrOutside = true
+		opts.tmrOwner = nil
 	}
 }
 
@@ -126,7 +126,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	// sync hub
 	if dm.tmr == nil {
 		dm.tmr = timer.NewTimer()
-		dm.tmrOutside = false
+		dm.tmrOwner = dm
 	}
 	// log
 	if dm.log == nil {
@@ -139,7 +139,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d, dialogueID: %d",
 			err, cn.ClientID(), packet.SessionID1)
-		return nil, err
+		goto ERR
 	}
 	dg.dialogueID = packet.SessionID1
 	dm.defaultDialogue = dg
@@ -147,6 +147,11 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	// rolling up
 	go dm.readPkt()
 	return dm, nil
+ERR:
+	if dm.tmrOwner == dm {
+		dm.tmr.Close()
+	}
+	return nil, err
 }
 
 func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
@@ -408,7 +413,7 @@ func (dm *dialogueMgr) fini() {
 	}
 
 	// collect timer
-	if !dm.tmrOutside {
+	if dm.tmrOwner == dm {
 		dm.tmr.Close()
 	}
 	dm.tmr = nil

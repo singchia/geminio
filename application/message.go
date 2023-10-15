@@ -153,8 +153,8 @@ func (sm *stream) Receive(ctx context.Context) (geminio.Message, error) {
 	select {
 	case pkt, ok := <-sm.messageCh:
 		if !ok {
-			sm.log.Debugf("stream receive EOF, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			sm.log.Debugf("stream receive EOF, clientID: %d, dialogueID: %d",
+				sm.cn.ClientID(), sm.dg.DialogueID())
 			return nil, io.EOF
 		}
 		msg := &message{

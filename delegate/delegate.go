@@ -46,18 +46,48 @@ type ServerDialogueDelegate interface {
 	ClientDialogueDelegate
 }
 
+type ClientDescriber interface {
+	ClientID() uint64
+}
+
 // application layer delegation
-type AppDelegate interface {
+type ApplicationDelegate interface {
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
 }
 
 // Delegate
 type Delegate interface {
+	// connection layer
 	ConnOnline(ConnDescriber) error
 	ConnOffline(ConnDescriber) error
 	Heartbeat(ConnDescriber) error
+	GetClientID(meta []byte) (uint64, error)
+	// dialogue layer
 	DialogueOnline(DialogueDescriber) error
 	DialogueOffline(DialogueDescriber) error
+	// application layer
+	EndOnline(ClientDescriber) error
+	EndOffline(ClientDescriber) error
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
-	GetClientID(meta []byte) (uint64, error)
+}
+
+type UnimplementedDelegate struct{}
+
+func (dlgt *UnimplementedDelegate) ConnOnline(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) ConnOffline(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) Heartbeat(ConnDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) GetClientID(meta []byte) (uint64, error) { return 0, nil }
+
+func (dlgt *UnimplementedDelegate) DialogueOnline(DialogueDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) DialogueOffline(DialogueDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) EndOnline(ClientDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) EndOffline(ClientDescriber) error { return nil }
+
+func (dlgt *UnimplementedDelegate) RemoteRegistration(method string, clientID uint64, streamID uint64) {
 }

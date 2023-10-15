@@ -269,7 +269,7 @@ func (cc *ClientConn) handleOut(pkt packet.Packet) iodefine.IORet {
 // input packet
 func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.IORet {
 	cc.log.Debugf("read conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(pkt.ConnData.Meta))
+		pkt.ClientID, pkt.ID(), cc.netconn.RemoteAddr(), string(pkt.ConnData.Meta))
 
 	err := cc.fsm.EmitEvent(ET_CONNACK)
 	if err != nil {

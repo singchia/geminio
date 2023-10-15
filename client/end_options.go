@@ -5,6 +5,7 @@ import (
 
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -17,6 +18,7 @@ type EndOptions struct {
 	delegate      delegate.Delegate
 	ClientID      *uint64
 	Meta          []byte
+	Methods       []string
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -49,6 +51,10 @@ func (eo *EndOptions) SetMeta(meta []byte) {
 	eo.Meta = meta
 }
 
+func (eo *EndOptions) SetWaitRemoteRPCs(methods ...string) {
+	eo.Methods = methods
+}
+
 func NewEndOptions() *EndOptions {
 	return &EndOptions{}
 }
@@ -78,6 +84,18 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		if opt.ClientID != nil {
 			eo.ClientID = opt.ClientID
 		}
+		if opt.Methods != nil {
+			eo.Methods = opt.Methods
+		}
 	}
 	return eo
+}
+
+func initEndOptions(eo *EndOptions) {
+	if eo.Log == nil {
+		eo.Log = log.DefaultLog
+	}
+	if eo.PacketFactory == nil {
+		eo.PacketFactory = packet.NewPacketFactory(id.NewIDCounter(id.Odd))
+	}
 }

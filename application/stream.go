@@ -41,6 +41,7 @@ type stream struct {
 	*gnet.UnimplementedConn
 	// options for End and stream, remember stream dones't own opts
 	*opts
+	end *End
 
 	// meta for the stream, which set by OpenStream
 	meta []byte
@@ -90,11 +91,12 @@ type stream struct {
 	closeCh chan struct{}
 }
 
-func newStream(cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
+func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
 	shub := synchub.NewSyncHub(synchub.OptionTimer(opts.tmr))
 	sm := &stream{
 		UnimplementedConn: &gnet.UnimplementedConn{},
 		opts:              opts,
+		end:               end,
 		shub:              shub,
 		cn:                cn,
 		dg:                dg,
@@ -169,6 +171,7 @@ func (sm *stream) handlePkt() {
 		}
 	}
 FINI:
+	sm.fini()
 }
 
 func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -204,6 +207,8 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 		return sm.handleOutRequestPacket(realPkt)
 	case *packet.StreamPacket:
 		return sm.handleOutStreamPacket(realPkt)
+	case *packet.RegisterPacket:
+		return sm.handleOutRegisterPacket(realPkt)
 	}
 	// unknown packet
 	return iodefine.IOSuccess
@@ -222,7 +227,7 @@ func (sm *stream) handleInMessageAckPacket(pkt *packet.MessageAckPacket) iodefin
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read message ack packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %b",
+		sm.log.Tracef("read message ack packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errord: %t",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
@@ -325,11 +330,11 @@ func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IO
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %b,",
-			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
+		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}
-	sm.log.Tracef("read response packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s,",
+	sm.log.Tracef("read response packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	rsp := &response{
 		data:      pkt.Data.Value,
@@ -365,6 +370,10 @@ func (sm *stream) handleInRegisterPacket(pkt *packet.RegisterPacket) iodefine.IO
 	// to notify the method is registing, in case of we're waiting for the method ready
 	syncID := fmt.Sprintf(registrationFormat, sm.cn.ClientID(), sm.dg.DialogueID())
 	sm.shub.DoneSub(syncID, method)
+
+	if sm.opts.dlgt != nil {
+		sm.opts.dlgt.RemoteRegistration(method, sm.cn.ClientID(), sm.dg.DialogueID())
+	}
 
 	return iodefine.IOSuccess
 }
@@ -416,6 +425,16 @@ func (sm *stream) handleOutRequestPacket(pkt *packet.RequestPacket) iodefine.IOR
 		sm.log.Debugf("write request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		sm.shub.Error(pkt.ID(), err)
+		return iodefine.IOErr
+	}
+	return iodefine.IOSuccess
+}
+
+func (sm *stream) handleOutRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
+	err := sm.dg.Write(pkt)
+	if err != nil {
+		sm.log.Debugf("write register packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
 	}
 	return iodefine.IOSuccess
@@ -505,13 +524,18 @@ func (sm *stream) fini() {
 	close(sm.streamCh)
 
 	// collect timer
-	if !sm.tmrOutside {
+	if sm.tmrOwner == sm {
 		sm.tmr.Close()
 	}
 	sm.tmr = nil
 
 	// collect close
 	close(sm.closeCh)
+
+	if sm.dg.DialogueID() == 1 {
+		// the master stream
+		sm.end.fini()
+	}
 
 	sm.log.Debugf("stream finished, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())

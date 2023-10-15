@@ -258,7 +258,7 @@ func (dg *dialogue) open() error {
 	dg.writeInCh <- pkt
 	dg.mtx.RUnlock()
 
-	sync := dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 	event := <-sync.C()
 	return event.Error
 }
