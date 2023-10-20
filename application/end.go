@@ -123,11 +123,12 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 			return nil, event.Error
 		}
 	}
+	return end, nil
 ERR:
 	if end.tmrOwner == end {
 		end.tmr.Close()
 	}
-	return end, nil
+	return nil, err
 }
 
 func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (

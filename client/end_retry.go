@@ -125,7 +125,7 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 	// after retry the end succeed, after hijack and register legacy functions,
 	// the brand new end online
 	if re.opts.delegate != nil {
-		re.opts.delegate.ConnOnline(new)
+		re.opts.delegate.EndOnline(new)
 	}
 	return nil
 }
@@ -199,20 +199,18 @@ func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID 
 // only called at server side
 func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
 
-func (re *RetryEnd) EndOnline(client delegate.ClientDescriber) error {
+func (re *RetryEnd) EndOnline(client delegate.ClientDescriber) {
 	delegate := re.opts.delegate
 	if delegate != nil {
-		return delegate.EndOnline(client)
+		delegate.EndOnline(client)
 	}
-	return nil
 }
 
-func (re *RetryEnd) EndOffline(client delegate.ClientDescriber) error {
+func (re *RetryEnd) EndOffline(client delegate.ClientDescriber) {
 	delegate := re.opts.delegate
 	if delegate != nil {
-		return delegate.EndOffline(client)
+		delegate.EndOffline(client)
 	}
-	return nil
 }
 
 // Multiplexer

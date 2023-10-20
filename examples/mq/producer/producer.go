@@ -32,7 +32,7 @@ type FakeClient struct {
 	*delegate.UnimplementedDelegate
 }
 
-func (client *FakeClient) EndOnline(delegate.ClientDescriber) error {
+func (client *FakeClient) EndOnline(delegate.ClientDescriber) {
 	if end != nil {
 		// reconnect
 		role := &share.Claim{
@@ -43,10 +43,8 @@ func (client *FakeClient) EndOnline(delegate.ClientDescriber) error {
 		_, err := end.Call(context.TODO(), "claim", end.NewRequest(data))
 		if err != nil {
 			log.Errorf("call err: %s after reconnect", err)
-			return err
 		}
 	}
-	return nil
 }
 
 func main() {
@@ -114,6 +112,7 @@ func main() {
 				continue
 			}
 		}
+		fmt.Println("end.")
 	}()
 
 	sig := sigaction.NewSignal()
