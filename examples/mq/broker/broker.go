@@ -24,7 +24,7 @@ type Broker struct {
 	clients map[uint64]*roleEnd
 
 	// producer
-	producerTopics map[string]chan string // key: topic, value: channel for messages
+	topics map[string]chan string // key: topic, value: channel for messages
 
 	// consumer
 	consumerTopics map[string]map[uint64]chan string // key: topic, subKey: clientID, value: channel for messages
@@ -37,12 +37,14 @@ func NewBroker() *Broker {
 	b := &Broker{
 		mtx:            new(sync.RWMutex),
 		clients:        map[uint64]*roleEnd{},
-		producerTopics: map[string]chan string{},
+		topics:         map[string]chan string{},
 		consumerTopics: map[string]map[uint64]chan string{},
 		syncers:        map[string]chan struct{}{},
 	}
 	return b
 }
+
+func (broker *Broker) initTopic()
 
 func (broker *Broker) Handle(end geminio.End) error {
 	broker.mtx.Lock()
@@ -70,7 +72,7 @@ func (broker *Broker) Handle(end geminio.End) error {
 			continue
 		}
 
-		ch, ok := broker.producerTopics[client.topic]
+		ch, ok := broker.topics[client.topic]
 		if !ok {
 			log.Errorf("client: %d topic: %s not found while receiving msg", msg.ClientID(), client.topic)
 			broker.mtx.RUnlock()
@@ -133,9 +135,9 @@ func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp gemini
 		client.topic = claim.Topic
 
 		// initial producer tpoic buffer
-		_, ok = broker.producerTopics[claim.Topic]
+		_, ok = broker.topics[claim.Topic]
 		if !ok {
-			broker.producerTopics[claim.Topic] = make(chan string, 1024)
+			broker.topics[claim.Topic] = make(chan string, 1024)
 		}
 		broker.mtx.Unlock()
 	case "consumer":
@@ -150,9 +152,9 @@ func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp gemini
 		client.topic = claim.Topic
 
 		// initial producer topic buffer
-		_, ok = broker.producerTopics[claim.Topic]
+		_, ok = broker.topics[claim.Topic]
 		if !ok {
-			broker.producerTopics[claim.Topic] = make(chan string, 1024)
+			broker.topics[claim.Topic] = make(chan string, 1024)
 		}
 		// initial consumer topic buffer
 		consumers, ok := broker.consumerTopics[claim.Topic]
@@ -191,7 +193,7 @@ func (broker *Broker) syncer(topic string) {
 	closeCh := make(chan struct{})
 	broker.syncers[topic] = closeCh
 
-	msgCh, ok := broker.producerTopics[topic]
+	msgCh, ok := broker.topics[topic]
 	go func() {
 		for {
 			select {
