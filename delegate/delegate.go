@@ -66,8 +66,8 @@ type Delegate interface {
 	DialogueOnline(DialogueDescriber) error
 	DialogueOffline(DialogueDescriber) error
 	// application layer
-	EndOnline(ClientDescriber) error
-	EndOffline(ClientDescriber) error
+	EndOnline(ClientDescriber)
+	EndOffline(ClientDescriber)
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
 }
 
@@ -85,9 +85,9 @@ func (dlgt *UnimplementedDelegate) DialogueOnline(DialogueDescriber) error { ret
 
 func (dlgt *UnimplementedDelegate) DialogueOffline(DialogueDescriber) error { return nil }
 
-func (dlgt *UnimplementedDelegate) EndOnline(ClientDescriber) error { return nil }
+func (dlgt *UnimplementedDelegate) EndOnline(ClientDescriber) { return }
 
-func (dlgt *UnimplementedDelegate) EndOffline(ClientDescriber) error { return nil }
+func (dlgt *UnimplementedDelegate) EndOffline(ClientDescriber) { return }
 
 func (dlgt *UnimplementedDelegate) RemoteRegistration(method string, clientID uint64, streamID uint64) {
 }
