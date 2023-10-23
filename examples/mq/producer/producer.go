@@ -32,7 +32,7 @@ type FakeClient struct {
 	*delegate.UnimplementedDelegate
 }
 
-func (client *FakeClient) EndOnline(delegate.ClientDescriber) {
+func (client *FakeClient) EndReOnline(delegate.ClientDescriber) {
 	if end != nil {
 		// reconnect
 		role := &share.Claim{
@@ -92,7 +92,7 @@ func main() {
 	data, _ := json.Marshal(role)
 	_, err = end.Call(context.TODO(), "claim", end.NewRequest(data))
 	if err != nil {
-		log.Errorf("call err: %s", err)
+		log.Errorf("call claim err: %s", err)
 		return
 	}
 

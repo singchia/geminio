@@ -40,7 +40,7 @@ func main() {
 	dialer := func() (net.Conn, error) {
 		return net.Dial(*network, *address)
 	}
-	opt := client.NewEndOptions()
+	opt := client.NewRetryEndOptions()
 	opt.SetLog(log)
 	end, err := client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {

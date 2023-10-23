@@ -10,15 +10,44 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/examples/mq/share"
 )
 
+var (
+	end    geminio.End
+	pprof  *string
+	broker *string
+	topic  *string
+	level  *string
+)
+
+type FakeClient struct {
+	*delegate.UnimplementedDelegate
+}
+
+func (client *FakeClient) EndReOnline(delegate.ClientDescriber) {
+	if end != nil {
+		// reconnect
+		role := &share.Claim{
+			Role:  "consumer",
+			Topic: *topic,
+		}
+		data, _ := json.Marshal(role)
+		_, err := end.Call(context.TODO(), "claim", end.NewRequest(data))
+		if err != nil {
+			log.Errorf("call err: %s after reconnect", err)
+		}
+	}
+}
+
 func main() {
-	pprof := flag.String("pprof", "", "pprof address to listen")
-	broker := flag.String("broker", "127.0.0.1:1202", "broker to dial")
-	topic := flag.String("topic", "test", "topic to produce to broker")
-	level := flag.String("level", "info", "trace, debug, info, warn, error")
+	pprof = flag.String("pprof", "", "pprof address to listen")
+	broker = flag.String("broker", "127.0.0.1:1202", "broker to dial")
+	topic = flag.String("topic", "test", "topic to produce to broker")
+	level = flag.String("level", "info", "trace, debug, info, warn, error")
 
 	flag.Parse()
 
@@ -39,10 +68,14 @@ func main() {
 	dialer := func() (net.Conn, error) {
 		return net.Dial("tcp", *broker)
 	}
+	fc := &FakeClient{
+		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
+	}
 	opt := client.NewRetryEndOptions()
 	opt.SetLog(log)
 	opt.SetWaitRemoteRPCs("claim")
-	end, err := client.NewRetryEndWithDialer(dialer, opt)
+	opt.SetDelegate(fc)
+	end, err = client.NewRetryEndWithDialer(dialer, opt)
 	if err != nil {
 		log.Errorf("new end err: %s", err)
 		return
@@ -55,7 +88,8 @@ func main() {
 	data, _ := json.Marshal(role)
 	_, err = end.Call(context.TODO(), "claim", end.NewRequest(data))
 	if err != nil {
-
+		log.Errorf("call claim err: %s", err)
+		return
 	}
 
 	go func() {

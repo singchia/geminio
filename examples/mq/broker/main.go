@@ -13,6 +13,7 @@ import (
 func main() {
 	pprof := flag.String("pprof", "", "pprof address to listen")
 	broker := flag.String("broker", "127.0.0.1:1202", "broker to dial")
+	buffer := flag.Int("buffer", 8, "topic buffer")
 	level := flag.String("level", "info", "trace, debug, info, warn, error")
 
 	flag.Parse()
@@ -30,7 +31,7 @@ func main() {
 	log := log.NewLog()
 	log.SetLevel(lvl)
 	// broker
-	b := NewBroker()
+	b := NewBroker(*buffer)
 
 	// accept ends
 	opt := server.NewEndOptions()
