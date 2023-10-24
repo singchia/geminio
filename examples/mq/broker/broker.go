@@ -77,17 +77,21 @@ func (broker *Broker) addConsumer(topic string, clientID uint64) chan string {
 	return ch
 }
 
-func (broker *Broker) delConsumer(topic string, clientID uint64) {
-	log.Debugf("del consumer: %d, topic: %s", clientID, topic)
-	topicConsumers, ok := broker.consumers[topic]
+func (broker *Broker) delConsumer(clientID uint64) {
+	client, ok := broker.clients[clientID]
 	if !ok {
-		log.Errorf("consumer topic: %s not found", topic)
+		log.Errorf("del consumer clientID: %d not found", clientID)
+		return
+	}
+	topicConsumers, ok := broker.consumers[client.topic]
+	if !ok {
+		log.Errorf("consumer topic: %s not found", client.topic)
 		return
 	}
 	if len(topicConsumers) == 0 {
-		delete(broker.consumers, topic)
+		delete(broker.consumers, client.topic)
 		// end topic syncer
-		broker.deleteSyncer(topic)
+		broker.deleteSyncer(client.topic)
 	}
 	ch, ok := topicConsumers[clientID]
 	if ok {
@@ -155,8 +159,10 @@ func (broker *Broker) deleteSyncer(topic string) {
 }
 
 func (broker *Broker) Handle(end geminio.End) error {
+	clientID := end.ClientID()
+	log.Debugf("add client: %d", clientID)
 	broker.mtx.Lock()
-	broker.clients[end.ClientID()] = &roleEnd{
+	broker.clients[clientID] = &roleEnd{
 		end: end,
 	}
 	broker.mtx.Unlock()
@@ -166,7 +172,6 @@ func (broker *Broker) Handle(end geminio.End) error {
 		log.Errorf("end register function err: %s", err)
 		return err
 	}
-	topic := ""
 	for {
 		msg, err := end.Receive(context.TODO())
 		if err != nil {
@@ -180,7 +185,6 @@ func (broker *Broker) Handle(end geminio.End) error {
 			broker.mtx.RUnlock()
 			continue
 		}
-		topic = client.topic
 
 		ch := broker.getTopic(client.topic)
 		if ch == nil {
@@ -202,11 +206,8 @@ func (broker *Broker) Handle(end geminio.End) error {
 	// destory the end
 	// the consumer and producer will end here
 	broker.mtx.Lock()
-	client, ok := broker.clients[end.ClientID()]
-	if ok {
-		delete(broker.clients, client.end.ClientID())
-	}
-	broker.delConsumer(topic, end.ClientID())
+	log.Debugf("del client: %d", clientID)
+	broker.delConsumer(clientID)
 	broker.mtx.Unlock()
 	return err
 }

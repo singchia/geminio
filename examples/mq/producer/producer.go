@@ -73,13 +73,13 @@ func main() {
 		return net.Dial("tcp", *broker)
 	}
 
-	alog := log.NewLog()
-	alog.SetLevel(lvl)
+	glog := log.NewLog()
+	glog.SetLevel(lvl)
 	fc := &FakeClient{
 		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
 	}
 	opt := client.NewRetryEndOptions()
-	opt.SetLog(alog)
+	opt.SetLog(glog)
 	opt.SetWaitRemoteRPCs("claim")
 	opt.SetDelegate(fc)
 	end, err = client.NewRetryEndWithDialer(dialer, opt)

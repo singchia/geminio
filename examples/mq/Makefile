@@ -2,20 +2,20 @@ GOHOSTOS?=$(shell go env GOHOSTOS)
 GOARCH?=$(shell go env GOARCH)
 
 .PHONY: all
-all: consumer producer broker
+all: mq_consumer mq_producer mq_broker
 
 .PHONY: clean
 clean:
-	rm consumer producer broker
+	rm mq_consumer mq_producer mq_broker
 
-consumer: consumer/*.go
+mq_consumer: consumer/*.go
 	CGO_ENABLED=0 GOOS=$(GOHOSTOS) GOARCH=$(GOARCH) \
-		go build -trimpath -ldflags "-s -w" -o consumer consumer/consumer.go
+		go build -trimpath -ldflags "-s -w" -o mq_consumer consumer/consumer.go
 
-producer: producer/*.go
+mq_producer: producer/*.go
 	CGO_ENABLED=0 GOOS=$(GOHOSTOS) GOARCH=$(GOARCH) \
-		go build -trimpath -ldflags "-s -w" -o producer producer/producer.go
+		go build -trimpath -ldflags "-s -w" -o mq_producer producer/producer.go
 
-broker: broker/*.go
+mq_broker: broker/*.go
 	CGO_ENABLED=0 GOOS=$(GOHOSTOS) GOARCH=$(GOARCH) \
-		go build -trimpath -ldflags "-s -w" -o broker broker/main.go
+		go build -trimpath -ldflags "-s -w" -o mq_broker broker/*.go
