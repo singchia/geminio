@@ -28,20 +28,25 @@ func main() {
 		log.Errorf("parse log level err: %s", err)
 		return
 	}
-	log := log.NewLog()
+	// global log
 	log.SetLevel(lvl)
+
 	// broker
 	b := NewBroker(*buffer)
 
+	// log for geminio
+	glog := log.NewLog()
+	glog.SetLevel(lvl)
 	// accept ends
 	opt := server.NewEndOptions()
-	opt.SetLog(log)
+	opt.SetLog(glog)
 	ln, err := server.Listen("tcp", *broker, opt)
 	if err != nil {
 		log.Errorf("server listen err: %s", err)
 		return
 	}
 
+	// serve
 	go func() {
 		for {
 			end, err := ln.Accept()

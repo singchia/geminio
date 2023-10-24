@@ -64,6 +64,7 @@ func (broker *Broker) getTopic(topic string) chan string {
 
 // consumer
 func (broker *Broker) addConsumer(topic string, clientID uint64) chan string {
+	log.Debugf("add consumer: %d, topic: %s", clientID, topic)
 	topicConsumers, ok := broker.consumers[topic]
 	if !ok {
 		topicConsumers = map[uint64]chan string{}
@@ -77,16 +78,22 @@ func (broker *Broker) addConsumer(topic string, clientID uint64) chan string {
 }
 
 func (broker *Broker) delConsumer(topic string, clientID uint64) {
+	log.Debugf("del consumer: %d, topic: %s", clientID, topic)
 	topicConsumers, ok := broker.consumers[topic]
 	if !ok {
 		log.Errorf("consumer topic: %s not found", topic)
 		return
 	}
 	if len(topicConsumers) == 0 {
+		delete(broker.consumers, topic)
 		// end topic syncer
 		broker.deleteSyncer(topic)
 	}
-	delete(topicConsumers, clientID)
+	ch, ok := topicConsumers[clientID]
+	if ok {
+		close(ch)
+		delete(topicConsumers, clientID)
+	}
 }
 
 func (broker *Broker) getConsumersWithMtx(topic string) []chan string {
@@ -106,6 +113,7 @@ func (broker *Broker) getConsumersWithMtx(topic string) []chan string {
 
 // syncer
 func (broker *Broker) addSyncer(topic string) {
+	log.Debugf("add syncer topic: %s", topic)
 	closeCh := make(chan struct{})
 	broker.syncers[topic] = closeCh
 
@@ -118,6 +126,7 @@ func (broker *Broker) addSyncer(topic string) {
 		for {
 			select {
 			case msg := <-buf:
+				log.Tracef("sync msg: %v from topic: %s", msg, topic)
 				// sync to all consumers
 				chs := broker.getConsumersWithMtx(topic)
 				if chs == nil {
@@ -135,6 +144,7 @@ func (broker *Broker) addSyncer(topic string) {
 }
 
 func (broker *Broker) deleteSyncer(topic string) {
+	log.Debugf("del syncer topic: %s", topic)
 	ch, ok := broker.syncers[topic]
 	if !ok {
 		log.Errorf("topic: %s syncer not found", topic)
@@ -225,7 +235,7 @@ func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp gemini
 		broker.mtx.Lock()
 		client, ok := broker.clients[clientID]
 		if !ok {
-			log.Errorf("client not found")
+			log.Errorf("client: %v not found", clientID)
 			broker.mtx.Unlock()
 			return
 		}
@@ -234,13 +244,18 @@ func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp gemini
 
 		// initial producer topic buffer
 		broker.initTopic(claim.Topic)
+
 		// initial consumer topic buffer
 		ch := broker.addConsumer(claim.Topic, clientID)
 		// consumer msg to end
 		go func() {
 			for {
 				select {
-				case msg := <-ch:
+				case msg, ok := <-ch:
+					if !ok {
+						return
+					}
+					log.Tracef("msg: %s from consumer: %d", msg, clientID)
 					broker.mtx.RLock()
 					client, ok := broker.clients[clientID]
 					if ok {

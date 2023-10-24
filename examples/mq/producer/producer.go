@@ -65,18 +65,21 @@ func main() {
 		log.Errorf("parse log level err: %s", err)
 		return
 	}
-	log := log.NewLog()
+	// global log
 	log.SetLevel(lvl)
 
 	// new producer
 	dialer := func() (net.Conn, error) {
 		return net.Dial("tcp", *broker)
 	}
+
+	alog := log.NewLog()
+	alog.SetLevel(lvl)
 	fc := &FakeClient{
 		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
 	}
 	opt := client.NewRetryEndOptions()
-	opt.SetLog(log)
+	opt.SetLog(alog)
 	opt.SetWaitRemoteRPCs("claim")
 	opt.SetDelegate(fc)
 	end, err = client.NewRetryEndWithDialer(dialer, opt)

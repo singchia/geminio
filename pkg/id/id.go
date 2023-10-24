@@ -15,10 +15,11 @@ const (
 	Even   Mode = "even"
 	Odd    Mode = "odd"
 	Unique Mode = "unique"
+	Inc    Mode = "inc"
 )
 
 var (
-	DefaultUniqueIDCounter = NewIDCounter(Unique)
+	DefaultIncIDCounter = NewIDCounter(Inc)
 )
 
 type IDCounter struct {
@@ -32,10 +33,13 @@ type IDCounter struct {
 
 func NewIDCounter(mode Mode) *IDCounter {
 	idCounter := &IDCounter{
-		counter: randomUint32(),
+		counter: 0,
 		once:    new(sync.Once),
 		ids:     make(map[uint64]struct{}),
 		mode:    mode,
+	}
+	if mode == Even || mode == Odd || mode == Inc {
+		idCounter.counter = randomUint32()
 	}
 	return idCounter
 }
@@ -57,6 +61,9 @@ func (idCounter *IDCounter) GetID() uint64 {
 		})
 		return uint64(time.Now().Unix()<<32) +
 			uint64(atomic.AddUint32(&idCounter.counter, 2))
+	case Inc:
+		return uint64(time.Now().Unix()<<32) +
+			uint64(atomic.AddUint32(&idCounter.counter, 1))
 	case Unique:
 		idCounter.mtx.Lock()
 		for i := uint64(1); i < math.MaxUint64; i++ {
