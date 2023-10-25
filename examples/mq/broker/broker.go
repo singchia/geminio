@@ -88,7 +88,7 @@ func (broker *Broker) delConsumer(clientID uint64) {
 		log.Errorf("consumer topic: %s not found", client.topic)
 		return
 	}
-	if len(topicConsumers) == 0 {
+	if len(topicConsumers) == 1 {
 		delete(broker.consumers, client.topic)
 		// end topic syncer
 		broker.deleteSyncer(client.topic)
