@@ -32,6 +32,7 @@ func (sm *stream) ackMessage(pktID uint64, err error) error {
 
 	pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pktID, err)
 	sm.writeInCh <- pkt
+	sm.mtx.RUnlock()
 	return nil
 }
 

@@ -330,7 +330,7 @@ func (sm *stream) handleInResponsePacket(pkt *packet.ResponsePacket) iodefine.IO
 	if pkt.Data.Error != "" {
 		err := errors.New(pkt.Data.Error)
 		errored := sm.shub.Error(pkt.ID(), err)
-		sm.log.Tracef("read response packet with err: %d, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t",
+		sm.log.Tracef("read response packet with err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, errored: %t",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), errored)
 		return iodefine.IOSuccess
 	}

@@ -32,7 +32,7 @@ type FakeClient struct {
 	*delegate.UnimplementedDelegate
 }
 
-func (client *FakeClient) EndOnline(delegate.ClientDescriber) {
+func (client *FakeClient) EndReOnline(delegate.ClientDescriber) {
 	if end != nil {
 		// reconnect
 		role := &share.Claim{
@@ -65,18 +65,21 @@ func main() {
 		log.Errorf("parse log level err: %s", err)
 		return
 	}
-	log := log.NewLog()
+	// global log
 	log.SetLevel(lvl)
 
 	// new producer
 	dialer := func() (net.Conn, error) {
 		return net.Dial("tcp", *broker)
 	}
+
+	glog := log.NewLog()
+	glog.SetLevel(lvl)
 	fc := &FakeClient{
 		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
 	}
 	opt := client.NewRetryEndOptions()
-	opt.SetLog(log)
+	opt.SetLog(glog)
 	opt.SetWaitRemoteRPCs("claim")
 	opt.SetDelegate(fc)
 	end, err = client.NewRetryEndWithDialer(dialer, opt)
@@ -92,7 +95,7 @@ func main() {
 	data, _ := json.Marshal(role)
 	_, err = end.Call(context.TODO(), "claim", end.NewRequest(data))
 	if err != nil {
-		log.Errorf("call err: %s", err)
+		log.Errorf("call claim err: %s", err)
 		return
 	}
 

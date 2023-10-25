@@ -93,7 +93,9 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 		return nil
 	}
 	// release the end
-	old.Close()
+	if old != nil {
+		old.Close()
+	}
 
 	time.Sleep(3 * time.Second)
 	new, err := re.getEnd()
@@ -103,6 +105,8 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 		return err
 	}
 	atomic.StorePointer(&re.end, unsafe.Pointer(new))
+	// TODO optimize rests
+	time.Sleep(1 * time.Second)
 
 	// hijack
 	if re.hijackRPC != nil {
@@ -117,6 +121,7 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 		// TODO inconsistency for the context
 		err = re.register(context.TODO(), method, rpc, false)
 		if err != nil {
+			re.rpcMtx.RUnlock()
 			return err
 		}
 	}
@@ -125,7 +130,7 @@ func (re *RetryEnd) reinit(old *ClientEnd) error {
 	// after retry the end succeed, after hijack and register legacy functions,
 	// the brand new end online
 	if re.opts.delegate != nil {
-		re.opts.delegate.EndOnline(new)
+		re.opts.delegate.EndReOnline(new)
 	}
 	return nil
 }
@@ -198,20 +203,6 @@ func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID 
 
 // only called at server side
 func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
-
-func (re *RetryEnd) EndOnline(client delegate.ClientDescriber) {
-	delegate := re.opts.delegate
-	if delegate != nil {
-		delegate.EndOnline(client)
-	}
-}
-
-func (re *RetryEnd) EndOffline(client delegate.ClientDescriber) {
-	delegate := re.opts.delegate
-	if delegate != nil {
-		delegate.EndOffline(client)
-	}
-}
 
 // Multiplexer
 func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {

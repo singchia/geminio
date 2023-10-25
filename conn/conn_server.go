@@ -92,7 +92,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 		},
 
 		closeOnce: new(sync.Once),
-		clientIDs: id.DefaultUniqueIDCounter,
+		clientIDs: id.DefaultIncIDCounter,
 	}
 	sc.cn = sc
 	// options
