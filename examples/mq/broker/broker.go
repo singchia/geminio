@@ -208,6 +208,7 @@ func (broker *Broker) Handle(end geminio.End) error {
 	broker.mtx.Lock()
 	log.Debugf("del client: %d", clientID)
 	broker.delConsumer(clientID)
+	delete(broker.clients, clientID)
 	broker.mtx.Unlock()
 	return err
 }
