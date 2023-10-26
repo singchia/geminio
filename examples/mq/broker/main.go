@@ -16,7 +16,6 @@ func main() {
 	broker := flag.String("broker", "127.0.0.1:1202", "broker to dial")
 	buffer := flag.Int("buffer", 8, "topic buffer")
 	level := flag.String("level", "info", "trace, debug, info, warn, error")
-
 	flag.Parse()
 
 	if *pprof != "" {
