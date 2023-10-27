@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/jumboframes/armorigo/log"
+	"github.com/jumboframes/armorigo/rproxy"
 )
 
 func main() {
@@ -16,6 +17,10 @@ func main() {
 	relayNext := flag.String("relay_next", "127.0.0.1:2433", "next relay address")
 	level := flag.String("level", "info", "trace, debug, info, warn, error")
 	flag.Parse()
+
+	if *out == "" && *relayNext == "" {
+		return
+	}
 
 	if *pprof != "" {
 		go func() {
@@ -30,5 +35,23 @@ func main() {
 	// global log
 	log.SetLevel(lvl)
 
-	net.Listen("tcp", *in)
+	rawln, err := net.Listen("tcp", *in)
+	if err != nil {
+		log.Errorf("net listen addr: %s err: %s", *in, err)
+		return
+	}
+
+	relayln, err := net.Listen("tcp", *relayIn)
+	if err != nil {
+		log.Errorf("net listen addr: %s err: %s", *relayIn, err)
+		return
+	}
+
+	rproxy.NewRProxy(rawln, rproxy.OptionRProxyDial(dialRaw))
+
+	rproxy.NewRProxy(relayln, rproxy.OptionRProxyDial(dialRaw))
+}
+
+func dialRaw(dst net.Addr, custom interface{}) (net.Conn, error) {
+	return nil, nil
 }
