@@ -131,4 +131,9 @@ type End interface {
 	Stream
 	// End is a stream multiplexer
 	Multiplexer
+
+	// End is a net.Listener
+	// Accept is a wrapper for AcceptStream
+	// Addr is a wrapper for LocalAddr
+	net.Listener
 }
