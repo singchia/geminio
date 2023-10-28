@@ -12,7 +12,7 @@ import (
 
 type Dialer func() (net.Conn, error)
 
-type ClientEnd struct {
+type clientEnd struct {
 	// we need the opts to hold resources to close
 	opts *EndOptions
 	geminio.End
@@ -43,7 +43,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
 	initEndOptions(eo)
-	ce := &ClientEnd{
+	ce := &clientEnd{
 		opts: eo,
 	}
 	if eo.Timer == nil {
@@ -114,7 +114,7 @@ ERR:
 	return nil, err
 }
 
-func (ce *ClientEnd) Close() error {
+func (ce *clientEnd) Close() error {
 	err := ce.End.Close()
 	if ce.opts.TimerOwner == ce {
 		// TODO in case of timer closed before connection closed

@@ -52,7 +52,7 @@ func main() {
 	// serve
 	go func() {
 		for {
-			end, err := ln.Accept()
+			end, err := ln.AcceptEnd()
 			if err != nil {
 				log.Errorf("accept err: %s", err)
 				break

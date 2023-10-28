@@ -2,6 +2,7 @@ package application
 
 import (
 	"fmt"
+	"net"
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
@@ -154,6 +155,10 @@ func (end *End) AcceptStream() (geminio.Stream, error) {
 	return sm, nil
 }
 
+func (end *End) Accept() (net.Conn, error) {
+	return end.AcceptStream()
+}
+
 func (end *End) ListStreams() []geminio.Stream {
 	streams := []geminio.Stream{}
 	end.streams.Range(func(_, value interface{}) bool {
@@ -161,6 +166,10 @@ func (end *End) ListStreams() []geminio.Stream {
 		return true
 	})
 	return streams
+}
+
+func (end *End) Addr() net.Addr {
+	return end.LocalAddr()
 }
 
 func (end *End) Close() error {

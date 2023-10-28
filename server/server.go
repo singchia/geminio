@@ -8,7 +8,11 @@ import (
 
 type Listener interface {
 	// Accept waits for and returns the next end to the listener.
-	Accept() (geminio.End, error)
+	AcceptEnd() (geminio.End, error)
+
+	// Accept waits for and returns the next connection to the listener.
+	// the returned Conn is actually a End
+	Accept() (net.Conn, error)
 
 	// Close closes the listener.
 	// Any blocked Accept operations will be unblocked and return errors.
@@ -31,13 +35,17 @@ func Listen(network, address string, opts ...*EndOptions) (Listener, error) {
 	return &listener{ln: ln, opts: opts}, nil
 }
 
-func (ln *listener) Accept() (geminio.End, error) {
+func (ln *listener) AcceptEnd() (geminio.End, error) {
 	netconn, err := ln.ln.Accept()
 	if err != nil {
 		return nil, err
 	}
 	end, err := NewEndWithConn(netconn, ln.opts...)
 	return end, nil
+}
+
+func (ln *listener) Accept() (net.Conn, error) {
+	return ln.AcceptEnd()
 }
 
 func (ln *listener) Close() error {
