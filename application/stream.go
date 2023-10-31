@@ -151,7 +151,7 @@ func (sm *stream) handlePkt() {
 			case iodefine.IOSuccess:
 				continue
 			case iodefine.IODiscard:
-				sm.log.Debugf("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 			case iodefine.IOErr:
 				goto FINI

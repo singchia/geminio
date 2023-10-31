@@ -4,6 +4,8 @@ go 1.17
 
 replace github.com/jumboframes/armorigo => ../../singchia/armorigo
 
+replace github.com/singchia/yafsm => ../../austin/yafsm
+
 require (
 	github.com/golang/mock v1.6.0
 	github.com/jumboframes/armorigo v0.2.3
