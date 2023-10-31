@@ -145,6 +145,10 @@ func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
 	return sm, nil
 }
 
+func (end *End) delStream(streamID uint64) {
+	end.streams.Delete(streamID)
+}
+
 func (end *End) AcceptStream() (geminio.Stream, error) {
 	dg, err := end.multiplexer.AcceptDialogue()
 	if err != nil {

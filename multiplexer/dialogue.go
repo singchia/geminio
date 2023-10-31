@@ -494,6 +494,8 @@ func (dg *dialogue) handleOutSessionPacket(pkt *packet.SessionPacket) iodefine.I
 func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iodefine.IORet {
 	err := error(nil)
 	if dg.dlgt != nil {
+		// open dialogue passive
+		// notify delegation the online event
 		err = dg.dlgt.DialogueOnline(dg)
 		if err != nil {
 			pkt.SetError(err)
@@ -518,14 +520,7 @@ func (dg *dialogue) handleOutSessionAckPacket(pkt *packet.SessionAckPacket) iode
 	dg.writeOutCh <- pkt
 	dg.log.Debugf("dialogue write session ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
-	// open dialogue passive
-	if dg.dlgt != nil {
-		// notify delegation the online event
-		err = dg.dlgt.DialogueOnline(dg)
-		if err != nil {
-			return iodefine.IOErr
-		}
-	}
+
 	dg.onlined = true
 	return iodefine.IONewPassive
 }
