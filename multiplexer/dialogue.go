@@ -121,8 +121,8 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 		meta:       cn.Meta(),
 		dialogueID: packet.SessionIDNull,
 		cn:         cn,
-		//fsm:          yafsm.NewFSM(yafsm.WithAsync()),
-		fsm:          yafsm.NewFSM(),
+		fsm:        yafsm.NewFSM(yafsm.WithInSeq()),
+		//fsm:          yafsm.NewFSM(),
 		closeOnce:    new(gsync.Once),
 		dialogueOK:   true,
 		readInSize:   128,
@@ -601,19 +601,22 @@ func (dg *dialogue) Close() {
 			dg.cn.ClientID(), dg.dialogueID)
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
-		dg.writeInCh <- pkt
 		// we need a tick in case of never receiving the dismiss ack packet
-		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second),
-			synchub.WithCallback(func(event *synchub.Event) {
-				if event.Error != nil {
-					dg.log.Infof("dialogue close err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
-						event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
-					if event.Error == synchub.ErrSyncTimeout {
-						// timeout and exit the dialogue
-						close(dg.readInCh)
-					}
+		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+		dg.writeInCh <- pkt
+
+		go func() {
+			// we don't use shub WithCallback because the force close may arrive firse
+			event := <-dg.closewait.C()
+			if event.Error != nil {
+				dg.log.Infof("dialogue close err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+					event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
+				if event.Error == synchub.ErrSyncTimeout {
+					// timeout and exit the dialogue
+					close(dg.readInCh)
 				}
-			}))
+			}
+		}()
 	})
 }
 
@@ -631,9 +634,9 @@ func (dg *dialogue) CloseWait() {
 
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
 		dg.writeInCh <- pkt
-		dg.mtx.RUnlock()
-		// the synchub shouldn't be locked
 		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+		dg.mtx.RUnlock()
+		// the sync shouldn't be locked
 		event := <-dg.closewait.C()
 		if event.Error != nil {
 			dg.log.Infof("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
