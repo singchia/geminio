@@ -568,8 +568,11 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		return iodefine.IOErr
 	}
-	dg.dowritePkt(pkt, false)
 	// make sure this packet is flushed before writeOutCh closed
+	// dg.dowritePkt(pkt, false) changes to dg.writeOutCh <- pkt
+	// because this packet should be after all upper layer packets
+	// at last the close(dg.writeOutCh) makes sure the flush
+	dg.writeOutCh <- pkt
 	dg.log.Debugf("dialogue write dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	if dg.fsm.State() == DISMISS_HALF {
@@ -683,11 +686,13 @@ func (dg *dialogue) fini() {
 	close(dg.readOutCh)
 	// writeOutCh must be cared since writhPkt might quit first
 	close(dg.writeOutCh)
-	for pkt := range dg.writeOutCh {
-		if dg.failedCh != nil && !packet.SessionLayer(pkt) {
-			dg.failedCh <- pkt
+	/*
+		for pkt := range dg.writeOutCh {
+			if dg.failedCh != nil && !packet.SessionLayer(pkt) {
+				dg.failedCh <- pkt
+			}
 		}
-	}
+	*/
 	// collect channels
 	dg.writeInCh, dg.writeOutCh = nil, nil
 	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
