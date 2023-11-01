@@ -52,6 +52,7 @@ type dialogue struct {
 	closewait synchub.Sync
 	// dialogue id
 	negotiatingID       uint64
+	peerNegotiatingID   uint64
 	dialogueIDPeersCall bool
 	dialogueID          uint64
 	// synchub
@@ -74,6 +75,18 @@ type dialogue struct {
 }
 
 type DialogueOption func(*dialogue)
+
+func OptionDialogueLogger(log log.Logger) DialogueOption {
+	return func(dg *dialogue) {
+		dg.log = log
+	}
+}
+
+func OptionDialoguePacketFactory(pf packet.PacketFactory) DialogueOption {
+	return func(dg *dialogue) {
+		dg.pf = pf
+	}
+}
 
 // For the default dialogue which is ready for rolling
 func OptionDialogueState(state string) DialogueOption {
@@ -104,11 +117,12 @@ func OptionDialogueNegotiatingID(negotiatingID uint64, dialogueIDPeersCall bool)
 
 func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogue, error) {
 	dg := &dialogue{
-		opts:         baseOpts,
-		meta:         cn.Meta(),
-		dialogueID:   packet.SessionIDNull,
-		cn:           cn,
-		fsm:          yafsm.NewFSM(yafsm.WithAsync()),
+		opts:       baseOpts,
+		meta:       cn.Meta(),
+		dialogueID: packet.SessionIDNull,
+		cn:         cn,
+		//fsm:          yafsm.NewFSM(yafsm.WithAsync()),
+		fsm:          yafsm.NewFSM(),
 		closeOnce:    new(gsync.Once),
 		dialogueOK:   true,
 		readInSize:   128,
@@ -243,6 +257,8 @@ func (dg *dialogue) open() error {
 
 	var pkt *packet.SessionPacket
 	pkt = dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta)
+	// sync must set before the packet send down, in case of the ack coming first
+	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 
 	dg.mtx.RLock()
 	if !dg.dialogueOK {
@@ -252,12 +268,15 @@ func (dg *dialogue) open() error {
 	dg.writeInCh <- pkt
 	dg.mtx.RUnlock()
 
-	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 	event := <-sync.C()
 	if event.Error != nil {
 		dg.log.Debugf("dialogue open err: %s, clientID: %d, dialogueID: %d",
 			event.Error, dg.cn.ClientID(), dg.dialogueID)
-		close(dg.readInCh)
+		dg.mtx.Lock()
+		if dg.dialogueOK {
+			close(dg.readInCh)
+		}
+		dg.mtx.Unlock()
 	}
 	return event.Error
 }
@@ -383,6 +402,7 @@ func (dg *dialogue) handleOut(pkt packet.Packet) iodefine.IORet {
 
 // input packet
 func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IORet {
+	dg.peerNegotiatingID = pkt.NegotiateID()
 	dg.log.Debugf("read dialogue packet, clientID: %d, negotiateID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), pkt.NegotiateID(), dg.negotiatingID, pkt.ID())
 	err := dg.fsm.EmitEvent(ET_SESSIONRECV)
@@ -421,7 +441,11 @@ func (dg *dialogue) handleInSessionAckPacket(pkt *packet.SessionAckPacket) iodef
 
 	// the packetID is assigned by SessionPacket, originally from function open,
 	// and open is waiting for the completion.
-	dg.shub.Done(pkt.ID())
+	ok := dg.shub.Done(pkt.ID())
+	if !ok {
+		dg.log.Infof("read dialogue ack packet and no waiting sync, clientID: %d, dialogueID: %d, packetID: %d",
+			dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+	}
 	dg.onlined = true
 	return iodefine.IONewActive
 }
@@ -551,6 +575,10 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 	if dg.fsm.State() == DISMISS_HALF {
 		return iodefine.IOSuccess
 	}
+	if dg.closewait != nil {
+		// and CloseWait is waiting for the completion.
+		dg.closewait.Done()
+	}
 	return iodefine.IOClosed
 }
 
@@ -578,8 +606,8 @@ func (dg *dialogue) Close() {
 		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second),
 			synchub.WithCallback(func(event *synchub.Event) {
 				if event.Error != nil {
-					dg.log.Debugf("dialogue close err: %s, clientID: %d, dialogueID: %d",
-						event.Error, dg.cn.ClientID(), dg.dialogueID)
+					dg.log.Infof("dialogue close err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+						event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 					if event.Error == synchub.ErrSyncTimeout {
 						// timeout and exit the dialogue
 						close(dg.readInCh)
@@ -608,8 +636,8 @@ func (dg *dialogue) CloseWait() {
 		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		event := <-dg.closewait.C()
 		if event.Error != nil {
-			dg.log.Debugf("dialogue close wait err: %s, clientID: %d, dialogueID: %d",
-				event.Error, dg.cn.ClientID(), dg.dialogueID)
+			dg.log.Infof("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+				event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 			if event.Error == synchub.ErrSyncTimeout {
 				// timeout and exit the dialogue
 				close(dg.readInCh)
@@ -623,6 +651,8 @@ func (dg *dialogue) CloseWait() {
 }
 
 func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
+	dg.log.Infof("dialogue triggered close wrapper, clientID: %d, dialogueID: %d",
+		dg.cn.ClientID(), dg.dialogueID)
 	dg.Close()
 }
 
