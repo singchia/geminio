@@ -105,8 +105,8 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		remoteRPCs:        make(map[string]struct{}),
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
-		messageCh:         make(chan *packet.MessagePacket),
-		streamCh:          make(chan *packet.StreamPacket),
+		messageCh:         make(chan *packet.MessagePacket, 1024),
+		streamCh:          make(chan *packet.StreamPacket, 1024),
 		failedCh:          make(chan packet.Packet),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
@@ -150,6 +150,9 @@ func (sm *stream) handlePkt() {
 			switch ret {
 			case iodefine.IOSuccess:
 				continue
+			case iodefine.IODiscard:
+				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 			case iodefine.IOErr:
 				goto FINI
 			}
@@ -218,8 +221,12 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
 	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-	// TODO add select, we don't want block here.
-	sm.messageCh <- pkt
+	// we don't want block here.
+	select {
+	case sm.messageCh <- pkt:
+	default:
+		return iodefine.IODiscard
+	}
 	return iodefine.IOSuccess
 }
 
@@ -392,6 +399,7 @@ func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet 
 	case sm.streamCh <- pkt:
 	default:
 		// TODO drop the packet, we don't want block here
+		return iodefine.IODiscard
 	}
 	return iodefine.IOSuccess
 }
@@ -441,6 +449,8 @@ func (sm *stream) handleOutRegisterPacket(pkt *packet.RegisterPacket) iodefine.I
 }
 
 func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
+	sm.log.Tracef("write stream packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	err := sm.dg.Write(pkt)
 	if err != nil {
 		sm.log.Debugf("write stream packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
@@ -536,6 +546,8 @@ func (sm *stream) fini() {
 		// the master stream
 		sm.end.fini()
 	}
+	// reclaim stream from end
+	sm.end.delStream(sm.dg.DialogueID())
 
 	sm.log.Debugf("stream finished, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())

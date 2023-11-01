@@ -41,7 +41,7 @@ func (ln *listener) AcceptEnd() (geminio.End, error) {
 		return nil, err
 	}
 	end, err := NewEndWithConn(netconn, ln.opts...)
-	return end, nil
+	return end, err
 }
 
 func (ln *listener) Accept() (net.Conn, error) {

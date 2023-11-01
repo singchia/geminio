@@ -78,11 +78,11 @@ func (sm *stream) Read(b []byte) (int, error) {
 
 func (sm *stream) Write(b []byte) (int, error) {
 	sm.mtx.RLock()
+	defer sm.mtx.RUnlock()
+
 	if !sm.streamOK {
-		sm.mtx.RUnlock()
 		return 0, io.EOF
 	}
-	sm.mtx.RUnlock()
 
 	newb := make([]byte, len(b))
 	copy(newb, b)

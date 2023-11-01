@@ -135,7 +135,9 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	// add default dialogue
 	dg, err := NewDialogue(cn, dm.multiplexerOpts.opts,
 		OptionDialogueState(SESSIONED),
-		OptionDialogueDelegate(dm))
+		OptionDialogueDelegate(dm),
+		OptionDialogueLogger(dm.log),
+		OptionDialoguePacketFactory(dm.pf))
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d, dialogueID: %d",
 			err, cn.ClientID(), packet.SessionID1)
@@ -215,7 +217,9 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 	dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
 	dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
-		OptionDialogueDelegate(dm))
+		OptionDialogueDelegate(dm),
+		OptionDialogueLogger(dm.log),
+		OptionDialoguePacketFactory(dm.pf))
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d", err, dm.cn.ClientID())
 		return nil, err
@@ -319,28 +323,31 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
 		dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
-			OptionDialogueDelegate(dm))
+			OptionDialogueDelegate(dm),
+			OptionDialogueLogger(dm.log),
+			OptionDialoguePacketFactory(dm.pf))
 		if err != nil {
 			dm.log.Errorf("new dialogue err: %s, clientID: %d", err, dm.cn.ClientID())
 			return
 		}
 		dm.mtx.Lock()
 		dm.negotiatingDialogues[negotiatingID] = dg
-		dm.mtx.Unlock()
 		dg.readInCh <- pkt
+		dm.mtx.Unlock()
 
 	case *packet.SessionAckPacket:
 		dm.mtx.RLock()
 		dg, ok := dm.negotiatingDialogues[realPkt.NegotiateID()]
-		dm.mtx.RUnlock()
 		if !ok {
 			// TODO we must warn the dialogue initiator
 			dm.log.Errorf("clientID: %d, unable to find negotiatingID: %d",
 				dm.cn.ClientID(), realPkt.NegotiateID())
+			dm.mtx.RUnlock()
 			return
 		}
 		// TODO do we need handle the packet in time? before data or dismiss coming.
 		dg.readInCh <- pkt
+		dm.mtx.RUnlock()
 
 	default:
 		dgPkt, ok := pkt.(packet.SessionAbove)
@@ -352,16 +359,16 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dialogueID := dgPkt.SessionID()
 		dm.mtx.RLock()
 		dg, ok := dm.dialogues[dialogueID]
-		dm.mtx.RUnlock()
 		if !ok {
 			dm.log.Errorf("clientID: %d, unable to find dialogueID: %d, packetID: %d, packetType: %s",
 				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
+			dm.mtx.RUnlock()
 			return
 		}
-
 		dm.log.Tracef("write to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 		dg.readInCh <- pkt
+		dm.mtx.RUnlock()
 	}
 }
 
