@@ -237,17 +237,17 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 		return nil, err
 	}
 	dm.mtx.Lock()
-	defer dm.mtx.Unlock()
-
 	delete(dm.negotiatingDialogues, negotiatingID)
 	if !dm.mgrOK {
 		// delete(dm.dialogues, dg.dialogueID)
 		// !mgrOK only happens after dialogueMgr fini, so fini the dialogue
+		dm.mtx.Unlock()
 		dg.fini()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
 	// the logic on negotiatingDialogues is tricky, take care of it.
 	dm.dialogues[dg.dialogueID] = dg
+	dm.mtx.Unlock()
 	return dg, nil
 }
 
