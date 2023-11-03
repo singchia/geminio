@@ -91,7 +91,7 @@ func main() {
 					log.Errorf("accept err: %s", err)
 					break
 				}
-				log.Infof("accept end: %v", end.ClientID())
+				log.Debugf("accept end: %v", end.ClientID())
 				relayProxy, err := rproxy.NewRProxy(end, rproxy.OptionRProxyDial(dial))
 				if err != nil {
 					log.Errorf("relay proxy err: %s", err)
