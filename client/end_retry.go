@@ -98,6 +98,9 @@ func (re *RetryEnd) reinit(old *clientEnd) error {
 	}
 
 	time.Sleep(3 * time.Second)
+	if atomic.LoadInt32(re.ok) == 0 {
+		return io.EOF
+	}
 	new, err := re.getEnd()
 	if err != nil {
 		// if we still get end error, deliver the error to user, but it
@@ -219,8 +222,8 @@ func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stre
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Call err: %s", oerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Call err: %s", oerr)
 					return nil, ierr
 				}
 				// some other error, maybe ErrInvalidConn, ErrClosed
@@ -240,7 +243,27 @@ func (re *RetryEnd) AcceptStream() (geminio.Stream, error) {
 		return nil, io.EOF
 	}
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
-	return cur.AcceptStream()
+	sm, aerr := cur.AcceptStream()
+	if aerr != nil {
+		if aerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
+			// under layer EOF but not closed, we should retry the end,
+			// pass the old end for comparition
+			ierr := re.reinit(cur)
+			if ierr != nil {
+				if ierr == io.EOF {
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after AcceptStream err: %s", aerr)
+					return nil, ierr
+				}
+				// some other error, maybe ErrInvalidConn, ErrClosed
+				return nil, ierr
+			}
+			// retry succeed, recursive the AcceptStream
+			return re.AcceptStream()
+		}
+		return nil, aerr
+	}
+	return sm, nil
 }
 
 func (re *RetryEnd) Accept() (net.Conn, error) {
@@ -277,8 +300,8 @@ func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Call err: %s", cerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Call err: %s", cerr)
 					return nil, ierr
 				}
 				// some other error, maybe ErrInvalidConn, ErrClosed
@@ -307,8 +330,8 @@ func (re *RetryEnd) CallAsync(ctx context.Context, method string, req geminio.Re
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Callasync err: %s", cerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Callasync err: %s", cerr)
 					return nil, ierr
 				}
 				// some other error, maybe ErrInvalidConn, ErrClosed
@@ -341,8 +364,8 @@ func (re *RetryEnd) register(ctx context.Context, method string, rpc geminio.RPC
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after register err: %s", rerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after register err: %s", rerr)
 					return ierr
 				}
 				// some other error, maybe ErrInvalidConn, ErrClosed
@@ -376,8 +399,8 @@ func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Hijack err: %s", herr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Hijack err: %s", herr)
 					return ierr
 				}
 				return ierr
@@ -414,8 +437,8 @@ func (re *RetryEnd) Publish(ctx context.Context, msg geminio.Message,
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Publish err: %s", perr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Publish err: %s", perr)
 					return ierr
 				}
 				return ierr
@@ -443,8 +466,8 @@ func (re *RetryEnd) PublishAsync(ctx context.Context, msg geminio.Message, ch ch
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after PublishAsync err: %s", perr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after PublishAsync err: %s", perr)
 					return nil, ierr
 				}
 				return nil, ierr
@@ -471,8 +494,8 @@ func (re *RetryEnd) Receive(ctx context.Context) (geminio.Message, error) {
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Receive err: %s", rerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Receive err: %s", rerr)
 					return nil, ierr
 				}
 				return nil, ierr
@@ -500,8 +523,8 @@ func (re *RetryEnd) Read(b []byte) (int, error) {
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Read err: %s", rerr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Read err: %s", rerr)
 					return 0, ierr
 				}
 				return 0, ierr
@@ -528,8 +551,8 @@ func (re *RetryEnd) Write(b []byte) (int, error) {
 			ierr := re.reinit(cur)
 			if ierr != nil {
 				if ierr == io.EOF {
-					// reinit should never return io.EOF, if do BUG!!
-					re.opts.Log.Errorf("reinit got io.EOF after Write err: %s", werr)
+					// reinit should only return io.EOF aflter RetryEnd Close
+					re.opts.Log.Infof("reinit got io.EOF after Write err: %s", werr)
 					return 0, ierr
 				}
 				return 0, ierr
