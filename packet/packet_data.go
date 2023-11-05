@@ -257,6 +257,10 @@ type StreamPacket struct {
 	basePacket
 }
 
+func (pkt *StreamPacket) Length() int {
+	return len(pkt.Data)
+}
+
 func (pkt *StreamPacket) SessionID() uint64 {
 	return pkt.sessionID
 }
@@ -317,6 +321,10 @@ type RegisterPacket struct {
 
 	// the following fields are not encoded into packet
 	basePacket
+}
+
+func (pkt *RegisterPacket) Length() int {
+	return len(pkt.method)
 }
 
 func (pkt *RegisterPacket) Method() string {

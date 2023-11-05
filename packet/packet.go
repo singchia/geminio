@@ -37,6 +37,7 @@ type Packet interface {
 	Decode(data []byte) (uint32, error)
 	DecodeFromReader(reader io.Reader) error
 	Encode() ([]byte, error)
+	Length() int
 
 	Consistency() Cnss
 	ID() uint64
@@ -143,6 +144,11 @@ type PacketHeader struct {
 	PacketID  uint64
 	PacketLen uint32
 	Cnss      Cnss
+}
+
+// Length returns payload length
+func (pktHdr *PacketHeader) Length() int {
+	return int(pktHdr.PacketLen)
 }
 
 func (pktHdr *PacketHeader) Consistency() Cnss {

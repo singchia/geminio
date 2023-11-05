@@ -568,8 +568,11 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		return iodefine.IOErr
 	}
-	dg.dowritePkt(pkt, false)
 	// make sure this packet is flushed before writeOutCh closed
+	// dg.dowritePkt(pkt, false) changes to dg.writeOutCh <- pkt
+	// because this packet should be after all upper layer packets
+	// at last the close(dg.writeOutCh) makes sure the flush
+	dg.writeOutCh <- pkt
 	dg.log.Debugf("dialogue write dismiss ack down succeed, clientID: %d, dialogueID: %d, packetID: %d",
 		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
 	if dg.fsm.State() == DISMISS_HALF {
@@ -591,18 +594,18 @@ func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 
 func (dg *dialogue) Close() {
 	dg.closeOnce.Do(func() {
+		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
+		// we need a tick in case of never receiving the dismiss ack packet
+		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
+
 		dg.mtx.RLock()
 		defer dg.mtx.RUnlock()
 		if !dg.dialogueOK {
 			return
 		}
-
 		dg.log.Debugf("dialogue async close, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
-		// we need a tick in case of never receiving the dismiss ack packet
-		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		dg.writeInCh <- pkt
 
 		go func() {
@@ -623,6 +626,8 @@ func (dg *dialogue) Close() {
 func (dg *dialogue) CloseWait() {
 	// send close packet and wait for the end
 	dg.closeOnce.Do(func() {
+		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
+		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		dg.mtx.RLock()
 		if !dg.dialogueOK {
 			dg.mtx.RUnlock()
@@ -632,9 +637,7 @@ func (dg *dialogue) CloseWait() {
 		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
 		dg.writeInCh <- pkt
-		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		dg.mtx.RUnlock()
 		// the sync shouldn't be locked
 		event := <-dg.closewait.C()
@@ -663,12 +666,11 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 func (dg *dialogue) fini() {
 	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
-
-	dg.mtx.Lock()
 	// collect shub
 	dg.shub.Close()
 	dg.shub = nil
 
+	dg.mtx.Lock()
 	// TODO should we move dialogueOK=false to Close and CloseWait?
 	dg.dialogueOK = false
 	close(dg.writeInCh)
@@ -683,11 +685,13 @@ func (dg *dialogue) fini() {
 	close(dg.readOutCh)
 	// writeOutCh must be cared since writhPkt might quit first
 	close(dg.writeOutCh)
-	for pkt := range dg.writeOutCh {
-		if dg.failedCh != nil && !packet.SessionLayer(pkt) {
-			dg.failedCh <- pkt
+	/*
+		for pkt := range dg.writeOutCh {
+			if dg.failedCh != nil && !packet.SessionLayer(pkt) {
+				dg.failedCh <- pkt
+			}
 		}
-	}
+	*/
 	// collect channels
 	dg.writeInCh, dg.writeOutCh = nil, nil
 	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
