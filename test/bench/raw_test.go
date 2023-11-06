@@ -12,18 +12,6 @@ import (
 	"github.com/singchia/geminio/server"
 )
 
-func BenchmarkTCP(b *testing.B) {
-	sConn, cConn, err := getTCPConnectionPair()
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer sConn.Close()
-	defer cConn.Close()
-
-	bench(b, sConn, cConn)
-	bench(b, cConn, sConn)
-}
-
 func BenchmarkEnd(b *testing.B) {
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := getEndPair()
