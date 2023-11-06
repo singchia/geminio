@@ -358,6 +358,10 @@ func (cc *ClientConn) Close() {
 		if !cc.connOK {
 			return
 		}
+		if cc.hbTick != nil {
+			cc.hbTick.Cancel()
+			cc.hbTick = nil
+		}
 
 		cc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
 			cc.clientID, cc.netconn.RemoteAddr(), string(cc.meta))
@@ -374,6 +378,10 @@ func (cc *ClientConn) fini() {
 	}
 	cc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))
+	if cc.hbTick != nil {
+		cc.hbTick.Cancel()
+		cc.hbTick = nil
+	}
 	// collect shub
 	cc.shub.Close()
 	cc.shub = nil
@@ -398,10 +406,6 @@ func (cc *ClientConn) fini() {
 		}
 	}
 	// collect timer
-	if cc.hbTick != nil {
-		cc.hbTick.Cancel()
-		cc.hbTick = nil
-	}
 	if !cc.tmrOutside {
 		cc.tmr.Close()
 	}

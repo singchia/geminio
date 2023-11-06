@@ -2,9 +2,13 @@ module github.com/singchia/geminio
 
 go 1.17
 
+replace github.com/singchia/go-timer/v2 => ../../austin/go-timer
+
 replace github.com/jumboframes/armorigo => ../../singchia/armorigo
 
 replace github.com/singchia/yafsm => ../../austin/yafsm
+
+
 
 require (
 	github.com/golang/mock v1.6.0
