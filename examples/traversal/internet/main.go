@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"sync"
+	"time"
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/rproxy"
@@ -56,7 +57,9 @@ func main() {
 		return
 	}
 
-	proxy, err := rproxy.NewRProxy(internetln, rproxy.OptionRProxyDial(dial))
+	proxy, err := rproxy.NewRProxy(internetln,
+		rproxy.OptionRProxyDial(dial),
+		rproxy.OptionRProxyWaitOnErr(3*time.Second))
 	if err != nil {
 		log.Errorf("new rproxy err: %s", err)
 		return

@@ -125,8 +125,8 @@ func (bc *baseConn) writePkt() {
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, bc.netconn)
 	if err != nil {
-		bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d",
-			err, bc.clientID, pkt.ID())
+		bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
+			err, bc.clientID, pkt.ID(), pkt.Type().String())
 		if record && bc.failedCh != nil {
 			// only upper layer packet need to be notified
 			bc.failedCh <- pkt

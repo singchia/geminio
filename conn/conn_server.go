@@ -422,6 +422,11 @@ func (sc *ServerConn) fini() {
 	sc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 
+	if sc.hbTick != nil {
+		sc.hbTick.Cancel()
+		sc.hbTick = nil
+	}
+
 	// collect shub
 	sc.shub.Close()
 	sc.shub = nil
@@ -448,10 +453,6 @@ func (sc *ServerConn) fini() {
 		}
 	}
 	// collect timer
-	if sc.hbTick != nil {
-		sc.hbTick.Cancel()
-		sc.hbTick = nil
-	}
 	if !sc.tmrOutside {
 		sc.tmr.Close()
 	}
@@ -470,7 +471,13 @@ func (sc *ServerConn) fini() {
 }
 
 func (sc *ServerConn) waitHBTimeout(event *timer.Event) {
-	sc.log.Errorf("wait HEARTBEAT timeout, clientID: %d, remote: %s, meta: %s",
-		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
-	sc.netconn.Close()
+	if event.Error == timer.ErrTimerForceClosed {
+		sc.log.Infof("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
+			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+	} else {
+		sc.log.Errorf("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
+			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+	}
+	// changed from sc.netconn.Close() to sc.Close()
+	sc.Close()
 }

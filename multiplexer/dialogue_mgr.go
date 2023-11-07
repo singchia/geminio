@@ -376,6 +376,11 @@ func (dm *dialogueMgr) Close() {
 	dm.log.Debugf("dialogue manager is closing, clientID: %d", dm.cn.ClientID())
 	wg := sync.WaitGroup{}
 	dm.mtx.RLock()
+	if !dm.mgrOK {
+		dm.mtx.RUnlock()
+		return
+	}
+
 	wg.Add(len(dm.dialogues))
 	wg.Add(len(dm.negotiatingDialogues))
 
@@ -410,20 +415,15 @@ func (dm *dialogueMgr) fini() {
 	// collect all dialogues
 	for id, dg := range dm.dialogues {
 		// cause the dialogue io err
-		close(dg.readInCh)
+		dg.closeIO()
 		delete(dm.dialogues, id)
 	}
 	for id, dg := range dm.negotiatingDialogues {
 		// cause the dialogue io err
-		close(dg.readInCh)
+		dg.closeIO()
 		delete(dm.dialogues, id)
 	}
 
-	// collect timer
-	if dm.tmrOwner == dm {
-		dm.tmr.Close()
-	}
-	dm.tmr = nil
 	// collect id
 	dm.dialogueIDs.Close()
 	dm.dialogueIDs = nil
@@ -435,6 +435,11 @@ func (dm *dialogueMgr) fini() {
 		close(dm.dialogueClosedCh)
 	}
 	dm.dialogueAcceptCh, dm.dialogueClosedCh = nil, nil
+	// collect timer
+	if dm.tmrOwner == dm {
+		dm.tmr.Close()
+	}
+	dm.tmr = nil
 
 	dm.log.Debugf("dialogue manager finished, clientID: %d", dm.cn.ClientID())
 }

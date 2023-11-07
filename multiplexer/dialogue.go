@@ -50,6 +50,7 @@ type dialogue struct {
 
 	onlined   bool
 	closewait synchub.Sync
+
 	// dialogue id
 	negotiatingID       uint64
 	peerNegotiatingID   uint64
@@ -71,7 +72,8 @@ type dialogue struct {
 	readOutSize, writeInSize int
 	failedCh                 chan packet.Packet
 
-	closeOnce *gsync.Once
+	closeOnce   *gsync.Once
+	closeIOOnce *gsync.Once
 }
 
 type DialogueOption func(*dialogue)
@@ -117,13 +119,13 @@ func OptionDialogueNegotiatingID(negotiatingID uint64, dialogueIDPeersCall bool)
 
 func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogue, error) {
 	dg := &dialogue{
-		opts:       baseOpts,
-		meta:       cn.Meta(),
-		dialogueID: packet.SessionIDNull,
-		cn:         cn,
-		fsm:        yafsm.NewFSM(yafsm.WithInSeq()),
-		//fsm:          yafsm.NewFSM(),
+		opts:         baseOpts,
+		meta:         cn.Meta(),
+		dialogueID:   packet.SessionIDNull,
+		cn:           cn,
+		fsm:          yafsm.NewFSM(yafsm.WithInSeq()),
 		closeOnce:    new(gsync.Once),
+		closeIOOnce:  new(gsync.Once),
 		dialogueOK:   true,
 		readInSize:   128,
 		writeOutSize: 128,
@@ -612,11 +614,11 @@ func (dg *dialogue) Close() {
 			// we don't use shub WithCallback because the force close may arrive firse
 			event := <-dg.closewait.C()
 			if event.Error != nil {
-				dg.log.Infof("dialogue close err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+				dg.log.Infof("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
 					event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 				if event.Error == synchub.ErrSyncTimeout {
 					// timeout and exit the dialogue
-					close(dg.readInCh)
+					dg.closeIO()
 				}
 			}
 		}()
@@ -646,13 +648,19 @@ func (dg *dialogue) CloseWait() {
 				event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 			if event.Error == synchub.ErrSyncTimeout {
 				// timeout and exit the dialogue
-				close(dg.readInCh)
+				dg.closeIO()
 			}
 			return
 		}
 		dg.log.Debugf("dialogue closed, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 		return
+	})
+}
+
+func (dg *dialogue) closeIO() {
+	dg.closeIOOnce.Do(func() {
+		close(dg.readInCh)
 	})
 }
 
@@ -685,13 +693,6 @@ func (dg *dialogue) fini() {
 	close(dg.readOutCh)
 	// writeOutCh must be cared since writhPkt might quit first
 	close(dg.writeOutCh)
-	/*
-		for pkt := range dg.writeOutCh {
-			if dg.failedCh != nil && !packet.SessionLayer(pkt) {
-				dg.failedCh <- pkt
-			}
-		}
-	*/
 	// collect channels
 	dg.writeInCh, dg.writeOutCh = nil, nil
 	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
