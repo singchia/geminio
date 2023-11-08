@@ -2,19 +2,16 @@ package bench
 
 import (
 	"io"
-	"net"
 	"sync"
 	"testing"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/geminio/test"
 )
 
 func BenchmarkEnd(b *testing.B) {
 	log.SetLevel(log.LevelError)
-	sEnd, cEnd, err := getEndPair()
+	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -27,7 +24,7 @@ func BenchmarkEnd(b *testing.B) {
 
 func BenchmarkStream(b *testing.B) {
 	log.SetLevel(log.LevelError)
-	ss, cs, err := getEndStream()
+	ss, cs, err := test.GetEndStream()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -62,84 +59,4 @@ func bench(b *testing.B, rd io.Reader, wr io.Writer) {
 		wr.Write(buf)
 	}
 	wg.Wait()
-}
-
-func getEndStream() (geminio.Stream, geminio.Stream, error) {
-	sEnd, cEnd, err := getEndPair()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var ss geminio.Stream
-	var sErr error
-	done := make(chan struct{})
-	go func() {
-		ss, sErr = sEnd.AcceptStream()
-		close(done)
-	}()
-
-	cs, err := cEnd.OpenStream()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	<-done
-	if sErr != nil {
-		return nil, nil, sErr
-	}
-	return ss, cs, nil
-}
-
-func getEndPair() (geminio.End, geminio.End, error) {
-	sConn, cConn, err := getTCPConnectionPair()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var sEnd geminio.End
-	var sErr error
-	done := make(chan struct{})
-	go func() {
-		sEnd, sErr = server.NewEndWithConn(sConn)
-		close(done)
-	}()
-
-	dialer := func() (net.Conn, error) { return cConn, nil }
-	cEnd, err := client.NewEndWithDialer(dialer)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	<-done
-	if sErr != nil {
-		return nil, nil, sErr
-	}
-	return sEnd, cEnd, nil
-}
-
-func getTCPConnectionPair() (net.Conn, net.Conn, error) {
-	lst, err := net.Listen("tcp", "localhost:12345")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer lst.Close()
-
-	var conn0 net.Conn
-	var err0 error
-	done := make(chan struct{})
-	go func() {
-		conn0, err0 = lst.Accept()
-		close(done)
-	}()
-
-	conn1, err := net.Dial("tcp", lst.Addr().String())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	<-done
-	if err0 != nil {
-		return nil, nil, err0
-	}
-	return conn0, conn1, nil
 }
