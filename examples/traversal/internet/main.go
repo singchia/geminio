@@ -85,13 +85,15 @@ func main() {
 
 			go func() {
 				for {
-					_, err := end.Receive(context.TODO())
+					msg, err := end.Receive(context.TODO())
 					if err != nil {
 						if err == io.EOF {
 							break
 						}
 						log.Errorf("end receive err: %s", err)
+						continue
 					}
+					msg.Done()
 				}
 				endsMtx.Lock()
 				delete(ends, end.ClientID())
