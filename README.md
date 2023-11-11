@@ -108,10 +108,10 @@ if err != nil {
 ### 示例
 
 * 消息和确认 [messager](./examples/messager)
-* 简单消息队列  [messager](./examples/mq)
-* 聊天室  [messager](./examples/chatroom)
-* 中继器  [messager](./examples/relay)
-* 内网穿透 [messager](./examples/traversal)
+* 简单消息队列  [mq](./examples/mq)
+* 聊天室  [chatroom](./examples/chatroom)
+* 中继器  [relay](./examples/relay)
+* 内网穿透 [traversal](./examples/traversal)
 
 ## 实现
 
