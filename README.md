@@ -1,7 +1,7 @@
 # Geminio
 
 [![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/badge/github.com/singchia/geminio)
-[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
+[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/go-xtables)](https://goreportcard.com/report/github.com/singchia/go-xtables)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![Platform](https://img.shields.io/badge/platform-linux|windows|mac-brightgreen.svg)
 
