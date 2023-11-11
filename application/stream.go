@@ -43,9 +43,6 @@ type stream struct {
 	*opts
 	end *End
 
-	// meta for the stream, which set by OpenStream
-	meta []byte
-
 	// sync hubor for negotiations and registrations
 	shub *synchub.SyncHub
 
@@ -126,7 +123,7 @@ func (sm *stream) ClientID() uint64 {
 }
 
 func (sm *stream) Meta() []byte {
-	return sm.meta
+	return sm.dg.Meta()
 }
 
 func (sm *stream) Side() geminio.Side {
