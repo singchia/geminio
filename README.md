@@ -1,2 +1,11 @@
 # Geminio
-A high performance tcp connection with bidirectional-rpc and client-server consistency.
+
+
+## 架构
+
+![](./docs/biz-arch.png)
+
+
+## 实现
+
+![](./docs/implementation.png)
