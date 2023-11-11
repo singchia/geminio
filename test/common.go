@@ -2,6 +2,7 @@ package test
 
 import (
 	"net"
+	"strconv"
 
 	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/client"
@@ -35,7 +36,7 @@ func GetEndStream() (geminio.Stream, geminio.Stream, error) {
 }
 
 func GetEndPair() (geminio.End, geminio.End, error) {
-	sConn, cConn, err := GetTCPConnectionPair()
+	sConn, cConn, err := GetTCPConnectionPair(12345)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -61,8 +62,8 @@ func GetEndPair() (geminio.End, geminio.End, error) {
 	return sEnd, cEnd, nil
 }
 
-func GetTCPConnectionPair() (net.Conn, net.Conn, error) {
-	lst, err := net.Listen("tcp", "localhost:12345")
+func GetTCPConnectionPair(port int) (net.Conn, net.Conn, error) {
+	lst, err := net.Listen("tcp", "localhost:"+strconv.Itoa(port))
 	if err != nil {
 		return nil, nil, err
 	}
