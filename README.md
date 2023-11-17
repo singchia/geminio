@@ -117,7 +117,7 @@ if err != nil {
 
 本库按照以下架构实现
 
-<img src="./docs/implementation.png" width="60%" height="80%">
+<img src="./docs/implementation.png" width="80%" height="80%">
 
 ## 参与开发
 
