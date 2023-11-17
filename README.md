@@ -66,7 +66,7 @@ type End interface {
 * 支持net.Conn和net.Listener抽象
 * 高可用（RetryEnd的持续重连机制）
 * 测试充分（压力测试、Chaos测试、运行时PProf分析等）
-* 还有非常多特性等待你的发掘
+* ...
 
 ## 使用
 
@@ -103,7 +103,7 @@ if err != nil {
 }
 ```
 
-以上双方获取的End，逻辑上代表了双方，持有这个连接即刻体验。
+以上双方获取的End，逻辑上代表了双方，持有End即刻开始Geminio之旅。
 
 ### 示例
 
@@ -117,11 +117,11 @@ if err != nil {
 
 本库按照以下架构实现
 
-<img src="./docs/implementation.png" width="60%" height="60%">
+<img src="./docs/implementation.png" width="60%" height="80%">
 
 ## 参与开发
 
-如果你发现任何Bug，请随意提出Issue，项目Maintainers会及时响应相关问题。
+如果你发现任何Bug，请提出Issue，项目Maintainers会及时响应相关问题。
  
  如果你希望能够提交Feature，更快速解决项目问题，满足以下简单条件下欢迎提交PR：
  
