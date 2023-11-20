@@ -19,7 +19,7 @@ Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](ht
 
 本库的所有抽象基本都在首页```geminio.go```里，从End开始结合上面架构图即可理解本库的设计，当然你也可以跳到下面的使用章节直接看示例。
 
-```
+```golang
 type RawRPCMessager interface {
 	// raw
 	Raw
@@ -74,8 +74,7 @@ type End interface {
 
 服务端End：
 
-```
-
+```golang
 ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
 if err != nil {
 	log.Errorf("server listen err: %s", err)
@@ -90,12 +89,11 @@ for {
 	}
 	// TODO 处理客户端End
 }
-
 ```
 
 客户端End：
 
-```
+```golang
 end, err := client.NewEnd("tcp", "127.0.0.1:8080")
 if err != nil {
 	log.Errorf("server listen err: %s", err)
@@ -105,7 +103,8 @@ if err != nil {
 
 以上双方获取的End，逻辑上代表了双方，持有End即刻开始Geminio之旅。
 
-### 示例
+
+### 应用场景
 
 * 消息和确认 [messager](./examples/messager)
 * 简单消息队列  [mq](./examples/mq)
