@@ -365,7 +365,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			dm.mtx.RUnlock()
 			return
 		}
-		dm.log.Tracef("write to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
+		dm.log.Tracef("read to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 		dg.readInCh <- pkt
 		dm.mtx.RUnlock()
