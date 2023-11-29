@@ -489,10 +489,12 @@ func (dg *dialogue) handleInDimssAckPacket(pkt *packet.DismissAckPacket) iodefin
 }
 
 func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
-	ok := dg.fsm.InStates(SESSIONED)
+	// we regard statuses which include sessioned, dismiss_half, dismiss_sent as normal statuses
+	// and status dismiss_recv should be optimized from client side.
+	ok := dg.fsm.InStates(SESSIONED, DISMISS_HALF, DISMISS_SENT, DISMISS_RECV)
 	if !ok {
-		dg.log.Debugf("data at non SESSIONED, clientID: %d, dialogueID: %d, packetID: %d",
-			dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+		dg.log.Debugf("data at non normal status, clientID: %d, dialogueID: %d, packetID: %d, status: %s",
+			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		if dg.failedCh != nil {
 			dg.failedCh <- pkt
 		}

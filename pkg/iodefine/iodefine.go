@@ -30,7 +30,8 @@ const (
 )
 
 var (
-	ErrIOTimeout = errors.New("io time out")
+	ErrIOTimeout    = errors.New("io time out")
+	ErrIOBufferFull = errors.New("io buffer full")
 )
 
 func ErrUseOfClosedNetwork(err error) bool {
