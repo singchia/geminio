@@ -360,10 +360,14 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dm.mtx.RLock()
 		dg, ok := dm.dialogues[dialogueID]
 		if !ok {
-			dm.log.Errorf("clientID: %d, unable to find dialogueID: %d, packetID: %d, packetType: %s",
-				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
-			dm.mtx.RUnlock()
-			return
+			// maybe the dialogue is in negotiating
+			dg, ok = dm.negotiatingDialogues[dialogueID]
+			if !ok {
+				dm.log.Errorf("clientID: %d, unable to find dialogueID: %d, packetID: %d, packetType: %s",
+					dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
+				dm.mtx.RUnlock()
+				return
+			}
 		}
 		dm.log.Tracef("read to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())

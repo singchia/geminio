@@ -95,12 +95,7 @@ func (bc *baseConn) Write(pkt packet.Packet) error {
 	if !bc.connOK {
 		return io.EOF
 	}
-	select {
-	case bc.writeInCh <- pkt:
-	default:
-		// the upper layer should care about the error
-		return iodefine.ErrIOBufferFull
-	}
+	bc.writeInCh <- pkt
 	return nil
 }
 
