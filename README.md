@@ -7,7 +7,7 @@
 
 ## 介绍
 
-Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](https://harrypotter.fandom.com/wiki/Doubling_Charm)，寓意有三，一是客户端和服务端连接的对等性，二是体现多路复用下会话的轻量性，如同复制咒语一样非常容易从一个连接上获取另一个抽象连接，三是这个库有着魔法一样的能力，集成这个库能让你的网络应用程序的事半功倍。
+Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](https://harrypotter.fandom.com/wiki/Doubling_Charm)，寓意有二，一是客户端和服务端连接的对等性，二是体现多路复用下会话的轻量性，如同复制魔法一样非常容易从一个连接上获取另一个抽象连接；集成这个库能让你的网络应用程序的事半功倍。
 
 这个库的诞生是因为市面上缺少如双向RPC、消息收发确认、裸连接管理、多会话和多路复用等多综合能力的库，而常常我们在开发例如消息队列、即时通讯、接入层网关、内网穿透、代理等应用软件或中间件时都严重依赖这些抽象，故此我开发了这个网络程序库，以能够让上层软件开发十分轻松。
 
@@ -111,6 +111,24 @@ if err != nil {
 * 聊天室  [chatroom](./examples/chatroom)
 * 中继器  [relay](./examples/relay)
 * 内网穿透 [traversal](./examples/traversal)
+
+## 测试
+
+### Benchmarks
+
+```
+> cd test/bench && go test -bench .
+goos: darwin
+goarch: amd64
+pkg: github.com/singchia/geminio/test/bench
+cpu: Intel(R) Core(TM) i5-6267U CPU @ 2.90GHz
+BenchmarkMessage-4   	   10117	    112584 ns/op	1164.21 MB/s	    5764 B/op	     181 allocs/op
+BenchmarkEnd-4       	   11644	     98586 ns/op	1329.52 MB/s	  550534 B/op	      73 allocs/op
+BenchmarkStream-4    	   12301	     96955 ns/op	1351.88 MB/s	  550605 B/op	      82 allocs/op
+BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     187 allocs/op
+PASS
+ok  	github.com/singchia/geminio/test/bench	11.358s
+```
 
 ## 实现
 
