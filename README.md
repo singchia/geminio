@@ -1,9 +1,11 @@
 # Geminio
 
 [![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/badge/github.com/singchia/geminio)
-[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/go-xtables)](https://goreportcard.com/report/github.com/singchia/go-xtables)
+[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Platform](https://img.shields.io/badge/platform-linux|windows|mac-brightgreen.svg)
+![Platform](https://img.shields.io/badge/platform-linux-brightgreen.svg)
+![Platform](https://img.shields.io/badge/platform-mac-brightgreen.svg)
+![Platform](https://img.shields.io/badge/platform-windows-brightgreen.svg)
 
 ## 介绍
 
@@ -117,7 +119,6 @@ if err != nil {
 ### Benchmarks
 
 ```
-> cd test/bench && go test -bench .
 goos: darwin
 goarch: amd64
 pkg: github.com/singchia/geminio/test/bench
@@ -127,14 +128,15 @@ BenchmarkEnd-4       	   11644	     98586 ns/op	1329.52 MB/s	  550534 B/op	     
 BenchmarkStream-4    	   12301	     96955 ns/op	1351.88 MB/s	  550605 B/op	      82 allocs/op
 BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     187 allocs/op
 PASS
-ok  	github.com/singchia/geminio/test/bench	11.358s
 ```
 
 ## 实现
 
 本库按照以下架构实现
 
-<img src="./docs/implementation.png" width="80%" height="80%">
+<p align=center>
+<img src="./docs/implementation.png" width="70%" height="70%">
+</p>
 
 ## 参与开发
 
