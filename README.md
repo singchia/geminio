@@ -1,11 +1,17 @@
-# Geminio
+<p align=center>
+<img src="./docs/geminio.png" width="60%" height="60%">
+</p>
 
-[![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/badge/github.com/singchia/geminio)
+<div align="center">
+
+[![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
 [![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 ![Platform](https://img.shields.io/badge/platform-linux-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-mac-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-windows-brightgreen.svg)
+
+</div>
 
 ## 介绍
 
