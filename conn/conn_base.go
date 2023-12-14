@@ -108,7 +108,7 @@ func (bc *baseConn) writePkt() {
 		select {
 		case pkt, ok := <-writeOutCh:
 			if !ok {
-				bc.log.Infof("conn write done, clientID: %d", bc.clientID)
+				bc.log.Debugf("conn write done, clientID: %d", bc.clientID)
 				return
 			}
 			bc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s",
@@ -142,9 +142,9 @@ func (bc *baseConn) readPkt() {
 		pkt, err := packet.DecodeFromReader(bc.netconn)
 		if err != nil {
 			if iodefine.ErrUseOfClosedNetwork(err) {
-				bc.log.Infof("conn read down closed, clientID: %d", bc.clientID)
+				bc.log.Debugf("conn read down closed, clientID: %d", bc.clientID)
 			} else {
-				bc.log.Infof("conn read down err: %s, clientID: %d",
+				bc.log.Debugf("conn read down err: %s, clientID: %d",
 					err, bc.clientID)
 			}
 			goto FINI
