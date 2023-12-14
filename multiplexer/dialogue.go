@@ -616,7 +616,7 @@ func (dg *dialogue) Close() {
 			// we don't use shub WithCallback because the force close may arrive firse
 			event := <-dg.closewait.C()
 			if event.Error != nil {
-				dg.log.Infof("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+				dg.log.Debugf("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
 					event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 				if event.Error == synchub.ErrSyncTimeout {
 					// timeout and exit the dialogue
@@ -646,7 +646,7 @@ func (dg *dialogue) CloseWait() {
 		// the sync shouldn't be locked
 		event := <-dg.closewait.C()
 		if event.Error != nil {
-			dg.log.Infof("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
+			dg.log.Debugf("dialogue close wait err: %s, clientID: %d, peerDialogueID: %d, dialogueID: %d",
 				event.Error, dg.cn.ClientID(), dg.peerNegotiatingID, dg.dialogueID)
 			if event.Error == synchub.ErrSyncTimeout {
 				// timeout and exit the dialogue

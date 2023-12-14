@@ -78,41 +78,151 @@ type End interface {
 
 ## 使用
 
-### 获得End
+### 消息
 
-服务端End：
+服务端：
 
 ```golang
-ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
-if err != nil {
-	log.Errorf("server listen err: %s", err)
-	return
-}
+package main
 
-for {
-	end, err := ln.AcceptEnd()
-	if err != nil {
-		log.Errorf("accept err: %s", err)
-		break
-	}
-	// TODO 处理客户端End
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    ln, err := server.Listen("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Errorf("server listen err: %s", err)
+        return
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Errorf("accept err: %s", err)
+            break
+        }
+        go func() {
+            msg, err := end.Receive(context.TODO())
+            if err != nil {
+                return
+            }
+            log.Infof("end receive: %s", string(msg.Data()))
+            msg.Done()
+        }()
+    }
+
 }
 ```
 
-客户端End：
+客户端：
 
 ```golang
-end, err := client.NewEnd("tcp", "127.0.0.1:8080")
-if err != nil {
-	log.Errorf("server listen err: %s", err)
-	return
+package main
+
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Errorf("client dial err: %s", err)
+        return
+    }
+    msg := end.NewMessage([]byte("hello"))
+    err = end.Publish(context.TODO(), msg)
+    if err != nil {
+        log.Errorf("end publish err: %s", err)
+        return
+    }
+    end.Close()
 }
 ```
 
-以上双方获取的End，逻辑上代表了双方，持有End即刻开始Geminio之旅。
+### RPC
 
+服务端：
 
-### 应用场景
+```golang
+package main
+
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    ln, err := server.Listen("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Errorf("server listen err: %s", err)
+        return
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Errorf("accept err: %s", err)
+            break
+        }
+        go func() {
+            err := end.Register(context.TODO(), "echo", echo)
+            if err != nil {
+                return
+            }
+        }()
+    }
+}
+
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
+    rsp.SetData(req.Data())
+    log.Info("echo:", string(req.Data()))
+}
+```
+
+客户端：
+
+```golang
+package main
+
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    opt := client.NewEndOptions()
+    opt.SetWaitRemoteRPCs("echo")
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
+    if err != nil {
+        log.Errorf("client dial err: %s", err)
+        return
+    }
+    rsp, err := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
+    if err != nil {
+        log.Errorf("end call err: %s", err)
+        return
+    }
+    if string(rsp.Data()) != "hello" {
+        log.Fatal("wrong echo", string(rsp.Data()))
+    }
+    log.Info("echo:", string(rsp.Data()))
+    end.Close()
+}
+```
+
+## 简单应用
 
 * 消息和确认 [messager](./examples/messager)
 * 简单消息队列  [mq](./examples/mq)
