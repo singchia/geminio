@@ -320,6 +320,92 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     log.Info("client echo:", string(req.Data()))
 }
 ```
+
+### 多路复用
+
+**服务端：**
+
+```golang
+package main
+
+import (
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    ln, err := server.Listen("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Errorf("server listen err: %s", err)
+        return
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Errorf("accept err: %s", err)
+            break
+        }
+        // stream #1, and it's also a net.Conn
+        sm1, err := end.OpenStream()
+        if err != nil {
+            log.Errorf("end open stream err: %s", err)
+            break
+        }
+        sm1.Write([]byte("hello#1"))
+        sm1.Close()
+
+        // stream #2 and it's also a net.Conn
+        sm2, err := end.OpenStream()
+        if err != nil {
+            log.Errorf("end open stream err: %s", err)
+            break
+        }
+        sm2.Write([]byte("hello#2"))
+        sm2.Close()
+    }
+}
+```
+
+**客户端：**
+
+```golang
+package main
+
+import (
+    "net"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Errorf("client dial err: %s", err)
+        return
+    }
+    // the end is also a net.Listener
+    ln := net.Listener(end)
+    for {
+        conn, err := ln.Accept()
+        if err != nil {
+            log.Errorf("end accept err: %s", err)
+            break
+        }
+        go func(conn net.Conn) {
+            buf := make([]byte, 128)
+            _, err := conn.Read(buf)
+            if err != nil {
+                return
+            }
+            log.Info("read:", string(buf))
+        }(conn)
+    }
+    end.Close()
+}
+```
+
 ## 示例
 
 * 消息和确认 [messager](./examples/messager)
