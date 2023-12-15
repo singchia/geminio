@@ -17,9 +17,9 @@ English | [简体中文](./README_cn.md)
 
 ## Introduction
 
-Geminio is a library that provides **application-layer** network programming, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm). It signifies two aspects: the peer-to-peer nature of client and server connections, and the lightweight nature of sessions under multiplexing. Just like the Doubling Charm, it's effortless to obtain another upperlayer connection from an underlayer connection. Integrating this library can significantly simplify the development of your network applications.
+Geminio is a library that provides **application-layer** network programming, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm).
 
-This library was created because there is a lack of libraries in the market with comprehensive capabilities such as bidirectional RPC, message acknowledgment, raw connection management, multiple sessions, and multiplexing. Often, when developing applications or middleware like message queues, instant messaging, long-connections gateway, intranet penetration, proxies, etc., we heavily rely on these abstractions. Therefore, I developed this network programming library to make upperlayer software development much easier.
+This library was created because there is a lack of libraries with comprehensive capabilities such as bidirectional RPC, message acknowledgment, raw connection management, multiple sessions, and multiplexing. But this network programming library can make those like network development much easier.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ This library was created because there is a lack of libraries in the market with
 
 ### Interfaces
 
-Most of the library's abstractions are defined in the `geminio.go` file. You can understand the library's design by starting from `End` and combining it with the architecture diagram above. Alternatively, you can jump to the usage section below and directly look at the examples.
+Most of the library's abstractions are defined in the `geminio.go` file. You can understand the library's concepts by starting from `End` and combining it with the architecture diagram above. Alternatively, you can jump to the usage section below and directly look at the examples.
 
 ```golang
 type RawRPCMessager interface {
