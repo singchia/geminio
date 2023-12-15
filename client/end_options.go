@@ -3,6 +3,7 @@ package client
 import (
 	"github.com/jumboframes/armorigo/log"
 
+	"github.com/singchia/geminio"
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
@@ -18,7 +19,8 @@ type EndOptions struct {
 	delegate      delegate.Delegate
 	ClientID      *uint64
 	Meta          []byte
-	Methods       []string
+	RemoteMethods []string
+	LocalMethods  []*geminio.MethodRPC
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -52,7 +54,11 @@ func (eo *EndOptions) SetMeta(meta []byte) {
 }
 
 func (eo *EndOptions) SetWaitRemoteRPCs(methods ...string) {
-	eo.Methods = methods
+	eo.RemoteMethods = methods
+}
+
+func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) {
+	eo.LocalMethods = methodRPCs
 }
 
 func NewEndOptions() *EndOptions {
@@ -84,8 +90,11 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		if opt.ClientID != nil {
 			eo.ClientID = opt.ClientID
 		}
-		if opt.Methods != nil {
-			eo.Methods = opt.Methods
+		if opt.RemoteMethods != nil {
+			eo.RemoteMethods = opt.RemoteMethods
+		}
+		if opt.LocalMethods != nil {
+			eo.LocalMethods = opt.LocalMethods
 		}
 	}
 	return eo

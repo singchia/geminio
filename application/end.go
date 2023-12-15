@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -28,7 +29,8 @@ type opts struct {
 	// delegate
 	dlgt delegate.Delegate
 	// methods
-	methods []string
+	remoteMethods []string
+	localMethods  []*geminio.MethodRPC
 }
 
 type EndOption func(*End)
@@ -62,9 +64,15 @@ func OptionDelegate(dlgt delegate.Delegate) EndOption {
 	}
 }
 
-func OptionWaitRemoteRPCs(methods []string) EndOption {
+func OptionWaitRemoteRPCs(methods ...string) EndOption {
 	return func(end *End) {
-		end.methods = methods
+		end.remoteMethods = methods
+	}
+}
+
+func OptionRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) EndOption {
+	return func(end *End) {
+		end.localMethods = methodRPCs
 	}
 }
 
@@ -114,14 +122,35 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	}
 	end.stream = newStream(end, cn, dg, end.opts)
 	end.streams.Store(dg.DialogueID(), end.stream)
+
+	// RPCs
+	// pre register local RPCs
+	if end.opts.localMethods != nil && len(end.opts.localMethods) != 0 {
+		for _, elem := range end.opts.localMethods {
+			err = end.Register(context.TODO(), elem.Method, elem.RPC)
+			if err != nil {
+				goto ERR
+			}
+		}
+	}
 	// wait for all remote RPCs registration
-	if end.opts.methods != nil && len(end.opts.methods) != 0 {
-		ifs := strings2interfaces(end.opts.methods...)
-		syncID := fmt.Sprintf(registrationFormat, cn.ClientID(), dg.DialogueID())
-		sync := end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
-		event := <-sync.C()
-		if event.Error != nil {
-			return nil, event.Error
+	if end.opts.remoteMethods != nil && len(end.opts.remoteMethods) != 0 {
+		// check whether remote RPCs have been registered
+		tocheckMethods := []string{}
+		for _, method := range end.opts.remoteMethods {
+			if !end.stream.hasRemoteRPC(method) {
+				tocheckMethods = append(tocheckMethods, method)
+			}
+		}
+		if len(tocheckMethods) != 0 {
+			ifs := strings2interfaces(tocheckMethods...)
+			syncID := fmt.Sprintf(registrationFormat, cn.ClientID(), dg.DialogueID())
+			sync := end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
+			event := <-sync.C()
+			if event.Error != nil {
+				err = event.Error
+				goto ERR
+			}
 		}
 	}
 	return end, nil

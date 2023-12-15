@@ -43,8 +43,11 @@ func MergeRetryEndOptions(opts ...*RetryEndOptions) *RetryEndOptions {
 		if opt.ClientID != nil {
 			eo.ClientID = opt.ClientID
 		}
-		if opt.Methods != nil {
-			eo.Methods = opt.Methods
+		if opt.RemoteMethods != nil {
+			eo.RemoteMethods = opt.RemoteMethods
+		}
+		if opt.LocalMethods != nil {
+			eo.LocalMethods = opt.LocalMethods
 		}
 	}
 	return eo

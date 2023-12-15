@@ -80,7 +80,7 @@ type End interface {
 
 ### 消息
 
-服务端：
+**服务端：**
 
 ```golang
 package main
@@ -118,7 +118,7 @@ func main() {
 }
 ```
 
-客户端：
+**客户端：**
 
 ```golang
 package main
@@ -148,7 +148,7 @@ func main() {
 
 ### RPC
 
-服务端：
+**服务端：**
 
 ```golang
 package main
@@ -189,7 +189,7 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 }
 ```
 
-客户端：
+**客户端：**
 
 ```golang
 package main
@@ -222,7 +222,105 @@ func main() {
 }
 ```
 
-## 简单应用
+### 双向RPC
+
+**服务端：**
+
+```golang
+package main
+
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    opt := server.NewEndOptions()
+    // the option means all End from server will wait for the rpc registration
+    opt.SetWaitRemoteRPCs("client-echo")
+    // pre-register server side method
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"server-echo", echo})
+
+    ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
+    if err != nil {
+        log.Errorf("server listen err: %s", err)
+        return
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Errorf("accept err: %s", err)
+            break
+        }
+        go func() {
+            // call client side method
+            rsp, err := end.Call(context.TODO(), "client-echo", end.NewRequest([]byte("foo")))
+            if err != nil {
+                log.Errorf("end call err: %s", err)
+                return
+            }
+            if string(rsp.Data()) != "foo" {
+                log.Fatal("wrong echo", string(rsp.Data()))
+            }
+            log.Info("client echo:", string(rsp.Data()))
+        }()
+    }
+}
+
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
+    rsp.SetData(req.Data())
+    log.Info("server echo:", string(req.Data()))
+}
+```
+
+**客户端：**
+
+```golang
+package main
+
+import (
+    "context"
+
+    "github.com/jumboframes/armorigo/log"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    opt := client.NewEndOptions()
+    // the option means all End from server will wait for the rpc registration
+    opt.SetWaitRemoteRPCs("server-echo")
+    // pre-register client side method
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"client-echo", echo})
+
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
+    if err != nil {
+        log.Errorf("client dial err: %s", err)
+        return
+    }
+    // call server side method
+    rsp, err := end.Call(context.TODO(), "server-echo", end.NewRequest([]byte("bar")))
+    if err != nil {
+        log.Errorf("end call err: %s", err)
+        return
+    }
+    if string(rsp.Data()) != "bar" {
+        log.Fatal("wrong echo", string(rsp.Data()))
+    }
+    log.Info("server echo:", string(rsp.Data()))
+    end.Close()
+}
+
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
+    rsp.SetData(req.Data())
+    log.Info("client echo:", string(req.Data()))
+}
+```
+## 示例
 
 * 消息和确认 [messager](./examples/messager)
 * 简单消息队列  [mq](./examples/mq)

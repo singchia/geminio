@@ -25,12 +25,26 @@ func (sm *stream) NewRequest(data []byte) geminio.Request {
 	return req
 }
 
+func (sm *stream) addLocalRPC(method string, rpc geminio.RPC) {
+	sm.rpcMtx.Lock()
+	defer sm.rpcMtx.Unlock()
+	sm.localRPCs[method] = rpc
+}
+
+func (sm *stream) delLocalRPC(method string) {
+	sm.rpcMtx.Lock()
+	defer sm.rpcMtx.Unlock()
+	delete(sm.localRPCs, method)
+}
+
+// Register will overwrite the old method if exists.
 func (sm *stream) Register(ctx context.Context, method string, rpc geminio.RPC) error {
 	sm.mtx.RLock()
 	if !sm.streamOK {
 		sm.mtx.RUnlock()
 		return io.EOF
 	}
+	sm.addLocalRPC(method, rpc)
 	pkt := sm.pf.NewRegisterPacketWithSessionID(sm.dg.DialogueID(), []byte(method))
 	sync := sm.shub.New(pkt.ID())
 	sm.writeInCh <- pkt
@@ -40,14 +54,13 @@ func (sm *stream) Register(ctx context.Context, method string, rpc geminio.RPC) 
 		if event.Error != nil {
 			sm.log.Debugf("register err: %s, clientID: %d, dialogueID: %d, packetID: %d",
 				event.Error, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID())
+			sm.delLocalRPC(method)
 			return event.Error
 		}
 	case <-ctx.Done():
+		sm.delLocalRPC(method)
 		return ctx.Err()
 	}
-	sm.rpcMtx.Lock()
-	defer sm.rpcMtx.Unlock()
-	sm.localRPCs[method] = rpc
 	return nil
 }
 
