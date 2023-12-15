@@ -35,6 +35,11 @@ type Response interface {
 	SetError(error)
 }
 
+type MethodRPC struct {
+	Method string
+	RPC    RPC
+}
+
 // rpc functions
 type RPC func(context.Context, Request, Response)
 

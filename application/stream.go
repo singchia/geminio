@@ -114,6 +114,14 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 	return sm
 }
 
+func (sm *stream) hasRemoteRPC(method string) bool {
+	sm.rpcMtx.RLock()
+	defer sm.rpcMtx.RUnlock()
+
+	_, ok := sm.remoteRPCs[method]
+	return ok
+}
+
 func (sm *stream) StreamID() uint64 {
 	return sm.dg.DialogueID()
 }

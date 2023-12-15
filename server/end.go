@@ -77,6 +77,8 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		application.OptionDelegate(eo.Delegate),
 		application.OptionLogger(eo.Log),
 		application.OptionTimer(eo.Timer),
+		application.OptionWaitRemoteRPCs(eo.RemoteMethods...),
+		application.OptionRegisterLocalRPCs(eo.LocalMethods...),
 	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {
