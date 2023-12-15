@@ -11,77 +11,78 @@
 ![Platform](https://img.shields.io/badge/platform-mac-brightgreen.svg)
 ![Platform](https://img.shields.io/badge/platform-windows-brightgreen.svg)
 
-English | [简体中文](./README_cn.md)
+[English](./README.md) | 简体中文
 
 </div>
 
-## Introduction
+## 介绍
 
-Geminio is a library that provides **application-layer** network programming, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm).
+Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](https://harrypotter.fandom.com/wiki/Doubling_Charm)，寓意有二，一是客户端和服务端连接的对等性，二是体现多路复用下会话的轻量性，如同复制魔法一样非常容易从一个连接上获取另一个抽象连接；集成这个库能让你的网络应用程序的事半功倍。
 
-This library was created because there is a lack of libraries with comprehensive capabilities such as bidirectional RPC, message acknowledgment, raw connection management, multiple sessions, and multiplexing. But this network programming library can make those like network development much easier.
+这个库的诞生是因为市面上缺少如双向RPC、消息收发确认、裸连接管理、多会话和多路复用等多综合能力的库，而常常我们在开发例如消息队列、即时通讯、接入层网关、内网穿透、代理等应用软件或中间件时都严重依赖这些抽象，故此我开发了这个网络程序库，以能够让上层软件开发十分轻松。
 
-## Architecture
+## 架构
 
 <img src="./docs/biz-arch.png" width="100%" height="100%">
 
-### Interfaces
+### 接口
 
-Most of the library's abstractions are defined in the `geminio.go` file. You can understand the library's concepts by starting from `End` and combining it with the architecture diagram above. Alternatively, you can jump to the usage section below and directly look at the examples.
+本库的所有抽象基本都在首页```geminio.go```里，从End开始结合上面架构图即可理解本库的设计，当然你也可以跳到下面的使用章节直接看示例。
 
 ```golang
 type RawRPCMessager interface {
-    // raw
-    Raw
-    // rpc
-    RPCer
-    // message
-    Messager
+	// raw
+	Raw
+	// rpc
+	RPCer
+	// message
+	Messager
 }
 
 type Stream interface {
-    // a stream is a geminio
-    RawRPCMessager
-    // meta info for a stream
-    StreamID() uint64
-    ClientID() uint64
-    Meta() []byte
+	// a stream is a geminio
+	RawRPCMessager
+	// meta info for a stream
+	StreamID() uint64
+	ClientID() uint64
+	Meta() []byte
 }
-    
+	
 // Stream multiplexer
 type Multiplexer interface {
-    OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
-    AcceptStream() (Stream, error)
-    ListStreams() []Stream
+	OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
+	AcceptStream() (Stream, error)
+	ListStreams() []Stream
 }
-    
+	
 type End interface {
-    // End is a default stream with streamID 1
-    // Close on default stream will close all from the End
-    Stream
-    // End is a stream multiplexer
-    Multiplexer
+	// End is a default stream with streamID 1
+	// Close on default stream will close all from the End
+	Stream
+	// End is a stream multiplexer
+	Multiplexer
 }
+
 ```
 
-## Features
+### 特性
 
-* Basic RPC (registration and invocation)
-* Bidirectional RPC (registration and invocation on both ends)
-* Message send and acknowledgment (message consistency guarantee)
-* Synchronous/Asynchronous messaging (waiting for return, asynchronous waiting)
-* Connection multiplexing (abstract countless TCP/UDP connections on a single connection)
-* Connection identification (unique ClientID and StreamID)
-* Support for abstracting net.Conn and net.Listener
-* High availability (RetryEnd's continuous reconnection mechanism)
-* Extensive testing (stress testing, chaos testing, runtime PProf analysis, etc.)
+* 基本RPC（注册和调用）
+* 双向RPC（双方注册和调用）
+* 消息收发确认（消息一致性保障）
+* 同步/异步消息（等待返回、异步等待）
+* 连接多路复用（单tcp/udp连接上抽象无数tcp/udp连接）
+* 连接标识（唯一ClientID和唯一StreamID）
+* 支持net.Conn和net.Listener抽象
+* 高可用（RetryEnd的持续重连机制）
+* 测试充分（压力测试、Chaos测试、运行时PProf分析等）
 * ...
 
-## Usage
+## 使用
 
-### Message
+### 消息
 
-**server:**
+**服务端：**
 
 ```golang
 package main
@@ -119,7 +120,7 @@ func main() {
 }
 ```
 
-**client:**
+**客户端：**
 
 ```golang
 package main
@@ -149,7 +150,7 @@ func main() {
 
 ### RPC
 
-**server:**
+**服务端：**
 
 ```golang
 package main
@@ -190,7 +191,7 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 }
 ```
 
-**client:**
+**客户端：**
 
 ```golang
 package main
@@ -223,9 +224,9 @@ func main() {
 }
 ```
 
-### Bidirectional RPC
+### 双向RPC
 
-**server:**
+**服务端：**
 
 ```golang
 package main
@@ -278,7 +279,7 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 }
 ```
 
-**clent:**
+**客户端：**
 
 ```golang
 package main
@@ -322,9 +323,9 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 }
 ```
 
-### Multiplexer
+### 多路复用
 
-**server:**
+**服务端：**
 
 ```golang
 package main
@@ -368,7 +369,7 @@ func main() {
 }
 ```
 
-**client:**
+**客户端：**
 
 ```golang
 package main
@@ -407,16 +408,15 @@ func main() {
 }
 ```
 
-## Examples
+## 示例
 
-* Message and Acknowledgment [messager](./examples/messager)
-* Message Queue [mq](./examples/mq)
-* Chatroom [chatroom](./examples/chatroom)
-* Relay [relay](./examples/relay)
-* Intranet Penetration [traversal](./examples/traversal)
+* 消息和确认 [messager](./examples/messager)
+* 简单消息队列  [mq](./examples/mq)
+* 聊天室  [chatroom](./examples/chatroom)
+* 中继器  [relay](./examples/relay)
+* 内网穿透 [traversal](./examples/traversal)
 
-
-## Test
+## 测试
 
 ### Benchmarks
 
@@ -432,24 +432,25 @@ BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     
 PASS
 ```
 
-## Design
+## 设计
 
-This library is implemented based on the following architecture
+本库按照以下架构实现
 
 <p align=center>
 <img src="./docs/implementation.png" width="70%" height="70%">
 </p>
 
-## Contributing
-If you find any bug, please submit the issue, and we will respond in a short time.
- 
-If you want to contribute new features or help solve project problems, please feel free to submit a PR:
- 
- * Maintain consistent code style
- * Submit one feature at a time
- * Include unit tests with the code you submit
+## 参与开发
 
-## License
+如果你发现任何Bug，请提出Issue，项目Maintainers会及时响应相关问题。
+ 
+ 如果你希望能够提交Feature，更快速解决项目问题，满足以下简单条件下欢迎提交PR：
+ 
+ * 代码风格保持一致
+ * 每次提交一个Feature
+ * 提交的代码都携带单元测试
+
+## 许可证
 
 © Austin Zhai, 2023-2030
 
