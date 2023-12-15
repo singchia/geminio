@@ -66,18 +66,20 @@ type End interface {
 
 ## Features
 
-* Basic RPC (registration and invocation)
-* Bidirectional RPC (registration and invocation on both ends)
-* Message send and acknowledgment (message consistency guarantee)
-* Synchronous/Asynchronous messaging (waiting for return, asynchronous waiting)
-* Connection multiplexing (abstract countless TCP/UDP connections on a single connection)
-* Connection identification (unique ClientID and StreamID)
-* Support for abstracting net.Conn and net.Listener
-* High availability (RetryEnd's continuous reconnection mechanism)
-* Extensive testing (stress testing, chaos testing, runtime PProf analysis, etc.)
+* **Basic RPC** (registration and invocation)
+* **Bidirectional RPC** (registration and invocation on both ends)
+* **Message send and acknowledgment** (message consistency guarantee)
+* **Synchronous/Asynchronous messaging** (waiting for return, asynchronous waiting)
+* **Connection multiplexing** (abstract countless TCP/UDP connections on a single connection)
+* **Connection identification** (unique ClientID and StreamID)
+* **Native net package compatibility** (support for abstracting net.Conn and net.Listener)
+* **High availability** (client's continuous reconnection mechanism)
+* **Extensive testing** (stress testing, chaos testing, runtime PProf analysis, etc.)
 * ...
 
 ## Usage
+
+All usage examples can be found [here](./examples/usage)
 
 ### Message
 
@@ -409,11 +411,11 @@ func main() {
 
 ## Examples
 
-* Message and Acknowledgment [messager](./examples/messager)
-* Message Queue [mq](./examples/mq)
-* Chatroom [chatroom](./examples/chatroom)
-* Relay [relay](./examples/relay)
-* Intranet Penetration [traversal](./examples/traversal)
+* **Message and Acknowledgment** [messager](./examples/messager)
+* **Message Queue** [mq](./examples/mq)
+* **Chatroom** [chatroom](./examples/chatroom)
+* **Relay** [relay](./examples/relay)
+* **Intranet Penetration** [traversal](./examples/traversal)
 
 
 ## Test
