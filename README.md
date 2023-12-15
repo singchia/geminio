@@ -79,6 +79,8 @@ type End interface {
 
 ## Usage
 
+All usage examples can be found [here](./examples/usage)
+
 ### Message
 
 **server:**
@@ -409,11 +411,11 @@ func main() {
 
 ## Examples
 
-* Message and Acknowledgment [messager](./examples/messager)
-* Message Queue [mq](./examples/mq)
-* Chatroom [chatroom](./examples/chatroom)
-* Relay [relay](./examples/relay)
-* Intranet Penetration [traversal](./examples/traversal)
+* **Message and Acknowledgment** [messager](./examples/messager)
+* **Message Queue** [mq](./examples/mq)
+* **Chatroom** [chatroom](./examples/chatroom)
+* **Relay** [relay](./examples/relay)
+* **Intranet Penetration** [traversal](./examples/traversal)
 
 
 ## Test
