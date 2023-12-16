@@ -439,7 +439,7 @@ PASS
 This library is implemented based on the following architecture
 
 <p align=center>
-<img src="./docs/design.png" width="100%" height="100%">
+<img src="./docs/design.png" width="80%" height="80%">
 </p>
 
 ## Contributing
