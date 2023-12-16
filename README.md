@@ -79,7 +79,7 @@ type End interface {
 
 ## Usage
 
-All usage examples can be found [here](./examples/usage)
+All usage examples can be found [here](./examples/usage).
 
 ### Message
 
@@ -439,11 +439,11 @@ PASS
 This library is implemented based on the following architecture
 
 <p align=center>
-<img src="./docs/implementation.png" width="70%" height="70%">
+<img src="./docs/design.png" width="80%" height="80%">
 </p>
 
 ## Contributing
-If you find any bug, please submit the issue, and we will respond in a short time.
+If you find any bugs, please submit the issue, we will respond in a short time.
  
 If you want to contribute new features or help solve project problems, please feel free to submit a PR:
  

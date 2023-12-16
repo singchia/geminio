@@ -437,7 +437,7 @@ PASS
 本库按照以下架构实现
 
 <p align=center>
-<img src="./docs/implementation.png" width="70%" height="70%">
+<img src="./docs/design.png" width="80%" height="80%">
 </p>
 
 ## 参与开发
