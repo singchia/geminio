@@ -13,13 +13,26 @@ const (
 type PublishOptions struct {
 	Timeout *time.Duration
 	Cnss    *Cnss
+	Topic   *string
+}
+
+func (opt *PublishOptions) SetTimeout(timeout time.Duration) {
+	opt.Timeout = &timeout
+}
+
+func (opt *PublishOptions) SetCnss(cnss Cnss) {
+	opt.Cnss = &cnss
+}
+
+func (opt *PublishOptions) SetTopic(topic string) {
+	opt.Topic = &topic
 }
 
 func Publish() *PublishOptions {
 	return &PublishOptions{}
 }
 
-func NewPublishOptions(opts ...*PublishOptions) *PublishOptions {
+func MergePublishOptions(opts ...*PublishOptions) *PublishOptions {
 	po := &PublishOptions{}
 	for _, opt := range opts {
 		if opt == nil {
@@ -33,4 +46,25 @@ func NewPublishOptions(opts ...*PublishOptions) *PublishOptions {
 		}
 	}
 	return po
+}
+
+type NewMessageOptions struct {
+	Custom []byte
+}
+
+func (opt *NewMessageOptions) SetCustom(data []byte) {
+	opt.Custom = data
+}
+
+func MergeNewMessageOptions(opts ...*NewMessageOptions) *NewMessageOptions {
+	no := &NewMessageOptions{}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if opt.Custom != nil {
+			no.Custom = opt.Custom
+		}
+	}
+	return no
 }

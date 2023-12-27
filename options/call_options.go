@@ -26,3 +26,24 @@ func MergeCallOptions(opts ...*CallOptions) *CallOptions {
 	}
 	return co
 }
+
+type NewRequestOptions struct {
+	Custom []byte
+}
+
+func (opt *NewRequestOptions) SetCustom(data []byte) {
+	opt.Custom = data
+}
+
+func MergeNewRequestOptions(opts ...*NewRequestOptions) *NewRequestOptions {
+	no := &NewRequestOptions{}
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if opt.Custom != nil {
+			no.Custom = opt.Custom
+		}
+	}
+	return no
+}
