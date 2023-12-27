@@ -280,9 +280,9 @@ func (re *RetryEnd) ListStreams() []geminio.Stream {
 }
 
 // RPCer
-func (re *RetryEnd) NewRequest(data []byte) geminio.Request {
+func (re *RetryEnd) NewRequest(data []byte, opts ...*options.NewRequestOptions) geminio.Request {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
-	return cur.NewRequest(data)
+	return cur.NewRequest(data, opts...)
 }
 
 func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request,
@@ -417,9 +417,9 @@ func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions
 }
 
 // Messager
-func (re *RetryEnd) NewMessage(data []byte) geminio.Message {
+func (re *RetryEnd) NewMessage(data []byte, opts ...*options.NewMessageOptions) geminio.Message {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
-	return cur.NewMessage(data)
+	return cur.NewMessage(data, opts...)
 }
 
 func (re *RetryEnd) Publish(ctx context.Context, msg geminio.Message,

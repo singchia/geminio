@@ -262,6 +262,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			data:     pkt.Data.Value,
 			id:       pkt.PacketID,
 			method:   method,
+			custom:   pkt.Data.Custom,
 			clientID: sm.cn.ClientID(),
 			streamID: sm.dg.DialogueID(),
 		},

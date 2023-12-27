@@ -11,14 +11,16 @@ import (
 )
 
 // geminio.Messager
-func (sm *stream) NewMessage(data []byte) geminio.Message {
+func (sm *stream) NewMessage(data []byte, opts ...*options.NewMessageOptions) geminio.Message {
 	id := sm.pf.NewPacketID()
+	opt := options.MergeNewMessageOptions()
 	msg := &message{
 		data:     data,
 		id:       id,
 		clientID: sm.cn.ClientID(),
 		streamID: sm.dg.DialogueID(),
 		sm:       sm,
+		custom:   opt.Custom,
 	}
 	return msg
 }
@@ -49,17 +51,33 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 		sm.mtx.RUnlock()
 		return io.EOF
 	}
+	// TODO optimize
+	opt := options.MergePublishOptions(opts...)
+	message, ok := msg.(*message)
+	if ok {
+		if opt.Cnss != nil {
+			message.cnss = *opt.Cnss
+		}
+		if opt.Timeout != nil {
+			message.timeout = *opt.Timeout
+		}
+		if opt.Topic != nil {
+			message.topic = *opt.Topic
+		}
+	}
 
 	pkt := sm.pf.NewMessagePacketWithIDAndSessionID(msg.ID(), sm.dg.DialogueID(), nil, msg.Data())
 	if msg.Timeout() != 0 {
 		pkt.Data.Deadline = time.Now().Add(msg.Timeout())
 	}
+	pkt.Data.Custom = msg.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		pkt.Data.Context.Deadline = deadline
 	}
 
-	if msg.Cnss() == options.CnssAtMostOnce {
+	if opt.Cnss != nil && *opt.Cnss == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
 		sm.mtx.RUnlock()
@@ -100,11 +118,29 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		sm.mtx.RUnlock()
 		return nil, io.EOF
 	}
+
+	// TODO optimize
+	opt := options.MergePublishOptions(opts...)
+	message, ok := msg.(*message)
+	if ok {
+		if opt.Cnss != nil {
+			message.cnss = *opt.Cnss
+		}
+		if opt.Timeout != nil {
+			message.timeout = *opt.Timeout
+		}
+		if opt.Topic != nil {
+			message.topic = *opt.Topic
+		}
+	}
+
 	now := time.Now()
 	pkt := sm.pf.NewMessagePacketWithIDAndSessionID(msg.ID(), sm.dg.DialogueID(), nil, msg.Data())
 	if msg.Timeout() != 0 {
 		pkt.Data.Deadline = now.Add(msg.Timeout())
 	}
+	pkt.Data.Custom = msg.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		pkt.Data.Context.Deadline = deadline
@@ -162,6 +198,7 @@ func (sm *stream) Receive(ctx context.Context) (geminio.Message, error) {
 			timeout:  pkt.Data.Timeout,
 			cnss:     options.Cnss(pkt.Cnss),
 			data:     pkt.Data.Value,
+			custom:   pkt.Data.Custom,
 			id:       pkt.PacketID,
 			clientID: sm.cn.ClientID(),
 			streamID: sm.dg.DialogueID(),

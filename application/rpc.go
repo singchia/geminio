@@ -13,14 +13,16 @@ import (
 )
 
 // geminio.RPCer
-func (sm *stream) NewRequest(data []byte) geminio.Request {
+func (sm *stream) NewRequest(data []byte, opts ...*options.NewRequestOptions) geminio.Request {
 	id := sm.pf.NewPacketID()
+	opt := options.MergeNewRequestOptions(opts...)
 	req := &request{
 		//RequestAttribute: &geminio.RequestAttribute{},
 		data:     data,
 		id:       id,
 		clientID: sm.cn.ClientID(),
 		streamID: sm.dg.DialogueID(),
+		custom:   opt.Custom,
 	}
 	return req
 }
@@ -93,6 +95,8 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 		// if timeout exists, we should deliver it
 		pkt.Data.Deadline = time.Now().Add(*co.Timeout)
 	}
+	pkt.Data.Custom = req.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		// if deadline exists, we should deliver it
@@ -157,6 +161,8 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 	if req.Timeout() != 0 {
 		pkt.Data.Deadline = time.Now().Add(req.Timeout())
 	}
+	pkt.Data.Custom = req.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		pkt.Data.Context.Deadline = deadline
