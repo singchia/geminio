@@ -134,6 +134,10 @@ func (sm *stream) Meta() []byte {
 	return sm.dg.Meta()
 }
 
+func (sm *stream) Peer() string {
+	return sm.dg.Peer()
+}
+
 func (sm *stream) Side() geminio.Side {
 	return geminio.Side(sm.dg.Side())
 }

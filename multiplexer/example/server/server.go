@@ -117,7 +117,7 @@ func main() {
 						log.Printf("client id: %d not found\n", clientID)
 						continue
 					}
-					sn, err := sm.(multiplexer.Multiplexer).OpenDialogue([]byte("austin zhai"))
+					sn, err := sm.(multiplexer.Multiplexer).OpenDialogue([]byte("austin zhai"), "")
 					if err != nil {
 						log.Printf("client id: %d open dialogue err: %s\n", clientID, err)
 						continue

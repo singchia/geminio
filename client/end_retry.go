@@ -645,3 +645,8 @@ func (re *RetryEnd) Side() geminio.Side {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
 	return cur.Side()
 }
+
+func (re *RetryEnd) Peer() string {
+	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
+	return cur.Peer()
+}

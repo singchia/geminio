@@ -13,14 +13,23 @@ import (
 // geminio.Messager
 func (sm *stream) NewMessage(data []byte, opts ...*options.NewMessageOptions) geminio.Message {
 	id := sm.pf.NewPacketID()
-	opt := options.MergeNewMessageOptions()
+
 	msg := &message{
 		data:     data,
 		id:       id,
 		clientID: sm.cn.ClientID(),
 		streamID: sm.dg.DialogueID(),
 		sm:       sm,
-		custom:   opt.Custom,
+	}
+	opt := options.MergeNewMessageOptions(opts...)
+	if opt.Custom != nil {
+		msg.custom = opt.Custom
+	}
+	if opt.Topic != nil {
+		msg.topic = *opt.Topic
+	}
+	if opt.Cnss != nil {
+		msg.cnss = *opt.Cnss
 	}
 	return msg
 }
@@ -53,17 +62,8 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 	}
 	// TODO optimize
 	opt := options.MergePublishOptions(opts...)
-	message, ok := msg.(*message)
-	if ok {
-		if opt.Cnss != nil {
-			message.cnss = *opt.Cnss
-		}
-		if opt.Timeout != nil {
-			message.timeout = *opt.Timeout
-		}
-		if opt.Topic != nil {
-			message.topic = *opt.Topic
-		}
+	if opt.Timeout != nil {
+		msg.SetTimeout(*opt.Timeout)
 	}
 
 	pkt := sm.pf.NewMessagePacketWithIDAndSessionID(msg.ID(), sm.dg.DialogueID(), nil, msg.Data())
@@ -77,7 +77,7 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 		pkt.Data.Context.Deadline = deadline
 	}
 
-	if opt.Cnss != nil && *opt.Cnss == options.CnssAtMostOnce {
+	if msg.Cnss() == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
 		sm.mtx.RUnlock()
@@ -121,17 +121,8 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 
 	// TODO optimize
 	opt := options.MergePublishOptions(opts...)
-	message, ok := msg.(*message)
-	if ok {
-		if opt.Cnss != nil {
-			message.cnss = *opt.Cnss
-		}
-		if opt.Timeout != nil {
-			message.timeout = *opt.Timeout
-		}
-		if opt.Topic != nil {
-			message.topic = *opt.Topic
-		}
+	if opt.Timeout != nil {
+		msg.SetTimeout(*opt.Timeout)
 	}
 
 	now := time.Now()

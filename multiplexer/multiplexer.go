@@ -17,7 +17,7 @@ var (
 
 // dialogue manager
 type Multiplexer interface {
-	OpenDialogue(meta []byte) (Dialogue, error)
+	OpenDialogue(meta []byte, peer string) (Dialogue, error)
 	AcceptDialogue() (Dialogue, error)
 	ClosedDialogue() (Dialogue, error)
 	// list
@@ -66,4 +66,5 @@ type Dialogue interface {
 	DialogueID() uint64
 	Meta() []byte
 	Side() geminio.Side
+	Peer() string
 }

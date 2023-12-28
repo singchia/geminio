@@ -35,6 +35,10 @@ func (opt *NewRequestOptions) SetCustom(data []byte) {
 	opt.Custom = data
 }
 
+func NewRequest() *NewRequestOptions {
+	return &NewRequestOptions{}
+}
+
 func MergeNewRequestOptions(opts ...*NewRequestOptions) *NewRequestOptions {
 	no := &NewRequestOptions{}
 	for _, opt := range opts {

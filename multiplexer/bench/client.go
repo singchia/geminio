@@ -50,7 +50,7 @@ func main() {
 		// handle multiplexer
 		handleAcceptClosedDialogue(sm)
 
-		sn, err := sm.OpenDialogue([]byte(strconv.Itoa(i)))
+		sn, err := sm.OpenDialogue([]byte(strconv.Itoa(i)), "")
 		if err != nil {
 			log.Println("open dialogue err:", err)
 			continue

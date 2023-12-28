@@ -52,6 +52,14 @@ func (req *request) Custom() []byte {
 	return req.custom
 }
 
+func (req *request) SetTimeout(timeout time.Duration) {
+	req.timeout = timeout
+}
+
+func (req *request) SetCustom(custom []byte) {
+	req.custom = custom
+}
+
 // response implements geminio.Response
 type response struct {
 	err    error
@@ -165,4 +173,16 @@ func (msg *message) Data() []byte {
 
 func (msg *message) Custom() []byte {
 	return msg.custom
+}
+
+func (msg *message) SetTimeout(timeout time.Duration) {
+	msg.timeout = timeout
+}
+
+func (msg *message) SetCustom(custom []byte) {
+	msg.custom = custom
+}
+
+func (msg *message) SetTopic(topic string) {
+	msg.topic = topic
 }

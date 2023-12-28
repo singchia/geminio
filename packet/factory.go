@@ -12,7 +12,7 @@ type PacketFactory interface {
 	NewHeartbeatPacket() *HeartbeatPacket
 	NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPacket
 	// session layer
-	NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket
+	NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte, peer string) *SessionPacket
 	NewSessionAckPacket(packetID uint64, negotiateID uint64, confirmedID uint64, err error) *SessionAckPacket
 	NewDismissPacket(sessionID uint64) *DismissPacket
 	NewDismissAckPacket(packetID uint64, sessionID uint64, err error) *DismissAckPacket
@@ -148,7 +148,7 @@ func (pf *packetFactory) NewHeartbeatAckPacket(packetID uint64) *HeartbeatAckPac
 }
 
 // session layer packets
-func (pf *packetFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte) *SessionPacket {
+func (pf *packetFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall bool, meta []byte, peer string) *SessionPacket {
 	packetID := pf.packetIDs.GetID()
 	snPkt := &SessionPacket{
 		PacketHeader: &PacketHeader{
@@ -163,6 +163,7 @@ func (pf *packetFactory) NewSessionPacket(negotiateID uint64, sessionIDPeersCall
 		negotiateID: negotiateID,
 		SessionData: &SessionData{
 			Meta: meta,
+			Peer: peer,
 		},
 	}
 	return snPkt

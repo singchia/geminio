@@ -21,6 +21,9 @@ type Request interface {
 	Data() []byte
 	// custom data
 	Custom() []byte
+
+	SetTimeout(timeout time.Duration)
+	SetCustom([]byte)
 }
 
 type Response interface {
@@ -75,6 +78,7 @@ type Message interface {
 	// to tell peer received or errored
 	Done() error
 	Error(err error) error
+
 	// those meta info shouldn't be changed
 	ID() uint64
 	StreamID() uint64
@@ -87,6 +91,11 @@ type Message interface {
 	Data() []byte
 	// custom data
 	Custom() []byte
+
+	// those Set operations must be accomplish before Publish
+	SetTimeout(timeout time.Duration)
+	SetCustom(data []byte)
+	SetTopic(topic string)
 }
 
 // for async Publish
@@ -130,6 +139,7 @@ type Stream interface {
 	ClientID() uint64
 	Meta() []byte
 	Side() Side
+	Peer() string
 }
 
 // Stream multiplexer

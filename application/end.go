@@ -165,7 +165,11 @@ func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
 	geminio.Stream, error) {
 
 	oo := options.MergeOpenStreamOptions(opts...)
-	dg, err := end.multiplexer.OpenDialogue(oo.Meta)
+	peer := ""
+	if oo.Peer != nil {
+		peer = *oo.Peer
+	}
+	dg, err := end.multiplexer.OpenDialogue(oo.Meta, peer)
 	if err != nil {
 		return nil, err
 	}
