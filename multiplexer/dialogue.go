@@ -44,6 +44,7 @@ type dialogue struct {
 	dlgt Delegate
 	// meta
 	meta []byte
+	peer string
 
 	// under layer
 	cn conn.Conn
@@ -107,6 +108,12 @@ func OptionDialogueDelegate(dlgt Delegate) DialogueOption {
 func OptionDialogueMeta(meta []byte) DialogueOption {
 	return func(dg *dialogue) {
 		dg.meta = meta
+	}
+}
+
+func OptionDialoguePeer(peer string) DialogueOption {
+	return func(dg *dialogue) {
+		dg.peer = peer
 	}
 }
 
@@ -179,6 +186,10 @@ func (dg *dialogue) DialogueID() uint64 {
 // TODO
 func (dg *dialogue) Side() geminio.Side {
 	return geminio.RecipientSide
+}
+
+func (dg *dialogue) Peer() string {
+	return dg.peer
 }
 
 func (dg *dialogue) Write(pkt packet.Packet) error {
@@ -258,7 +269,7 @@ func (dg *dialogue) open() error {
 		dg.cn.ClientID(), dg.dialogueID)
 
 	var pkt *packet.SessionPacket
-	pkt = dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta)
+	pkt = dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta, dg.peer)
 	// sync must set before the packet send down, in case of the ack coming first
 	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 

@@ -13,14 +13,16 @@ import (
 )
 
 // geminio.RPCer
-func (sm *stream) NewRequest(data []byte) geminio.Request {
+func (sm *stream) NewRequest(data []byte, opts ...*options.NewRequestOptions) geminio.Request {
 	id := sm.pf.NewPacketID()
+	opt := options.MergeNewRequestOptions(opts...)
 	req := &request{
 		//RequestAttribute: &geminio.RequestAttribute{},
 		data:     data,
 		id:       id,
 		clientID: sm.cn.ClientID(),
 		streamID: sm.dg.DialogueID(),
+		custom:   opt.Custom,
 	}
 	return req
 }
@@ -71,7 +73,10 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 	if req.StreamID() != sm.dg.DialogueID() {
 		return nil, ErrMismatchStreamID
 	}
-	co := options.MergeCallOptions(opts...)
+	opt := options.MergeCallOptions(opts...)
+	if opt.Timeout != nil {
+		req.SetTimeout(*opt.Timeout)
+	}
 
 	sm.mtx.RLock()
 	if !sm.streamOK {
@@ -89,10 +94,12 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 	sm.rpcMtx.RUnlock()
 	// transfer to underlayer packet
 	pkt := sm.pf.NewRequestPacketWithIDAndSessionID(req.ID(), sm.dg.DialogueID(), []byte(method), req.Data())
-	if co.Timeout != nil {
+	if req.Timeout() != 0 {
 		// if timeout exists, we should deliver it
-		pkt.Data.Deadline = time.Now().Add(*co.Timeout)
+		pkt.Data.Deadline = time.Now().Add(req.Timeout())
 	}
+	pkt.Data.Custom = req.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		// if deadline exists, we should deliver it
@@ -100,9 +107,9 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 	}
 	var sync synchub.Sync
 	syncOpts := []synchub.SyncOption{}
-	if co.Timeout != nil {
+	if req.Timeout() != 0 {
 		// the sync may has timeout
-		syncOpts = append(syncOpts, synchub.WithTimeout(*co.Timeout))
+		syncOpts = append(syncOpts, synchub.WithTimeout(req.Timeout()))
 	}
 	sync = sm.shub.New(req.ID(), syncOpts...)
 	sm.writeInCh <- pkt
@@ -157,6 +164,8 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 	if req.Timeout() != 0 {
 		pkt.Data.Deadline = time.Now().Add(req.Timeout())
 	}
+	pkt.Data.Custom = req.Custom()
+
 	deadline, ok := ctx.Deadline()
 	if ok {
 		pkt.Data.Context.Deadline = deadline

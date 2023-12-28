@@ -19,6 +19,11 @@ type Request interface {
 
 	// application data
 	Data() []byte
+	// custom data
+	Custom() []byte
+
+	SetTimeout(timeout time.Duration)
+	SetCustom([]byte)
 }
 
 type Response interface {
@@ -30,9 +35,13 @@ type Response interface {
 
 	// application data
 	Data() []byte
-	SetData([]byte)
 	Error() error
+	// custom data
+	Custom() []byte
+
+	SetData([]byte)
 	SetError(error)
+	SetCustom([]byte)
 }
 
 type MethodRPC struct {
@@ -56,7 +65,7 @@ type Call struct {
 }
 
 type RPCer interface {
-	NewRequest(data []byte) Request
+	NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
 
 	Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
 	CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
@@ -69,15 +78,24 @@ type Message interface {
 	// to tell peer received or errored
 	Done() error
 	Error(err error) error
+
 	// those meta info shouldn't be changed
 	ID() uint64
 	StreamID() uint64
 	ClientID() uint64
 	Timeout() time.Duration
+	Topic() string // empty if not set
 	// consistency protocol
 	Cnss() options.Cnss
 	// application data
 	Data() []byte
+	// custom data
+	Custom() []byte
+
+	// those Set operations must be accomplish before Publish
+	SetTimeout(timeout time.Duration)
+	SetCustom(data []byte)
+	SetTopic(topic string)
 }
 
 // for async Publish
@@ -88,7 +106,7 @@ type Publish struct {
 }
 
 type Messager interface {
-	NewMessage(data []byte) Message
+	NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
 
 	Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
 	PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
@@ -121,6 +139,7 @@ type Stream interface {
 	ClientID() uint64
 	Meta() []byte
 	Side() Side
+	Peer() string
 }
 
 // Stream multiplexer

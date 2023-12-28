@@ -75,7 +75,7 @@ func main() {
 				goto END
 			}
 			if parts[0] == "open" {
-				sn, err := sm.OpenDialogue([]byte("auztin zhai"))
+				sn, err := sm.OpenDialogue([]byte("auztin zhai"), "")
 				if err != nil {
 					log.Println("open session err:", err)
 					continue

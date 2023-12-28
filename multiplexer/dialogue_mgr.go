@@ -68,8 +68,8 @@ func OptionMultiplexerAcceptDialogue() MultiplexerOption {
 
 func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	return func(opts *multiplexerOpts) {
-		opts.dialogueAcceptCh = make(chan *dialogue, 128)
-		opts.dialogueAcceptChOutside = false
+		opts.dialogueClosedCh = make(chan *dialogue, 128)
+		opts.dialogueClosedChOutside = false
 	}
 }
 
@@ -137,7 +137,8 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 		OptionDialogueState(SESSIONED),
 		OptionDialogueDelegate(dm),
 		OptionDialogueLogger(dm.log),
-		OptionDialoguePacketFactory(dm.pf))
+		OptionDialoguePacketFactory(dm.pf),
+		OptionDialogueMeta(cn.Meta()))
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d, dialogueID: %d",
 			err, cn.ClientID(), packet.SessionID1)
@@ -175,7 +176,10 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	}
 	if dm.dialogueAcceptCh != nil {
 		// this must not be blocked, or else the whole system will stop
-		dm.dialogueAcceptCh <- dg.(*dialogue)
+		select {
+		case dm.dialogueAcceptCh <- dg.(*dialogue):
+		default:
+		}
 	}
 	return nil
 }
@@ -193,6 +197,13 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 		}
 		return nil
 	}
+	if dm.dialogueClosedCh != nil {
+		// this must not be blocked, or else the whole system will stop
+		select {
+		case dm.dialogueClosedCh <- dg.(*dialogue):
+		default:
+		}
+	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound
 }
@@ -205,7 +216,7 @@ func (dm *dialogueMgr) getID() uint64 {
 }
 
 // OpenDialogue blocks until succeed or failed
-func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
+func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) {
 	dm.mtx.RLock()
 	if !dm.mgrOK {
 		dm.mtx.RUnlock()
@@ -219,7 +230,9 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte) (Dialogue, error) {
 		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 		OptionDialogueDelegate(dm),
 		OptionDialogueLogger(dm.log),
-		OptionDialoguePacketFactory(dm.pf))
+		OptionDialoguePacketFactory(dm.pf),
+		OptionDialogueMeta(meta),
+		OptionDialoguePeer(peer))
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d", err, dm.cn.ClientID())
 		return nil, err
@@ -325,7 +338,9 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 			OptionDialogueDelegate(dm),
 			OptionDialogueLogger(dm.log),
-			OptionDialoguePacketFactory(dm.pf))
+			OptionDialoguePacketFactory(dm.pf),
+			OptionDialogueMeta(realPkt.SessionData.Meta),
+			OptionDialoguePeer(realPkt.SessionData.Peer))
 		if err != nil {
 			dm.log.Errorf("new dialogue err: %s, clientID: %d", err, dm.cn.ClientID())
 			return

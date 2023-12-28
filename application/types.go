@@ -11,6 +11,7 @@ import (
 type request struct {
 	method   string
 	data     []byte
+	custom   []byte
 	id       uint64
 	clientID uint64
 	streamID uint64
@@ -47,12 +48,24 @@ func (req *request) Data() []byte {
 	return req.data
 }
 
+func (req *request) Custom() []byte {
+	return req.custom
+}
+
+func (req *request) SetTimeout(timeout time.Duration) {
+	req.timeout = timeout
+}
+
+func (req *request) SetCustom(custom []byte) {
+	req.custom = custom
+}
+
 // response implements geminio.Response
 type response struct {
 	err    error
-	data   []byte
 	method string
-	//custom []byte
+	data   []byte
+	custom []byte
 	// response share id with requestID, distinguish by packet type
 	requestID uint64
 	clientID  uint64
@@ -87,19 +100,28 @@ func (rsp *response) Data() []byte {
 	return rsp.data
 }
 
+func (rsp *response) Custom() []byte {
+	return rsp.custom
+}
+
 // Set Data to response, set it in RPC.
 func (rsp *response) SetData(data []byte) {
 	rsp.data = data
 }
 
+func (rsp *response) SetCustom(data []byte) {
+	rsp.custom = data
+}
+
 type message struct {
-	err  error
-	data []byte
-	//custom []byte
+	err    error
+	data   []byte
+	custom []byte
 	// ids
 	id       uint64
 	clientID uint64
 	streamID uint64
+	topic    string
 	// meta
 	timeout time.Duration
 	cnss    options.Cnss
@@ -141,6 +163,26 @@ func (msg *message) Timeout() time.Duration {
 	return msg.timeout
 }
 
+func (msg *message) Topic() string {
+	return msg.topic
+}
+
 func (msg *message) Data() []byte {
 	return msg.data
+}
+
+func (msg *message) Custom() []byte {
+	return msg.custom
+}
+
+func (msg *message) SetTimeout(timeout time.Duration) {
+	msg.timeout = timeout
+}
+
+func (msg *message) SetCustom(custom []byte) {
+	msg.custom = custom
+}
+
+func (msg *message) SetTopic(topic string) {
+	msg.topic = topic
 }

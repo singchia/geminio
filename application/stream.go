@@ -134,6 +134,10 @@ func (sm *stream) Meta() []byte {
 	return sm.dg.Meta()
 }
 
+func (sm *stream) Peer() string {
+	return sm.dg.Peer()
+}
+
 func (sm *stream) Side() geminio.Side {
 	return geminio.Side(sm.dg.Side())
 }
@@ -262,6 +266,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			data:     pkt.Data.Value,
 			id:       pkt.PacketID,
 			method:   method,
+			custom:   pkt.Data.Custom,
 			clientID: sm.cn.ClientID(),
 			streamID: sm.dg.DialogueID(),
 		},
