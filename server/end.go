@@ -36,8 +36,10 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		cn     conn.Conn
 		cnOpts []conn.ServerConnOption
 		// multiplexer
-		mp     multiplexer.Multiplexer
-		mpOpts []multiplexer.MultiplexerOption
+		mp       multiplexer.Multiplexer
+		mpOpts   []multiplexer.MultiplexerOption
+		acceptfn func(multiplexer.Dialogue)
+		closedfn func(multiplexer.Dialogue)
 		// application
 		ep     geminio.End
 		epOpts []application.EndOption
@@ -58,14 +60,31 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	if err != nil {
 		goto ERR
 	}
+	// multiplexer and application
+	if eo.AcceptStreamFunc != nil {
+		acceptfn = func(dg multiplexer.Dialogue) {
+			ep.(*application.End).AcceptDialogue(dg)
+		}
+	}
+	if eo.ClosedStreamFunc != nil {
+		closedfn = func(dg multiplexer.Dialogue) {
+			ep.(*application.End).ClosedDialogue(dg)
+		}
+	}
 	// multiplexer
 	mpOpts = []multiplexer.MultiplexerOption{
 		multiplexer.OptionPacketFactory(eo.PacketFactory),
 		multiplexer.OptionDelegate(eo.Delegate),
 		multiplexer.OptionLogger(eo.Log),
 		multiplexer.OptionTimer(eo.Timer),
-		multiplexer.OptionMultiplexerAcceptDialogue(),
-		multiplexer.OptionMultiplexerClosedDialogue(),
+	}
+	if eo.AcceptStreamFunc != nil {
+		mpOpts = append(mpOpts, multiplexer.OptionMultiplexerAcceptFunc(acceptfn))
+	} else {
+		mpOpts = append(mpOpts, multiplexer.OptionMultiplexerAcceptDialogue())
+	}
+	if eo.ClosedStreamFunc != nil {
+		mpOpts = append(mpOpts, multiplexer.OptionMultiplexerClosedFunc(closedfn))
 	}
 	mp, err = multiplexer.NewDialogueMgr(cn, mpOpts...)
 	if err != nil {
@@ -79,6 +98,12 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		application.OptionTimer(eo.Timer),
 		application.OptionWaitRemoteRPCs(eo.RemoteMethods...),
 		application.OptionRegisterLocalRPCs(eo.LocalMethods...),
+	}
+	if eo.AcceptStreamFunc != nil {
+		epOpts = append(epOpts, application.OptionAcceptStreamFunc(eo.AcceptStreamFunc))
+	}
+	if eo.ClosedStreamFunc != nil {
+		epOpts = append(epOpts, application.OptionClosedStreamFunc(eo.ClosedStreamFunc))
 	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {

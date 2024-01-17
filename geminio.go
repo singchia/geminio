@@ -160,4 +160,6 @@ type End interface {
 	// Accept is a wrapper for AcceptStream
 	// Addr is a wrapper for LocalAddr
 	net.Listener
+
+	Close() error
 }
