@@ -31,6 +31,9 @@ type opts struct {
 	// methods
 	remoteMethods []string
 	localMethods  []*geminio.MethodRPC
+	// callback funcs
+	acceptStreamFunc func(geminio.Stream)
+	closedStreamFunc func(geminio.Stream)
 }
 
 type EndOption func(*End)
@@ -73,6 +76,18 @@ func OptionWaitRemoteRPCs(methods ...string) EndOption {
 func OptionRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) EndOption {
 	return func(end *End) {
 		end.localMethods = methodRPCs
+	}
+}
+
+func OptionAcceptStreamFunc(fn func(geminio.Stream)) EndOption {
+	return func(end *End) {
+		end.acceptStreamFunc = fn
+	}
+}
+
+func OptionClosedStreamFunc(fn func(geminio.Stream)) EndOption {
+	return func(end *End) {
+		end.closedStreamFunc = fn
 	}
 }
 
@@ -227,4 +242,23 @@ func (end *End) fini() {
 	}
 	end.tmr = nil
 	end.log.Debugf("end finished, clientID: %d", end.cn.ClientID())
+}
+
+// For multiplexer's call, to notify application layer in this way
+// TODO optimize
+func (end *End) AcceptDialogue(dg multiplexer.Dialogue) {
+	sm := newStream(end, end.cn, dg, end.opts)
+	end.streams.Store(sm.StreamID(), sm)
+	if sm.acceptStreamFunc != nil {
+		sm.acceptStreamFunc(sm)
+	}
+}
+
+// For multiplexer's call, to notify application layer in this way
+// TODO optimize
+func (end *End) ClosedDialogue(dg multiplexer.Dialogue) {
+	sm, ok := end.streams.Load(dg.DialogueID())
+	if ok && end.closedStreamFunc != nil {
+		end.closedStreamFunc(sm.(*stream))
+	}
 }

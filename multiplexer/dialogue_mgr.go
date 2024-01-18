@@ -34,8 +34,12 @@ type multiplexerOpts struct {
 	dialogueAcceptCh        chan *dialogue
 	dialogueAcceptChOutside bool
 
+	dialogueAcceptFn func(Dialogue)
+
 	dialogueClosedCh        chan *dialogue
 	dialogueClosedChOutside bool
+
+	dialogueClosedFn func(Dialogue)
 }
 
 type dialogueMgr struct {
@@ -70,6 +74,19 @@ func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	return func(opts *multiplexerOpts) {
 		opts.dialogueClosedCh = make(chan *dialogue, 128)
 		opts.dialogueClosedChOutside = false
+	}
+}
+
+// the function is prior to OptionMultiplexerAcceptDialogue
+func OptionMultiplexerAcceptFunc(fn func(Dialogue)) MultiplexerOption {
+	return func(opts *multiplexerOpts) {
+		opts.dialogueAcceptFn = fn
+	}
+}
+
+func OptionMultiplexerClosedFunc(fn func(Dialogue)) MultiplexerOption {
+	return func(opts *multiplexerOpts) {
+		opts.dialogueClosedFn = fn
 	}
 }
 
@@ -174,12 +191,13 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	if dm.dlgt != nil {
 		dm.dlgt.DialogueOnline(dg)
 	}
-	if dm.dialogueAcceptCh != nil {
+	// notify outside that a dialogue is accepting
+	if dm.dialogueAcceptFn != nil {
+		dm.dialogueAcceptFn(dg.(Dialogue))
+
+	} else if dm.dialogueAcceptCh != nil {
 		// this must not be blocked, or else the whole system will stop
-		select {
-		case dm.dialogueAcceptCh <- dg.(*dialogue):
-		default:
-		}
+		dm.dialogueAcceptCh <- dg.(*dialogue)
 	}
 	return nil
 }
@@ -197,12 +215,14 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 		}
 		return nil
 	}
-	if dm.dialogueClosedCh != nil {
+	// notify outside that a dialogue is closed
+	if dm.dialogueClosedFn != nil {
+		dm.dialogueClosedFn(dg.(Dialogue))
+
+	} else if dm.dialogueClosedCh != nil {
 		// this must not be blocked, or else the whole system will stop
-		select {
-		case dm.dialogueClosedCh <- dg.(*dialogue):
-		default:
-		}
+		dm.dialogueClosedCh <- dg.(*dialogue)
+
 	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound

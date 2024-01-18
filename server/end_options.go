@@ -18,6 +18,9 @@ type EndOptions struct {
 	ClientID      *uint64
 	RemoteMethods []string
 	LocalMethods  []*geminio.MethodRPC
+	// If set AcceptStreamFunc, the AcceptStream should never be called
+	AcceptStreamFunc func(geminio.Stream)
+	ClosedStreamFunc func(geminio.Stream)
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -47,6 +50,14 @@ func (eo *EndOptions) SetWaitRemoteRPCs(methods ...string) {
 
 func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) {
 	eo.LocalMethods = methodRPCs
+}
+
+func (eo *EndOptions) SetAcceptStreamFunc(fn func(geminio.Stream)) {
+	eo.AcceptStreamFunc = fn
+}
+
+func (eo *EndOptions) SetClosedStreamFunc(fn func(geminio.Stream)) {
+	eo.ClosedStreamFunc = fn
 }
 
 func NewEndOptions() *EndOptions {
@@ -80,6 +91,12 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 		if opt.LocalMethods != nil {
 			eo.LocalMethods = opt.LocalMethods
+		}
+		if opt.AcceptStreamFunc != nil {
+			eo.AcceptStreamFunc = opt.AcceptStreamFunc
+		}
+		if opt.ClosedStreamFunc != nil {
+			eo.ClosedStreamFunc = opt.ClosedStreamFunc
 		}
 	}
 	return eo
