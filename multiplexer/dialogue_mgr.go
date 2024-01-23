@@ -213,11 +213,10 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 		if dm.dlgt != nil {
 			dm.dlgt.DialogueOffline(dg)
 		}
-		return nil
 	}
 	// notify outside that a dialogue is closed
 	if dm.dialogueClosedFn != nil {
-		dm.dialogueClosedFn(dg.(Dialogue))
+		dm.dialogueClosedFn(dg.(*dialogue))
 
 	} else if dm.dialogueClosedCh != nil {
 		// this must not be blocked, or else the whole system will stop
@@ -460,7 +459,7 @@ func (dm *dialogueMgr) fini() {
 	for id, dg := range dm.negotiatingDialogues {
 		// cause the dialogue io err
 		dg.closeIO()
-		delete(dm.dialogues, id)
+		delete(dm.negotiatingDialogues, id)
 	}
 
 	// collect id

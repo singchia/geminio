@@ -211,7 +211,7 @@ func (cc *ClientConn) handlePkt() {
 				goto FINI
 			}
 			if ret == iodefine.IOClosed {
-				cc.log.Infof("handle in packet done, clientID: %d", cc.clientID)
+				cc.log.Debugf("handle in packet done, clientID: %d", cc.clientID)
 				goto FINI
 			}
 		case pkt := <-writeInCh:
@@ -221,7 +221,7 @@ func (cc *ClientConn) handlePkt() {
 				goto FINI
 			}
 			if ret == iodefine.IOClosed {
-				cc.log.Infof("handle out packet done, clientID: %d", cc.clientID)
+				cc.log.Debugf("handle out packet done, clientID: %d", cc.clientID)
 				goto FINI
 			}
 		}
