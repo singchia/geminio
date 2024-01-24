@@ -6,7 +6,7 @@ require (
 	github.com/golang/mock v1.6.0
 	github.com/jumboframes/armorigo v0.2.5
 	github.com/singchia/go-timer/v2 v2.2.1
-	github.com/singchia/go-xtables v1.0.0
+	github.com/singchia/go-xtables v1.0.1
 	github.com/singchia/yafsm v1.0.1
 )
 

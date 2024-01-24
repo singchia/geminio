@@ -3,7 +3,6 @@
 *.o
 *.a
 *.so
-go.sum
 
 # Folders
 _obj
