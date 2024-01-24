@@ -35,7 +35,6 @@ type RPCer interface {
 	Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
 	CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
 	Register(ctx context.Context, method string, rpc RPC) error
-    //...
 }
 
 type Messager interface {
