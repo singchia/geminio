@@ -31,18 +31,18 @@ Most of the library's abstractions are defined in the `geminio.go` file. You can
 
 ```golang
 type RPCer interface {
-	NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
-	Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
-	CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
-	Register(ctx context.Context, method string, rpc RPC) error
+    NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
+    Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
+    CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
+    Register(ctx context.Context, method string, rpc RPC) error
 }
 
 type Messager interface {
-	NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
+    NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
     
-	Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
-	PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
-	Receive(ctx context.Context) (Message, error)
+    Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
+    PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
+    Receive(ctx context.Context) (Message, error)
 }
 
 type Raw net.Conn
