@@ -30,39 +30,56 @@ Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](ht
 本库的所有抽象基本都在首页```geminio.go```里，从End开始结合上面架构图即可理解本库的设计，当然你也可以跳到下面的使用章节直接看示例。
 
 ```golang
+type RPCer interface {
+    NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
+    Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
+    CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
+    Register(ctx context.Context, method string, rpc RPC) error
+}
+
+type Messager interface {
+    NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
+    
+    Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
+    PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
+    Receive(ctx context.Context) (Message, error)
+}
+
+type Raw net.Conn
+
 type RawRPCMessager interface {
-	// raw
-	Raw
-	// rpc
-	RPCer
-	// message
-	Messager
+    // raw
+    Raw
+    // rpc
+    RPCer
+    // message
+    Messager
 }
 
 type Stream interface {
-	// a stream is a geminio
-	RawRPCMessager
-	// meta info for a stream
-	StreamID() uint64
-	ClientID() uint64
-	Meta() []byte
+    // a stream is a geminio
+    RawRPCMessager
+    // meta info for a stream
+    StreamID() uint64
+    ClientID() uint64
+    Meta() []byte
 }
-	
+    
 // Stream multiplexer
 type Multiplexer interface {
-	OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
-	AcceptStream() (Stream, error)
-	ListStreams() []Stream
+    OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
+    AcceptStream() (Stream, error)
+    ListStreams() []Stream
 }
-	
+    
 type End interface {
-	// End is a default stream with streamID 1
-	// Close on default stream will close all from the End
-	Stream
-	// End is a stream multiplexer
-	Multiplexer
+    // End is the entry for everything, and it's also a default stream with streamID 1
+    Stream
+    // End is a stream multiplexer
+    Multiplexer
+    // Close will close all from the End
+    Close()
 }
-
 ```
 
 ### 特性

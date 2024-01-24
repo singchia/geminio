@@ -30,6 +30,23 @@ This library can make network development much easier with comprehensive capabil
 Most of the library's abstractions are defined in the `geminio.go` file. You can understand the library's concepts by starting from `End` and combining it with the architecture diagram above. Alternatively, you can jump to the usage section below and directly look at the examples.
 
 ```golang
+type RPCer interface {
+    NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
+    Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
+    CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
+    Register(ctx context.Context, method string, rpc RPC) error
+}
+
+type Messager interface {
+    NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
+    
+    Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
+    PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
+    Receive(ctx context.Context) (Message, error)
+}
+
+type Raw net.Conn
+
 type RawRPCMessager interface {
     // raw
     Raw
@@ -56,11 +73,12 @@ type Multiplexer interface {
 }
     
 type End interface {
-    // End is a default stream with streamID 1
-    // Close on default stream will close all from the End
+    // End is the entry for everything, and it's also a default stream with streamID 1
     Stream
     // End is a stream multiplexer
     Multiplexer
+    // Close will close all from the End
+    Close()
 }
 ```
 
