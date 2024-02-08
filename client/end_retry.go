@@ -173,14 +173,6 @@ func (re *RetryEnd) ConnOffline(conn delegate.ConnDescriber) error {
 	return nil
 }
 
-func (re *RetryEnd) Heartbeat(conn delegate.ConnDescriber) error {
-	delegate := re.opts.delegate
-	if delegate != nil {
-		return delegate.Heartbeat(conn)
-	}
-	return nil
-}
-
 func (re *RetryEnd) DialogueOnline(dialogue delegate.DialogueDescriber) error {
 	delegate := re.opts.delegate
 	if delegate != nil {

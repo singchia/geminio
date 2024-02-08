@@ -304,7 +304,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	rpc, ok := sm.localRPCs[method]
 	sm.rpcMtx.RUnlock()
 	if ok {
-		wrapperRPC := func(_ string, ctx context.Context, req geminio.Request, rsp geminio.Response) {
+		wrapperRPC := func(ctx context.Context, _ string, req geminio.Request, rsp geminio.Response) {
 			rpc(ctx, req, rsp)
 		}
 		// do RPC and cancel the context
@@ -473,7 +473,7 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 // doRPC provide generic rpc call
 func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, ctx context.Context, req *request, rsp *response, async bool) {
 	prog := func() {
-		rpc(method, ctx, req, rsp)
+		rpc(ctx, method, req, rsp)
 		// once the rpc complete, we should cancel the context
 		sm.rpcMtx.Lock()
 		cancel, ok := sm.rpcCancels[pkt.ID()]
