@@ -15,8 +15,8 @@ type EndOptions struct {
 	TimerOwner    interface{}
 	PacketFactory packet.PacketFactory
 	Log           log.Logger
-	Delegate      delegate.Delegate
-	delegate      delegate.Delegate
+	Delegate      delegate.ClientDelegate
+	delegate      delegate.ClientDelegate
 	ClientID      *uint64
 	Meta          []byte
 	RemoteMethods []string
@@ -41,7 +41,7 @@ func (eo *EndOptions) SetLog(log log.Logger) {
 	eo.Log = log
 }
 
-func (eo *EndOptions) SetDelegate(delegate delegate.Delegate) {
+func (eo *EndOptions) SetDelegate(delegate delegate.ClientDelegate) {
 	eo.Delegate = delegate
 }
 

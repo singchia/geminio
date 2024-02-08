@@ -60,6 +60,14 @@ func (req *request) SetCustom(custom []byte) {
 	req.custom = custom
 }
 
+func (req *request) SetClientID(clientID uint64) {
+	req.clientID = clientID
+}
+
+func (req *request) SetStreamID(streamID uint64) {
+	req.streamID = streamID
+}
+
 // response implements geminio.Response
 type response struct {
 	err    error
@@ -111,6 +119,14 @@ func (rsp *response) SetData(data []byte) {
 
 func (rsp *response) SetCustom(data []byte) {
 	rsp.custom = data
+}
+
+func (rsp *response) SetClientID(clientID uint64) {
+	rsp.clientID = clientID
+}
+
+func (rsp *response) SetStreamID(streamID uint64) {
+	rsp.streamID = streamID
 }
 
 type message struct {
@@ -185,4 +201,12 @@ func (msg *message) SetCustom(custom []byte) {
 
 func (msg *message) SetTopic(topic string) {
 	msg.topic = topic
+}
+
+func (msg *message) SetClientID(clientID uint64) {
+	msg.clientID = clientID
+}
+
+func (msg *message) SetStreamID(streamID uint64) {
+	msg.streamID = streamID
 }

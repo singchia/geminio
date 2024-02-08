@@ -27,7 +27,7 @@ type opts struct {
 	tmr      timer.Timer
 	tmrOwner interface{}
 	// delegate
-	dlgt delegate.Delegate
+	dlgt delegate.ApplicationDelegate
 	// methods
 	remoteMethods []string
 	localMethods  []*geminio.MethodRPC
@@ -61,7 +61,7 @@ func OptionTimer(tmr timer.Timer) EndOption {
 }
 
 // OptionDelegate sets delegate for End and Streams from the End
-func OptionDelegate(dlgt delegate.Delegate) EndOption {
+func OptionDelegate(dlgt delegate.ApplicationDelegate) EndOption {
 	return func(end *End) {
 		end.dlgt = dlgt
 	}

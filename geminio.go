@@ -24,6 +24,8 @@ type Request interface {
 
 	SetTimeout(timeout time.Duration)
 	SetCustom([]byte)
+	SetClientID(clientID uint64)
+	SetStreamID(streamID uint64)
 }
 
 type Response interface {
@@ -42,6 +44,8 @@ type Response interface {
 	SetData([]byte)
 	SetError(error)
 	SetCustom([]byte)
+	SetClientID(clientID uint64)
+	SetStreamID(streamID uint64)
 }
 
 type MethodRPC struct {
@@ -53,7 +57,7 @@ type MethodRPC struct {
 type RPC func(context.Context, Request, Response)
 
 // hijack rpc functions
-type HijackRPC func(string, context.Context, Request, Response)
+type HijackRPC func(context.Context, string, Request, Response)
 
 // for async RPC
 type Call struct {
@@ -96,6 +100,8 @@ type Message interface {
 	SetTimeout(timeout time.Duration)
 	SetCustom(data []byte)
 	SetTopic(topic string)
+	SetClientID(clientID uint64)
+	SetStreamID(streamID uint64)
 }
 
 // for async Publish

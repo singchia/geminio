@@ -55,6 +55,14 @@ type ApplicationDelegate interface {
 	RemoteRegistration(method string, clientID uint64, streamID uint64)
 }
 
+// Client Delegate
+type ClientDelegate interface {
+	ClientConnDelegate
+	ClientDialogueDelegate
+	ApplicationDelegate
+	EndReOnline(ClientDescriber)
+}
+
 // Delegate
 type Delegate interface {
 	// connection layer
