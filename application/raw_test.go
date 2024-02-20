@@ -318,7 +318,7 @@ func Test_stream_MultiSetWriteDeadline(t *testing.T) {
 			if err != nil {
 				t.Error(err)
 			}
-			err = sm.SetWriteDeadline(tt.args.t.Add(3 * time.Second))
+			err = sm.SetWriteDeadline(tt.args.t.Add(2 * time.Second))
 			if err != nil {
 				t.Error(err)
 			}

@@ -472,7 +472,7 @@ func (dm *dialogueMgr) fini() {
 	if !dm.dialogueClosedChOutside && dm.dialogueClosedCh != nil {
 		close(dm.dialogueClosedCh)
 	}
-	dm.dialogueAcceptCh, dm.dialogueClosedCh = nil, nil
+	// dm.dialogueAcceptCh, dm.dialogueClosedCh = nil, nil
 	// collect timer
 	if dm.tmrOwner == dm {
 		dm.tmr.Close()
