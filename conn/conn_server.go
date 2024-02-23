@@ -293,13 +293,13 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 		if sc.dlgt != nil {
 			sc.clientID, err = sc.dlgt.GetClientID(sc.meta)
 		}
-		if sc.clientID == 0 {
+		if sc.clientID == 0 && err == nil {
 			// if delegate returns 0 meaning use a ID by inner
 			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
 		}
 		if err != nil {
 			sc.log.Errorf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
-				err, sc.clientID, pkt.ID(), string(sc.meta))
+				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
 			sc.writeInCh <- retPkt
 			return iodefine.IOSuccess
