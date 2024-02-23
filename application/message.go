@@ -70,6 +70,7 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 	if msg.Timeout() != 0 {
 		pkt.Data.Deadline = time.Now().Add(msg.Timeout())
 	}
+	pkt.Data.Topic = msg.Topic()
 	pkt.Data.Custom = msg.Custom()
 
 	deadline, ok := ctx.Deadline()
@@ -130,6 +131,7 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 	if msg.Timeout() != 0 {
 		pkt.Data.Deadline = now.Add(msg.Timeout())
 	}
+	pkt.Data.Topic = msg.Topic()
 	pkt.Data.Custom = msg.Custom()
 
 	deadline, ok := ctx.Deadline()
@@ -189,6 +191,7 @@ func (sm *stream) Receive(ctx context.Context) (geminio.Message, error) {
 			timeout:  pkt.Data.Timeout,
 			cnss:     options.Cnss(pkt.Cnss),
 			data:     pkt.Data.Value,
+			topic:    pkt.Data.Topic,
 			custom:   pkt.Data.Custom,
 			id:       pkt.PacketID,
 			clientID: sm.cn.ClientID(),

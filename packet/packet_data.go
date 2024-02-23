@@ -100,6 +100,7 @@ type MessagePacket struct {
 type MessageData struct {
 	Key      []byte        `json:"key,omitempty"`
 	Value    []byte        `json:"value,omitempty"`
+	Topic    string        `json:"topic,omitempty"`
 	Custom   []byte        `json:"custom,omitempty"`
 	Error    string        `json:"error,omitempty"`
 	Timeout  time.Duration `json:"timeout,omitempty"`
