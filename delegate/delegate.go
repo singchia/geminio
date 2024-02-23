@@ -63,6 +63,13 @@ type ClientDelegate interface {
 	EndReOnline(ClientDescriber)
 }
 
+// Server Delegate
+type ServerDelegate interface {
+	ServerConnDelegate
+	ServerDialogueDelegate
+	ApplicationDelegate
+}
+
 // Delegate
 type Delegate interface {
 	// connection layer

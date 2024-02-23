@@ -26,9 +26,13 @@ func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
-	initOptions(eo)
+	initEndOptions(eo)
 	se := &ServerEnd{
 		opts: eo,
+	}
+	if eo.Timer == nil {
+		eo.Timer = timer.NewTimer()
+		eo.TimerOwner = se
 	}
 	var (
 		err error
@@ -112,17 +116,13 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	se.End = ep
 	return se, nil
 ERR:
-	if !eo.TimerOutside {
+	if eo.TimerOwner == se {
 		eo.Timer.Close()
 	}
 	return nil, err
 }
 
-func initOptions(eo *EndOptions) {
-	if eo.Timer == nil {
-		eo.Timer = timer.NewTimer()
-		eo.TimerOutside = false // needs to be collected after ServerEnd Close
-	}
+func initEndOptions(eo *EndOptions) {
 	if eo.Log == nil {
 		eo.Log = log.DefaultLog
 	}
@@ -133,7 +133,7 @@ func initOptions(eo *EndOptions) {
 
 func (se *ServerEnd) Close() error {
 	err := se.End.Close()
-	if !se.opts.TimerOutside {
+	if se.opts.TimerOwner == se {
 		// TODO in case of timer closed before connection closed
 		se.opts.Timer.Close()
 	}

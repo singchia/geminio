@@ -11,10 +11,10 @@ import (
 
 type EndOptions struct {
 	Timer         timer.Timer
-	TimerOutside  bool
+	TimerOwner    interface{}
 	PacketFactory packet.PacketFactory
 	Log           log.Logger
-	Delegate      delegate.Delegate
+	Delegate      delegate.ServerDelegate
 	ClientID      *uint64
 	RemoteMethods []string
 	LocalMethods  []*geminio.MethodRPC
@@ -25,7 +25,7 @@ type EndOptions struct {
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
 	eo.Timer = timer
-	eo.TimerOutside = true
+	eo.TimerOwner = nil
 }
 
 func (eo *EndOptions) SetPacketFactory(packetFactory packet.PacketFactory) {
@@ -36,7 +36,7 @@ func (eo *EndOptions) SetLog(log log.Logger) {
 	eo.Log = log
 }
 
-func (eo *EndOptions) SetDelegate(delegate delegate.Delegate) {
+func (eo *EndOptions) SetDelegate(delegate delegate.ServerDelegate) {
 	eo.Delegate = delegate
 }
 
@@ -72,7 +72,7 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 		if opt.Timer != nil {
 			eo.Timer = opt.Timer
-			eo.TimerOutside = false
+			eo.TimerOwner = opt.TimerOwner
 		}
 		if opt.PacketFactory != nil {
 			eo.PacketFactory = opt.PacketFactory
