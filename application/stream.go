@@ -292,6 +292,10 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	}
 	// hijack exist
 	if sm.hijackRPC != nil {
+		if sm.hijackRPC.pattern == nil {
+			sm.doRPC(pkt, methodRPC(sm.hijackRPC.rpc), method, ctx, req, rsp, true)
+			return iodefine.IOSuccess
+		}
 		matched := sm.hijackRPC.pattern.Match([]byte(method))
 		if (sm.hijackRPC.match && matched) || (!sm.hijackRPC.match && !matched) {
 			// do RPC and cancel the context
