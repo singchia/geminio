@@ -206,7 +206,9 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 }
 
 func (sm *stream) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions) error {
-	pRPC := &patternRPC{}
+	pRPC := &patternRPC{
+		match: true,
+	}
 	fo := options.MergeHijackOptions(opts...)
 	if fo.Pattern != nil {
 		reg, err := regexp.Compile(*fo.Pattern)
