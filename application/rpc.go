@@ -84,14 +84,16 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 		return nil, io.EOF
 	}
 
-	// check remote RPC exists
-	sm.rpcMtx.RLock()
-	_, ok := sm.remoteRPCs[method]
-	if !ok {
+	if sm.opts.remoteMethodCheck {
+		// check remote RPC exists
+		sm.rpcMtx.RLock()
+		_, ok := sm.remoteRPCs[method]
+		if !ok {
+			sm.rpcMtx.RUnlock()
+			return nil, ErrRemoteRPCUnregistered
+		}
 		sm.rpcMtx.RUnlock()
-		return nil, ErrRemoteRPCUnregistered
 	}
-	sm.rpcMtx.RUnlock()
 	// transfer to underlayer packet
 	pkt := sm.pf.NewRequestPacketWithIDAndSessionID(req.ID(), sm.dg.DialogueID(), []byte(method), req.Data())
 	if req.Timeout() != 0 {

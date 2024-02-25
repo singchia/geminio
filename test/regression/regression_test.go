@@ -2,10 +2,15 @@ package regression
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
 	"github.com/singchia/geminio/test"
 )
 
@@ -65,4 +70,54 @@ func TestMessage(t *testing.T) {
 	cEnd.Publish(context.TODO(), cEnd.NewMessage([]byte("hello2")))
 
 	<-done
+}
+
+func TestServer(t *testing.T) {
+	network := "tcp"
+	address := "127.0.0.1:12345"
+	srv, err := server.Listen(network, address)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	index, count := uint64(0), uint64(1000)
+	accepted := make([]uint64, count)
+	go func() {
+		for {
+			end, err := srv.AcceptEnd()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			meta := end.Meta()
+			id := binary.BigEndian.Uint64(meta)
+			accepted[id-1] = 1
+			new := atomic.AddUint64(&index, 1)
+			if new == count {
+				wg.Done()
+			}
+		}
+	}()
+
+	for i := uint64(0); i < count; i++ {
+		opt := client.NewEndOptions()
+		buf := make([]byte, 8)
+		binary.BigEndian.PutUint64(buf, i+1)
+		opt.SetMeta(buf)
+		_, err := client.NewEnd(network, address, opt)
+		if err != nil {
+			t.Error(err)
+		}
+	}
+
+	wg.Wait()
+	for _, elem := range accepted {
+		if elem != 1 {
+			t.Error("failed end exist")
+			return
+		}
+	}
 }

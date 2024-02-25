@@ -11,16 +11,17 @@ import (
 )
 
 type EndOptions struct {
-	Timer         timer.Timer
-	TimerOwner    interface{}
-	PacketFactory packet.PacketFactory
-	Log           log.Logger
-	Delegate      delegate.ClientDelegate
-	delegate      delegate.ClientDelegate
-	ClientID      *uint64
-	Meta          []byte
-	RemoteMethods []string
-	LocalMethods  []*geminio.MethodRPC
+	Timer             timer.Timer
+	TimerOwner        interface{}
+	PacketFactory     packet.PacketFactory
+	Log               log.Logger
+	Delegate          delegate.ClientDelegate
+	delegate          delegate.ClientDelegate
+	ClientID          *uint64
+	Meta              []byte
+	RemoteMethods     []string
+	RemoteMethodCheck bool
+	LocalMethods      []*geminio.MethodRPC
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -57,6 +58,10 @@ func (eo *EndOptions) SetWaitRemoteRPCs(methods ...string) {
 	eo.RemoteMethods = methods
 }
 
+func (eo *EndOptions) SetRemoteRPCCheck() {
+	eo.RemoteMethodCheck = true
+}
+
 func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) {
 	eo.LocalMethods = methodRPCs
 }
@@ -71,6 +76,7 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		if opt == nil {
 			continue
 		}
+		eo.RemoteMethodCheck = opt.RemoteMethodCheck
 		if opt.Timer != nil {
 			eo.Timer = opt.Timer
 			eo.TimerOwner = opt.TimerOwner

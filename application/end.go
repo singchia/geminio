@@ -29,8 +29,9 @@ type opts struct {
 	// delegate
 	dlgt delegate.ApplicationDelegate
 	// methods
-	remoteMethods []string
-	localMethods  []*geminio.MethodRPC
+	remoteMethods     []string
+	remoteMethodCheck bool
+	localMethods      []*geminio.MethodRPC
 	// callback funcs
 	acceptStreamFunc func(geminio.Stream)
 	closedStreamFunc func(geminio.Stream)
@@ -70,6 +71,12 @@ func OptionDelegate(dlgt delegate.ApplicationDelegate) EndOption {
 func OptionWaitRemoteRPCs(methods ...string) EndOption {
 	return func(end *End) {
 		end.remoteMethods = methods
+	}
+}
+
+func OptionWithRemoteRPCCheck() EndOption {
+	return func(end *End) {
+		end.remoteMethodCheck = true
 	}
 }
 

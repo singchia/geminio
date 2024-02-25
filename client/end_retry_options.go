@@ -24,6 +24,7 @@ func MergeRetryEndOptions(opts ...*RetryEndOptions) *RetryEndOptions {
 		if opt == nil {
 			continue
 		}
+		eo.RemoteMethodCheck = opt.RemoteMethodCheck
 		if opt.Timer != nil {
 			eo.Timer = opt.Timer
 			eo.TimerOwner = opt.TimerOwner
