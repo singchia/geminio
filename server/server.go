@@ -22,9 +22,15 @@ type Listener interface {
 	Addr() net.Addr
 }
 
+type ret struct {
+	end geminio.End
+	err error
+}
+
 type listener struct {
 	opts []*EndOptions
 	ln   net.Listener
+	ch   chan *ret
 }
 
 func Listen(network, address string, opts ...*EndOptions) (Listener, error) {
@@ -32,7 +38,10 @@ func Listen(network, address string, opts ...*EndOptions) (Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &listener{ln: ln, opts: opts}, nil
+	return &listener{
+		ln:   ln,
+		opts: opts,
+		ch:   make(chan *ret, 128)}, nil
 }
 
 func (ln *listener) AcceptEnd() (geminio.End, error) {
@@ -40,8 +49,12 @@ func (ln *listener) AcceptEnd() (geminio.End, error) {
 	if err != nil {
 		return nil, err
 	}
-	end, err := NewEndWithConn(netconn, ln.opts...)
-	return end, err
+	go func() {
+		end, err := NewEndWithConn(netconn, ln.opts...)
+		ln.ch <- &ret{end, err}
+	}()
+	ret, _ := <-ln.ch
+	return ret.end, ret.err
 }
 
 func (ln *listener) Accept() (net.Conn, error) {

@@ -109,6 +109,9 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	if eo.ClosedStreamFunc != nil {
 		epOpts = append(epOpts, application.OptionClosedStreamFunc(eo.ClosedStreamFunc))
 	}
+	if eo.RemoteMethodCheck {
+		epOpts = append(epOpts, application.OptionWithRemoteRPCCheck())
+	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {
 		goto ERR

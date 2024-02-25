@@ -101,6 +101,9 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		application.OptionWaitRemoteRPCs(eo.RemoteMethods...),
 		application.OptionRegisterLocalRPCs(eo.LocalMethods...),
 	}
+	if eo.RemoteMethodCheck {
+		epOpts = append(epOpts, application.OptionWithRemoteRPCCheck())
+	}
 	ep, err = application.NewEnd(cn, mp, epOpts...)
 	if err != nil {
 		goto ERR
