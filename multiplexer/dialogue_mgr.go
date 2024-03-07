@@ -203,16 +203,21 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 }
 
 func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
-	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", dg.ClientID(), dg.DialogueID())
+	clientID := dg.ClientID()
+	dialogueID := dg.DialogueID()
+
+	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", clientID, dialogueID)
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()
 
-	dg, ok := dm.dialogues[dg.DialogueID()]
+	_, ok := dm.dialogues[dialogueID]
 	if ok {
-		delete(dm.dialogues, dg.DialogueID())
+		delete(dm.dialogues, dialogueID)
 		if dm.dlgt != nil {
 			dm.dlgt.DialogueOffline(dg)
 		}
+	} else {
+		dm.log.Warnf("dialogue offline, cliengID: %d, dialogueID: %d not found", clientID, dialogueID)
 	}
 	// notify outside that a dialogue is closed
 	if dm.dialogueClosedFn != nil {
@@ -277,7 +282,7 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 		dg.fini()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
-	// the logic on negotiatingDialogues is tricky, take care of it.
+	// the logic on negotiatingDialogues is tricky, be care of it.
 	dm.dialogues[dg.dialogueID] = dg
 	dm.mtx.Unlock()
 	return dg, nil
