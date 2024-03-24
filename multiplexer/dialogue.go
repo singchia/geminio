@@ -642,13 +642,12 @@ func (dg *dialogue) CloseWait() {
 	// send close packet and wait for the end
 	dg.closeOnce.Do(func() {
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
-		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		dg.mtx.RLock()
 		if !dg.dialogueOK {
 			dg.mtx.RUnlock()
 			return
 		}
-
+		dg.closewait = dg.shub.New(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
@@ -687,15 +686,16 @@ func (dg *dialogue) closeWrapper(_ *yafsm.Event) {
 func (dg *dialogue) fini() {
 	dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
-	// collect shub
-	dg.shub.Close()
-	dg.shub = nil
 
 	dg.mtx.Lock()
 	// TODO should we move dialogueOK=false to Close and CloseWait?
 	dg.dialogueOK = false
 	close(dg.writeInCh)
 	dg.mtx.Unlock()
+
+	// collect shub
+	dg.shub.Close()
+	dg.shub = nil
 
 	for pkt := range dg.writeInCh {
 		if dg.failedCh != nil && !packet.SessionLayer(pkt) {
