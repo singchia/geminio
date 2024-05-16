@@ -25,7 +25,7 @@ type ServerConnDelegate interface {
 	ClientConnDelegate
 	Heartbeat(ConnDescriber) error
 	// requirements
-	GetClientID(meta []byte) (uint64, error)
+	GetClientID(wantedID uint64, meta []byte) (uint64, error)
 }
 
 // dialogue layer delegation

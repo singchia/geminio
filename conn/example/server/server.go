@@ -34,12 +34,12 @@ func newServer() *server {
 func (s *server) ConnOnline(_ delegate.ConnDescriber) error  { return nil }
 func (s *server) ConnOffline(_ delegate.ConnDescriber) error { return nil }
 func (s *server) Heartbeat(_ delegate.ConnDescriber) error   { return nil }
-func (s *server) GetClientID(meta []byte) (uint64, error) {
+func (s *server) GetClientID(_ uint64, meta []byte) (uint64, error) {
 	return s.idFactory.GetID(), nil
 }
 
 func forceFree() {
-	for _ = range time.Tick(30 * time.Second) {
+	for range time.Tick(30 * time.Second) {
 		debug.FreeOSMemory()
 	}
 }
@@ -90,7 +90,7 @@ func main() {
 					}
 					rc, ok := clients.Load(clientID)
 					if !ok {
-						log.Error("clientID not found '%d'\n", clientID)
+						log.Errorf("clientID not found '%d'\n", clientID)
 						continue
 					}
 					rc.(*conn.ServerConn).Close()
@@ -127,7 +127,7 @@ func main() {
 	for {
 		netconn, err := ln.Accept()
 		if err != nil {
-			log.Error("accept err: %s", err)
+			log.Errorf("accept err: %s", err)
 			break
 		}
 		go func(netconn net.Conn) {
@@ -135,7 +135,7 @@ func main() {
 				conn.OptionServerConnPacketFactory(pf),
 				conn.OptionServerConnDelegate(server))
 			if err != nil {
-				log.Error("new recvconn err: %s", err)
+				log.Errorf("new recvconn err: %s", err)
 				return
 			}
 			clients.Store(rc.ClientID(), rc)

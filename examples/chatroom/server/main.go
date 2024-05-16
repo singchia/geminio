@@ -41,7 +41,7 @@ func NewChatRoom() *ChatRoom {
 	}
 }
 
-func (room *ChatRoom) GetClientID(meta []byte) (uint64, error) {
+func (room *ChatRoom) GetClientID(_ uint64, meta []byte) (uint64, error) {
 	room.mtx.RLock()
 	defer room.mtx.RUnlock()
 
