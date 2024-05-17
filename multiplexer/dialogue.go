@@ -200,7 +200,11 @@ func (dg *dialogue) Write(pkt packet.Packet) error {
 		return io.EOF
 	}
 	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
-	dg.writeInCh <- pkt
+	select {
+	case dg.writeInCh <- pkt:
+	default:
+		return io.ErrShortBuffer
+	}
 	return nil
 }
 
