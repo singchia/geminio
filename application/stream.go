@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"sync"
 	"time"
@@ -177,6 +178,8 @@ func (sm *stream) handlePkt() {
 			switch ret {
 			case iodefine.IOSuccess:
 				continue
+			case iodefine.IODiscard:
+				sm.shub.Error(pkt.ID(), io.ErrShortBuffer)
 			case iodefine.IOErr:
 				goto FINI
 			}
@@ -234,6 +237,7 @@ func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORe
 	select {
 	case sm.messageCh <- pkt:
 	default:
+		// TODO ack error back
 		return iodefine.IODiscard
 	}
 	return iodefine.IOSuccess
@@ -422,6 +426,9 @@ func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet 
 func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
 	err := sm.dg.Write(pkt)
 	if err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
 		sm.log.Debugf("write message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		// notify the publish side the err
@@ -434,6 +441,9 @@ func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IOR
 func (sm *stream) handleOutMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
 	err := sm.dg.Write(pkt)
 	if err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
 		sm.log.Debugf("write message ack packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
@@ -444,6 +454,9 @@ func (sm *stream) handleOutMessageAckPacket(pkt *packet.MessageAckPacket) iodefi
 func (sm *stream) handleOutRequestPacket(pkt *packet.RequestPacket) iodefine.IORet {
 	err := sm.dg.Write(pkt)
 	if err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
 		sm.log.Debugf("write request packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		sm.shub.Error(pkt.ID(), err)
@@ -455,6 +468,9 @@ func (sm *stream) handleOutRequestPacket(pkt *packet.RequestPacket) iodefine.IOR
 func (sm *stream) handleOutRegisterPacket(pkt *packet.RegisterPacket) iodefine.IORet {
 	err := sm.dg.Write(pkt)
 	if err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
 		sm.log.Debugf("write register packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
@@ -467,6 +483,9 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	err := sm.dg.Write(pkt)
 	if err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
 		sm.log.Debugf("write stream packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
