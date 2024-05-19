@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"errors"
 	"net"
 	"sync"
 	"time"
@@ -139,7 +140,7 @@ func (sc *ServerConn) wait() error {
 	go sc.readPkt()
 	event := <-sync.C()
 	if event.Error != nil {
-		sc.log.Errorf("wait conn err: %s, clientID: %d, remote: %s, meta: %s",
+		sc.log.Warnf("wait conn err: %s, clientID: %d, remote: %s, meta: %s",
 			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 		return event.Error
 	}
@@ -298,7 +299,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
 		}
 		if err != nil {
-			sc.log.Errorf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
+			sc.log.Warnf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
 			sc.writeInCh <- retPkt
@@ -422,6 +423,10 @@ func (sc *ServerConn) fini() {
 	sc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 
+	// if we are in conn stage,
+	sc.shub.Error(sc.getSyncID(), errors.New("connection closed"))
+
+	// cancel the heartbeat
 	if sc.hbTick != nil {
 		sc.hbTick.Cancel()
 		sc.hbTick = nil
@@ -472,7 +477,7 @@ func (sc *ServerConn) fini() {
 
 func (sc *ServerConn) waitHBTimeout(event *timer.Event) {
 	if event.Error == timer.ErrTimerForceClosed {
-		sc.log.Infof("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
+		sc.log.Debugf("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
 			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 	} else {
 		sc.log.Errorf("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
