@@ -20,8 +20,9 @@ type EndOptions struct {
 	RemoteMethodCheck bool
 	LocalMethods      []*geminio.MethodRPC
 	// If set AcceptStreamFunc, the AcceptStream should never be called
-	AcceptStreamFunc func(geminio.Stream)
-	ClosedStreamFunc func(geminio.Stream)
+	AcceptStreamFunc                func(geminio.Stream)
+	ClosedStreamFunc                func(geminio.Stream)
+	ReadBufferSize, WriteBufferSize int
 }
 
 func (eo *EndOptions) SetTimer(timer timer.Timer) {
@@ -65,12 +66,23 @@ func (eo *EndOptions) SetClosedStreamFunc(fn func(geminio.Stream)) {
 	eo.ClosedStreamFunc = fn
 }
 
+func (eo *EndOptions) SetBufferSize(read, write int) {
+	eo.ReadBufferSize = read
+	eo.WriteBufferSize = write
+}
+
 func NewEndOptions() *EndOptions {
-	return &EndOptions{}
+	return &EndOptions{
+		ReadBufferSize:  -1,
+		WriteBufferSize: -1,
+	}
 }
 
 func MergeEndOptions(opts ...*EndOptions) *EndOptions {
-	eo := &EndOptions{}
+	eo := &EndOptions{
+		ReadBufferSize:  -1,
+		WriteBufferSize: -1,
+	}
 	for _, opt := range opts {
 		if opt == nil {
 			continue
@@ -103,6 +115,12 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		}
 		if opt.ClosedStreamFunc != nil {
 			eo.ClosedStreamFunc = opt.ClosedStreamFunc
+		}
+		if opt.ReadBufferSize != -1 {
+			eo.ReadBufferSize = opt.ReadBufferSize
+		}
+		if opt.WriteBufferSize != -1 {
+			eo.WriteBufferSize = opt.WriteBufferSize
 		}
 	}
 	return eo

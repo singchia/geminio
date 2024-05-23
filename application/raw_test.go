@@ -16,7 +16,7 @@ import (
 	"github.com/singchia/go-timer/v2"
 )
 
-func getStream(ctl *gomock.Controller, readWait, writeWait time.Duration) *stream {
+func getStream(_ *gomock.Controller, readWait, writeWait time.Duration) *stream {
 	tmr := timer.NewTimer()
 	sm := &stream{
 		opts: &opts{
@@ -40,7 +40,7 @@ func getStream(ctl *gomock.Controller, readWait, writeWait time.Duration) *strea
 	}()
 	go func() {
 		for {
-			time.Sleep(readWait)
+			time.Sleep(writeWait)
 			<-sm.writeInCh
 		}
 	}()

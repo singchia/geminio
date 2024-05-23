@@ -18,6 +18,8 @@ github.com/singchia/go-timer/v2 v2.2.1 h1:gJucmL99fkuNzGk2AfNPFpa1X3/4+aGO21KkjF
 github.com/singchia/go-timer/v2 v2.2.1/go.mod h1:PgkEQc6io8slCUiT5rHzWKU4/P2HXHWk3WWfijZXAf4=
 github.com/singchia/go-xtables v1.0.1 h1:70i1ASnhq2NK9FLlRWh2FzeQwFNW9Po88l5F6Te2sNo=
 github.com/singchia/go-xtables v1.0.1/go.mod h1:mJJgdpG+gwapf6PyIFqICcbCH8M3p77a/xwlMzLnVwE=
+github.com/singchia/go-xtables v1.0.5 h1:IeVhIFYGhDJp7Hf8qi1fnptVhVYBdtcEyKR6q9oK0zw=
+github.com/singchia/go-xtables v1.0.5/go.mod h1:mJJgdpG+gwapf6PyIFqICcbCH8M3p77a/xwlMzLnVwE=
 github.com/singchia/yafsm v1.0.1 h1:TTDSX7SBCr2YNdv/DZ76LjTer0rYwm7IPt24odNymUs=
 github.com/singchia/yafsm v1.0.1/go.mod h1:fSWQl6DCzqc51DhLfwHr3gN2FhGmOEjTAQ2AOKDSBtY=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=

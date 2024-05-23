@@ -103,8 +103,8 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		remoteRPCs:        make(map[string]struct{}),
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
-		messageCh:         make(chan *packet.MessagePacket, 1024),
-		streamCh:          make(chan *packet.StreamPacket, 1024),
+		messageCh:         make(chan *packet.MessagePacket, 32),
+		streamCh:          make(chan *packet.StreamPacket, 32),
 		failedCh:          make(chan packet.Packet),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
@@ -510,7 +510,7 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 		err := sm.dg.Write(rspPkt)
 		if err != nil {
 			// Write error, the response cannot be delivered, so should be debuged
-			sm.log.Debug("write response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
+			sm.log.Debugf("write response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 				err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
 			// TOD do we need finish the stream while write err
 			// sm.fini()

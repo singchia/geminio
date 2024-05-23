@@ -64,8 +64,14 @@ func OptionServerConnFailedPacket(ch chan packet.Packet) ServerConnOption {
 
 func OptionServerConnBufferSize(read, write int) ServerConnOption {
 	return func(sc *ServerConn) {
-		sc.readOutSize = read
-		sc.writeInSize = write
+		if read != -1 {
+			sc.readOutSize = read
+			sc.readInSize = read
+		}
+		if write != -1 {
+			sc.writeInSize = write
+			sc.writeOutSize = write
+		}
 	}
 }
 
@@ -86,10 +92,10 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			netconn:      netconn,
 			side:         geminio.RecipientSide,
 			connOK:       true,
-			readInSize:   128,
-			writeOutSize: 128,
-			readOutSize:  128,
-			writeInSize:  128,
+			readInSize:   32,
+			writeOutSize: 32,
+			readOutSize:  32,
+			writeInSize:  32,
 		},
 
 		closeOnce: new(sync.Once),

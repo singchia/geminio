@@ -41,7 +41,7 @@ func Listen(network, address string, opts ...*EndOptions) (Listener, error) {
 	return &listener{
 		ln:   ln,
 		opts: opts,
-		ch:   make(chan *ret, 128)}, nil
+		ch:   make(chan *ret, 32)}, nil
 }
 
 func (ln *listener) AcceptEnd() (geminio.End, error) {
