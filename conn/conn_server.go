@@ -140,7 +140,7 @@ func (sc *ServerConn) wait() error {
 	go sc.readPkt()
 	event := <-sync.C()
 	if event.Error != nil {
-		sc.log.Warnf("wait conn err: %s, clientID: %d, remote: %s, meta: %s",
+		sc.log.Infof("wait conn err: %s, clientID: %d, remote: %s, meta: %s",
 			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 		return event.Error
 	}
