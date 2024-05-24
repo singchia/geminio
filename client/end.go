@@ -72,6 +72,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		conn.OptionClientConnLogger(eo.Log),
 		conn.OptionClientConnTimer(eo.Timer),
 		conn.OptionClientConnMeta(eo.Meta),
+		conn.OptionClientConnBufferSize(eo.ReadBufferSize, eo.WriteBufferSize),
 	}
 	if eo.ClientID != nil {
 		cnOpts = append(cnOpts, conn.OptionClientConnClientID(*eo.ClientID))
@@ -87,6 +88,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		multiplexer.OptionLogger(eo.Log),
 		multiplexer.OptionTimer(eo.Timer),
 		multiplexer.OptionMultiplexerAcceptDialogue(),
+		multiplexer.OptionBufferSize(eo.ReadBufferSize, eo.WriteBufferSize),
 	}
 	mp, err = multiplexer.NewDialogueMgr(cn, mpOpts...)
 	if err != nil {

@@ -40,6 +40,8 @@ type multiplexerOpts struct {
 	dialogueClosedChOutside bool
 
 	dialogueClosedFn func(Dialogue)
+
+	readBufferSize, writeBufferSize int
 }
 
 type dialogueMgr struct {
@@ -65,14 +67,14 @@ type MultiplexerOption func(*multiplexerOpts)
 
 func OptionMultiplexerAcceptDialogue() MultiplexerOption {
 	return func(opts *multiplexerOpts) {
-		opts.dialogueAcceptCh = make(chan *dialogue, 128)
+		opts.dialogueAcceptCh = make(chan *dialogue, 32)
 		opts.dialogueAcceptChOutside = false
 	}
 }
 
 func OptionMultiplexerClosedDialogue() MultiplexerOption {
 	return func(opts *multiplexerOpts) {
-		opts.dialogueClosedCh = make(chan *dialogue, 128)
+		opts.dialogueClosedCh = make(chan *dialogue, 32)
 		opts.dialogueClosedChOutside = false
 	}
 }
@@ -117,10 +119,23 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 	}
 }
 
+func OptionBufferSize(read, write int) MultiplexerOption {
+	return func(opts *multiplexerOpts) {
+		if read != -1 {
+			opts.readBufferSize = read
+		}
+		if write != -1 {
+			opts.writeBufferSize = write
+		}
+	}
+}
+
 func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, error) {
 	dm := &dialogueMgr{
 		multiplexerOpts: &multiplexerOpts{
-			opts: &opts{},
+			opts:            &opts{},
+			readBufferSize:  -1,
+			writeBufferSize: -1,
 		},
 		cn:                   cn,
 		mgrOK:                true,
@@ -155,7 +170,8 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 		OptionDialogueDelegate(dm),
 		OptionDialogueLogger(dm.log),
 		OptionDialoguePacketFactory(dm.pf),
-		OptionDialogueMeta(cn.Meta()))
+		OptionDialogueMeta(cn.Meta()),
+		OptionDialogueBufferSize(dm.readBufferSize, dm.writeBufferSize))
 	if err != nil {
 		dm.log.Errorf("new dialogue err: %s, clientID: %d, dialogueID: %d",
 			err, cn.ClientID(), packet.SessionID1)

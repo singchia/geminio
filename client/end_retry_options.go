@@ -18,7 +18,10 @@ func NewRetryEndOptions() *RetryEndOptions {
 
 func MergeRetryEndOptions(opts ...*RetryEndOptions) *RetryEndOptions {
 	eo := &RetryEndOptions{
-		EndOptions: &EndOptions{},
+		EndOptions: &EndOptions{
+			ReadBufferSize:  -1,
+			WriteBufferSize: -1,
+		},
 	}
 	for _, opt := range opts {
 		if opt == nil {
@@ -49,6 +52,12 @@ func MergeRetryEndOptions(opts ...*RetryEndOptions) *RetryEndOptions {
 		}
 		if opt.LocalMethods != nil {
 			eo.LocalMethods = opt.LocalMethods
+		}
+		if opt.ReadBufferSize != -1 {
+			eo.ReadBufferSize = opt.ReadBufferSize
+		}
+		if opt.WriteBufferSize != -1 {
+			eo.WriteBufferSize = opt.WriteBufferSize
 		}
 	}
 	return eo
