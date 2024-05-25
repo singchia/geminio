@@ -34,6 +34,7 @@ type Reader interface {
 
 type Writer interface {
 	Write(pkt packet.Packet) error
+	WriteWait(pkt packet.Packet) error
 }
 
 type Closer interface {

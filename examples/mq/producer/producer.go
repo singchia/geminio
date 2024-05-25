@@ -78,7 +78,7 @@ func main() {
 	fc := &FakeClient{
 		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
 	}
-	opt := client.NewRetryEndOptions()
+	opt := client.NewEndOptions()
 	opt.SetLog(glog)
 	opt.SetWaitRemoteRPCs("claim")
 	opt.SetDelegate(fc)

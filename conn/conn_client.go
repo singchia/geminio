@@ -76,11 +76,9 @@ func OptionClientConnBufferSize(read, write int) ClientConnOption {
 	return func(cc *ClientConn) error {
 		if read != -1 {
 			cc.readOutSize = read
-			cc.readInSize = read
 		}
 		if write != -1 {
 			cc.writeInSize = write
-			cc.writeOutSize = write
 		}
 		return nil
 	}

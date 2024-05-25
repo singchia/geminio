@@ -16,7 +16,7 @@ import (
 )
 
 type RetryEnd struct {
-	opts *RetryEndOptions
+	opts *EndOptions
 	*delegate.UnimplementedDelegate
 
 	end unsafe.Pointer
@@ -36,10 +36,11 @@ type RetryEnd struct {
 	hijackRPC     geminio.HijackRPC
 }
 
-func NewRetryEndWithDialer(dialer Dialer, opts ...*RetryEndOptions) (geminio.End, error) {
+// RetryEnd with retry connection infinity
+func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
 	// options
-	eo := MergeRetryEndOptions(opts...)
-	initRetryEndOptions(eo)
+	eo := MergeEndOptions(opts...)
+	initEndOptions(eo)
 	ok := int32(1)
 	re := &RetryEnd{
 		opts:                  eo,
@@ -72,7 +73,7 @@ ERR:
 }
 
 func (re *RetryEnd) getEnd() (*clientEnd, error) {
-	end, err := NewEndWithDialer(re.dialer, re.opts.EndOptions)
+	end, err := NewEndWithDialer(re.dialer, re.opts)
 	if err != nil {
 		return nil, err
 	}
