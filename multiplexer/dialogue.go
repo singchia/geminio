@@ -128,12 +128,10 @@ func OptionDialogueNegotiatingID(negotiatingID uint64, dialogueIDPeersCall bool)
 func OptionDialogueBufferSize(read, write int) DialogueOption {
 	return func(dg *dialogue) {
 		if read != -1 {
-			dg.readInSize = read
 			dg.readOutSize = read
 		}
 		if write != -1 {
 			dg.writeInSize = write
-			dg.writeOutSize = write
 		}
 	}
 }
@@ -219,6 +217,18 @@ func (dg *dialogue) Write(pkt packet.Packet) error {
 	default:
 		return fmt.Errorf("%s, len: %d", io.ErrShortBuffer, len(dg.writeInCh))
 	}
+	return nil
+}
+
+func (dg *dialogue) WriteWait(pkt packet.Packet) error {
+	dg.mtx.RLock()
+	defer dg.mtx.RUnlock()
+
+	if !dg.dialogueOK {
+		return io.EOF
+	}
+	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
+	dg.writeInCh <- pkt
 	return nil
 }
 

@@ -108,7 +108,7 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		failedCh:          make(chan packet.Packet),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
-		writeInCh:         make(chan packet.Packet),
+		writeInCh:         make(chan packet.Packet, 32),
 		closeCh:           make(chan struct{}),
 	}
 	go sm.handlePkt()
@@ -237,7 +237,8 @@ func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORe
 	select {
 	case sm.messageCh <- pkt:
 	default:
-		// TODO ack error back
+		pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pkt.ID(), iodefine.ErrIOBufferFull)
+		sm.dg.WriteWait(pkt)
 		return iodefine.IODiscard
 	}
 	return iodefine.IOSuccess
@@ -331,7 +332,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	// no rpc found, return to call error, note that this error is not set to response error
 	err := fmt.Errorf("no such rpc: %s", method)
 	rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(method), nil, err)
-	err = sm.dg.Write(rspPkt)
+	err = sm.dg.WriteWait(rspPkt)
 	if err != nil {
 		sm.log.Debugf("write no such rpc response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), method)
@@ -439,11 +440,8 @@ func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IOR
 }
 
 func (sm *stream) handleOutMessageAckPacket(pkt *packet.MessageAckPacket) iodefine.IORet {
-	err := sm.dg.Write(pkt)
+	err := sm.dg.WriteWait(pkt)
 	if err != nil {
-		if err == io.ErrShortBuffer {
-			return iodefine.IODiscard
-		}
 		sm.log.Debugf("write message ack packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IOErr
@@ -507,7 +505,7 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 		sm.rpcMtx.Unlock()
 
 		rspPkt := sm.pf.NewResponsePacket(pkt.ID(), []byte(req.method), rsp.data, rsp.err)
-		err := sm.dg.Write(rspPkt)
+		err := sm.dg.WriteWait(rspPkt)
 		if err != nil {
 			// Write error, the response cannot be delivered, so should be debuged
 			sm.log.Debugf("write response packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, method: %s",
