@@ -64,13 +64,11 @@ func OptionServerConnFailedPacket(ch chan packet.Packet) ServerConnOption {
 
 func OptionServerConnBufferSize(read, write int) ServerConnOption {
 	return func(sc *ServerConn) {
-		if read != -1 {
+		if read > 0 {
 			sc.readOutSize = read
-			sc.readInSize = read
 		}
-		if write != -1 {
+		if write > 0 {
 			sc.writeInSize = write
-			sc.writeOutSize = write
 		}
 	}
 }
@@ -275,8 +273,6 @@ func (sc *ServerConn) handleOut(pkt packet.Packet) iodefine.IORet {
 		return sc.handleOutDisConnPacket(realPkt)
 	case *packet.DisConnAckPacket:
 		return sc.handleOutDisConnAckPacket(realPkt)
-	case *packet.HeartbeatAckPacket:
-		return sc.handleOutHeartbeatAckPacket(realPkt)
 	default:
 		return sc.handleOutDataPacket(pkt)
 	}
@@ -350,10 +346,12 @@ func (sc *ServerConn) handleInHeartbeatPacket(pkt *packet.HeartbeatPacket) iodef
 	sc.hbTick = sc.tmr.Add(time.Duration(sc.heartbeat)*2*time.Second, timer.WithHandler(sc.waitHBTimeout))
 
 	retPkt := sc.pf.NewHeartbeatAckPacket(pkt.PacketID)
-	sc.writeInCh <- retPkt
+	sc.writeOutCh <- retPkt
 	if sc.dlgt != nil {
 		sc.dlgt.Heartbeat(sc)
 	}
+	sc.log.Debugf("send heartbeat ack succeed, clientID: %d, PacketID: %d, packetType: %s",
+		sc.clientID, pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
 }
 
@@ -394,13 +392,6 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 	sc.log.Debugf("send conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 	sc.onlined = true
-	return iodefine.IOSuccess
-}
-
-func (sc *ServerConn) handleOutHeartbeatAckPacket(pkt *packet.HeartbeatAckPacket) iodefine.IORet {
-	sc.writeOutCh <- pkt
-	sc.log.Debugf("send heartbeat ack succeed, clientID: %d, PacketID: %d, packetType: %s",
-		sc.clientID, pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
 }
 

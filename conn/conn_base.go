@@ -116,6 +116,7 @@ func (bc *baseConn) writePkt() {
 			record := !packet.ConnLayer(pkt)
 			err = bc.dowritePkt(pkt, record)
 			if err != nil {
+				// write to net Conn error, we should close the layer
 				return
 			}
 		}

@@ -121,10 +121,10 @@ func OptionTimer(tmr timer.Timer) MultiplexerOption {
 
 func OptionBufferSize(read, write int) MultiplexerOption {
 	return func(opts *multiplexerOpts) {
-		if read != -1 {
+		if read > 0 {
 			opts.readBufferSize = read
 		}
-		if write != -1 {
+		if write > 0 {
 			opts.writeBufferSize = write
 		}
 	}

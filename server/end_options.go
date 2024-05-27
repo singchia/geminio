@@ -116,10 +116,10 @@ func MergeEndOptions(opts ...*EndOptions) *EndOptions {
 		if opt.ClosedStreamFunc != nil {
 			eo.ClosedStreamFunc = opt.ClosedStreamFunc
 		}
-		if opt.ReadBufferSize != -1 {
+		if opt.ReadBufferSize > 0 {
 			eo.ReadBufferSize = opt.ReadBufferSize
 		}
-		if opt.WriteBufferSize != -1 {
+		if opt.WriteBufferSize > 0 {
 			eo.WriteBufferSize = opt.WriteBufferSize
 		}
 	}

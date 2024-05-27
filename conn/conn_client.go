@@ -74,10 +74,10 @@ func OptionClientConnClientID(clientID uint64) ClientConnOption {
 
 func OptionClientConnBufferSize(read, write int) ClientConnOption {
 	return func(cc *ClientConn) error {
-		if read != -1 {
+		if read > 0 {
 			cc.readOutSize = read
 		}
-		if write != -1 {
+		if write > 0 {
 			cc.writeInSize = write
 		}
 		return nil
@@ -105,14 +105,14 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 				heartbeat: packet.Heartbeat20,
 				meta:      []byte{},
 			},
-			netconn:    netconn,
-			fsm:        yafsm.NewFSM(),
-			side:       geminio.InitiatorSide,
-			connOK:     true,
-			readInCh:   make(chan packet.Packet, 16),
-			writeOutCh: make(chan packet.Packet, 16),
-			readOutCh:  make(chan packet.Packet, 16),
-			writeInCh:  make(chan packet.Packet, 16),
+			netconn:      netconn,
+			fsm:          yafsm.NewFSM(),
+			side:         geminio.InitiatorSide,
+			connOK:       true,
+			readInSize:   32,
+			writeOutSize: 32,
+			readOutSize:  32,
+			writeInSize:  32,
 		},
 		//finiOnce:  new(sync.Once),
 		closeOnce: new(sync.Once),
@@ -125,6 +125,11 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 			return nil, err
 		}
 	}
+	// io size
+	cc.readInCh = make(chan packet.Packet, cc.readInSize)
+	cc.writeOutCh = make(chan packet.Packet, cc.writeOutSize)
+	cc.readOutCh = make(chan packet.Packet, cc.readOutSize)
+	cc.writeInCh = make(chan packet.Packet, cc.writeInSize)
 	// timer
 	if !cc.tmrOutside {
 		cc.tmr = timer.NewTimer()
