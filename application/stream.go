@@ -66,6 +66,7 @@ type stream struct {
 	mtx       sync.RWMutex
 	streamOK  bool
 	closeOnce *gsync.Once
+	finiOnce  *gsync.Once
 
 	// app layer messages
 	// raw cache
@@ -84,9 +85,6 @@ type stream struct {
 
 	// io
 	writeInCh chan packet.Packet // for multiple message types
-
-	// close channel
-	closeCh chan struct{}
 }
 
 func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
@@ -103,15 +101,16 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		remoteRPCs:        make(map[string]struct{}),
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
+		finiOnce:          new(gsync.Once),
 		messageCh:         make(chan *packet.MessagePacket, 32),
 		streamCh:          make(chan *packet.StreamPacket, 32),
 		failedCh:          make(chan packet.Packet),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
 		writeInCh:         make(chan packet.Packet, 32),
-		closeCh:           make(chan struct{}),
 	}
 	go sm.handlePkt()
+	go sm.readPkt()
 	return sm
 }
 
@@ -145,28 +144,10 @@ func (sm *stream) Side() geminio.Side {
 
 // main handle logic
 func (sm *stream) handlePkt() {
-	readInCh := sm.dg.ReadC()
 	writeInCh := sm.writeInCh
 
 	for {
 		select {
-		case pkt, ok := <-readInCh:
-			if !ok {
-				goto FINI
-			}
-			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-			ret := sm.handleIn(pkt)
-			switch ret {
-			case iodefine.IOSuccess:
-				continue
-			case iodefine.IODiscard:
-				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-			case iodefine.IOErr:
-				goto FINI
-			}
-
 		case pkt, ok := <-writeInCh:
 			if !ok {
 				// BUG! shoud never be here.
@@ -186,7 +167,33 @@ func (sm *stream) handlePkt() {
 		}
 	}
 FINI:
-	sm.fini()
+	sm.finiOnce.Do(sm.fini)
+}
+
+func (sm *stream) readPkt() {
+	readInCh := sm.dg.ReadC()
+	for {
+		select {
+		case pkt, ok := <-readInCh:
+			if !ok {
+				goto FINI
+			}
+			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			ret := sm.handleIn(pkt)
+			switch ret {
+			case iodefine.IOSuccess:
+				continue
+			case iodefine.IODiscard:
+				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			case iodefine.IOErr:
+				goto FINI
+			}
+		}
+	}
+FINI:
+	sm.finiOnce.Do(sm.fini)
 }
 
 func (sm *stream) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -233,13 +240,16 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
 	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-	// we don't want block here.
+	// we don't want block here, and also we don't want discard immediately.
 	select {
 	case sm.messageCh <- pkt:
-	default:
-		pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pkt.ID(), iodefine.ErrIOBufferFull)
-		sm.dg.WriteWait(pkt)
-		return iodefine.IODiscard
+		/*
+			// TODO optimize it
+				default:
+					pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pkt.ID(), iodefine.ErrIOBufferFull)
+					sm.dg.WriteWait(pkt)
+					return iodefine.IODiscard
+		*/
 	}
 	return iodefine.IOSuccess
 }
@@ -546,19 +556,18 @@ func (sm *stream) fini() {
 		sm.cn.ClientID(), sm.dg.DialogueID())
 
 	sm.mtx.Lock()
+	defer sm.mtx.Unlock()
 	// collect shub, and all syncs will be close notified
-	sm.shub.Close()
-	sm.shub = nil
 
 	sm.streamOK = false
 	close(sm.writeInCh)
-	sm.mtx.Unlock()
 
-	for range sm.writeInCh {
-		// TODO we should care about msg in writeInCh buffer, it may contains message, request...
+	for pkt := range sm.writeInCh {
+		sm.shub.Error(pkt.ID(), io.ErrClosedPipe)
 	}
-	// collect channels
 	sm.writeInCh = nil
+	sm.shub.Close()
+	sm.shub = nil
 
 	// the outside should care about message and stream channel status
 	close(sm.messageCh)
@@ -569,9 +578,6 @@ func (sm *stream) fini() {
 		sm.tmr.Close()
 	}
 	sm.tmr = nil
-
-	// collect close
-	close(sm.closeCh)
 
 	if sm.dg.DialogueID() == 1 {
 		// the master stream

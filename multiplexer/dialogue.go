@@ -1,7 +1,6 @@
 package multiplexer
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -127,10 +126,10 @@ func OptionDialogueNegotiatingID(negotiatingID uint64, dialogueIDPeersCall bool)
 
 func OptionDialogueBufferSize(read, write int) DialogueOption {
 	return func(dg *dialogue) {
-		if read != -1 {
+		if read > 0 {
 			dg.readOutSize = read
 		}
-		if write != -1 {
+		if write > 0 {
 			dg.writeInSize = write
 		}
 	}
@@ -214,8 +213,11 @@ func (dg *dialogue) Write(pkt packet.Packet) error {
 	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
 	select {
 	case dg.writeInCh <- pkt:
-	default:
-		return fmt.Errorf("%s, len: %d", io.ErrShortBuffer, len(dg.writeInCh))
+		/*
+			// TODO optimize it
+			default:
+				return fmt.Errorf("%s, len: %d", io.ErrShortBuffer, len(dg.writeInCh))
+		*/
 	}
 	return nil
 }
