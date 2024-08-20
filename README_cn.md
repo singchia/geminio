@@ -1,5 +1,5 @@
 <p align=center>
-<img src="./docs/geminio.png" width="60%" height="60%">
+<img src="./docs/geminio.png" width="40%" height="40%">
 </p>
 
 <div align="center">
