@@ -17,7 +17,7 @@ English | [简体中文](./README_cn.md)
 
 ## Introduction
 
-Geminio is a library that provides **application-layer** network programming, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm).
+Geminio is a library that provides **application-layer** network programming functions, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm).
 
 This library can make network development much easier with comprehensive capabilities like _**RPC**_, _**bidirectional-RPC**_, _**messager**_, _**multi-sessions**_, _**multiplexing**_ and still _**raw-connections**_.
 
