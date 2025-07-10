@@ -1,5 +1,5 @@
 <p align=center>
-<img src="./docs/geminio.png" width="40%" height="40%">
+<img src="./docs/geminio.png" width="40%">
 </p>
 
 <div align="center">
@@ -23,7 +23,7 @@ Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](ht
 
 ## 架构
 
-<img src="./docs/biz-arch.png" width="100%" height="100%">
+<img src="./docs/biz-arch.png" width="100%">
 
 ### 接口
 
@@ -454,7 +454,7 @@ PASS
 本库按照以下架构实现
 
 <p align=center>
-<img src="./docs/design.png" width="80%" height="80%">
+<img src="./docs/design.png" width="80%">
 </p>
 
 ## 参与开发
