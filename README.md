@@ -1,5 +1,5 @@
 <p align=center>
-<img src="./docs/geminio.png" width="40%" height="40%">
+<img src="./docs/geminio.png" width="40%">
 </p>
 
 <div align="center">
@@ -23,7 +23,7 @@ This library can make network development much easier with comprehensive capabil
 
 ## Architecture
 
-<img src="./docs/biz-arch.png" width="100%" height="100%">
+<img src="./docs/biz-arch.png" width="100%">
 
 ### Interfaces
 
@@ -457,7 +457,7 @@ PASS
 This library is implemented based on the following architecture
 
 <p align=center>
-<img src="./docs/design.png" width="80%" height="80%">
+<img src="./docs/design.png" width="80%">
 </p>
 
 ## Contributing
