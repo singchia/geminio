@@ -73,9 +73,12 @@ type stream struct {
 	cache    []byte
 	cacheMtx sync.Mutex
 
-	messageCh chan *packet.MessagePacket
-	streamCh  chan *packet.StreamPacket
-	failedCh  chan packet.Packet
+	messageCh     chan *packet.MessagePacket
+	messageChSize int
+	streamCh      chan *packet.StreamPacket
+	streamChSize  int
+	failedCh      chan packet.Packet
+	failedChSize  int
 
 	// deadline mtx protects SetDeadline, SetReadDeadline, SetWriteDeadline and all Read Write
 	dlMtx                       sync.RWMutex
@@ -84,7 +87,8 @@ type stream struct {
 	dlRead, dlWrite             time.Time
 
 	// io
-	writeInCh chan packet.Packet // for multiple message types
+	writeInCh   chan packet.Packet // for multiple message types
+	writeInSize int
 }
 
 func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *stream {
@@ -102,13 +106,26 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
 		finiOnce:          new(gsync.Once),
-		messageCh:         make(chan *packet.MessagePacket, 32),
-		streamCh:          make(chan *packet.StreamPacket, 32),
-		failedCh:          make(chan packet.Packet),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
-		writeInCh:         make(chan packet.Packet, 32),
+		messageChSize:     32,
+		streamChSize:      32,
+		failedChSize:      32,
+		writeInSize:       32,
 	}
+	if opts.readBufferSize > 0 {
+		sm.messageChSize = opts.readBufferSize
+		sm.streamChSize = opts.readBufferSize
+		sm.failedChSize = opts.readBufferSize
+	}
+	if opts.writeBufferSize > 0 {
+		sm.writeInSize = opts.writeBufferSize
+	}
+	sm.messageCh = make(chan *packet.MessagePacket, sm.messageChSize)
+	sm.streamCh = make(chan *packet.StreamPacket, sm.streamChSize)
+	sm.failedCh = make(chan packet.Packet, sm.failedChSize)
+	sm.writeInCh = make(chan packet.Packet, sm.writeInSize)
+
 	go sm.handlePkt()
 	go sm.readPkt()
 	return sm

@@ -102,6 +102,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		application.OptionTimer(eo.Timer),
 		application.OptionWaitRemoteRPCs(eo.RemoteMethods...),
 		application.OptionRegisterLocalRPCs(eo.LocalMethods...),
+		application.OptionBufferSize(eo.ReadBufferSize, eo.WriteBufferSize),
 	}
 	if eo.RemoteMethodCheck {
 		epOpts = append(epOpts, application.OptionWithRemoteRPCCheck())

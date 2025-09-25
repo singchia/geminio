@@ -35,6 +35,8 @@ type opts struct {
 	// callback funcs
 	acceptStreamFunc func(geminio.Stream)
 	closedStreamFunc func(geminio.Stream)
+	// size
+	readBufferSize, writeBufferSize int
 }
 
 type EndOption func(*End)
@@ -95,6 +97,13 @@ func OptionAcceptStreamFunc(fn func(geminio.Stream)) EndOption {
 func OptionClosedStreamFunc(fn func(geminio.Stream)) EndOption {
 	return func(end *End) {
 		end.closedStreamFunc = fn
+	}
+}
+
+func OptionBufferSize(read, write int) EndOption {
+	return func(end *End) {
+		end.readBufferSize = read
+		end.writeBufferSize = write
 	}
 }
 
