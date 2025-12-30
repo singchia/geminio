@@ -156,7 +156,7 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 
 	// RPCs
 	// pre register local RPCs
-	if end.opts.localMethods != nil && len(end.opts.localMethods) != 0 {
+	if len(end.opts.localMethods) != 0 {
 		for _, elem := range end.opts.localMethods {
 			err = end.Register(context.TODO(), elem.Method, elem.RPC)
 			if err != nil {
@@ -165,7 +165,7 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 		}
 	}
 	// wait for all remote RPCs registration
-	if end.opts.remoteMethods != nil && len(end.opts.remoteMethods) != 0 {
+	if len(end.opts.remoteMethods) != 0 {
 		// check whether remote RPCs have been registered
 		tocheckMethods := []string{}
 		for _, method := range end.opts.remoteMethods {

@@ -107,6 +107,13 @@ func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, 
 		// if deadline exists, we should deliver it
 		pkt.Data.Context.Deadline = deadline
 	}
+
+	// Check packet size before sending
+	if pkt.Length() > DefaultMaxPacketSize {
+		sm.mtx.RUnlock()
+		return nil, ErrPacketTooLarge
+	}
+
 	var sync synchub.Sync
 	syncOpts := []synchub.SyncOption{}
 	if req.Timeout() != 0 {
@@ -172,6 +179,13 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 	if ok {
 		pkt.Data.Context.Deadline = deadline
 	}
+
+	// Check packet size before sending
+	if pkt.Length() > DefaultMaxPacketSize {
+		sm.mtx.RUnlock()
+		return nil, ErrPacketTooLarge
+	}
+
 	if ch == nil {
 		ch = make(chan *geminio.Call, 1)
 	}
@@ -193,7 +207,6 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Requ
 			sm.log.Tracef("response return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 			ch <- call
-			return
 		})}
 	if req.Timeout() != 0 {
 		syncOpts = append(syncOpts, synchub.WithTimeout(req.Timeout()))

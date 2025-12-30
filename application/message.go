@@ -78,6 +78,12 @@ func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*opt
 		pkt.Data.Context.Deadline = deadline
 	}
 
+	// Check packet size before sending
+	if pkt.Length() > DefaultMaxPacketSize {
+		sm.mtx.RUnlock()
+		return ErrPacketTooLarge
+	}
+
 	if msg.Cnss() == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout
 		sm.writeInCh <- pkt
@@ -139,6 +145,12 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		pkt.Data.Context.Deadline = deadline
 	}
 
+	// Check packet size before sending
+	if pkt.Length() > DefaultMaxPacketSize {
+		sm.mtx.RUnlock()
+		return nil, ErrPacketTooLarge
+	}
+
 	if msg.Cnss() == options.CnssAtMostOnce {
 		// if consistency is set to be AtMostOnce, we don't care about context or timeout or async
 		sm.writeInCh <- pkt
@@ -165,7 +177,6 @@ func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan
 		sm.log.Tracef("message return succeed, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		ch <- publish
-		return
 	})}
 	if msg.Timeout() != 0 {
 		// the sync may has timeout

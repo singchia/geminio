@@ -25,7 +25,7 @@ func TestPacketHeader(t *testing.T) {
 		return
 	}
 	if hdr.Typ != newHdr.Typ || hdr.Version != newHdr.Version ||
-		hdr.PacketID != hdr.PacketID || hdr.PacketLen != hdr.PacketLen {
+		hdr.PacketID != newHdr.PacketID || hdr.PacketLen != newHdr.PacketLen {
 		t.Error(errors.New("unmatch encode and decode"))
 		return
 	}
