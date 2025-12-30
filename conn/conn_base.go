@@ -33,6 +33,10 @@ const (
 	ET_CLOSERECV = "closerecv"
 	ET_CLOSEACK  = "closeack"
 	ET_FINI      = "fini"
+
+	// DefaultMaxPacketSize is the default maximum packet payload size (10MB)
+	// This prevents OOM attacks and memory exhaustion from oversized packets
+	DefaultMaxPacketSize = 10 * 1024 * 1024 // 10MB
 )
 
 type connOpts struct {
@@ -149,6 +153,13 @@ func (bc *baseConn) readPkt() {
 					err, bc.clientID)
 			}
 			goto FINI
+		}
+		// Check packet size to prevent OOM attacks from oversized packets
+		if pkt.Length() > DefaultMaxPacketSize {
+			bc.log.Debugf("packet too large, discarding: clientID: %d, packetID: %d, packetType: %s, size: %d, max: %d",
+				bc.clientID, pkt.ID(), pkt.Type().String(), pkt.Length(), DefaultMaxPacketSize)
+			// Discard the oversized packet and continue reading
+			continue
 		}
 		bc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
 			pkt.Type().String(), bc.clientID, pkt.ID(), pkt.Type().String())

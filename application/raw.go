@@ -24,7 +24,7 @@ func (sm *stream) Read(b []byte) (int, error) {
 	sm.mtx.RUnlock()
 
 	sm.cacheMtx.Lock()
-	if sm.cache != nil && len(sm.cache) != 0 {
+	if len(sm.cache) != 0 {
 		n := copy(b, sm.cache)
 		sm.cache = sm.cache[n:]
 		sm.cacheMtx.Unlock()
@@ -87,6 +87,11 @@ func (sm *stream) Write(b []byte) (int, error) {
 	newb := make([]byte, len(b))
 	copy(newb, b)
 	pkt := sm.pf.NewStreamPacketWithSessionID(sm.dg.DialogueID(), newb)
+
+	// Check packet size before sending
+	if pkt.Length() > DefaultMaxPacketSize {
+		return 0, ErrPacketTooLarge
+	}
 
 	if sm.writeDeadlineExceeded() {
 		select {
@@ -170,7 +175,7 @@ func (sm *stream) setReadDeadline(t time.Time) error {
 		sm.dlReadSync.Cancel(false)
 		sm.dlReadSync = nil
 	}
-	duration := t.Sub(time.Now())
+	duration := time.Until(t)
 	if duration > 0 {
 		sm.dlReadSync = sm.shub.Add(deadlineReadSyncKey,
 			synchub.WithTimeout(duration),
@@ -213,7 +218,7 @@ func (sm *stream) setWriteDeadline(t time.Time) error {
 		sm.dlWriteSync.Cancel(false)
 		sm.dlWriteSync = nil
 	}
-	duration := t.Sub(time.Now())
+	duration := time.Until(t)
 	if duration > 0 {
 		sm.dlWriteSync = sm.shub.Add(deadlineWriteSyncKey,
 			synchub.WithTimeout(duration),

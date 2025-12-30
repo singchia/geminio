@@ -205,7 +205,7 @@ func Test_stream_Read(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("stream.Read() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			elapse := time.Now().Sub(start).Seconds()
+			elapse := time.Since(start).Seconds()
 			if int(math.Round(elapse)) != tt.waitSecond {
 				t.Errorf("stream.Read() error, elapse not matched")
 			}
@@ -280,7 +280,7 @@ func Test_stream_Write(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("stream.Write() error = %v, wantErr %v", err, tt.wantErr)
 			}
-			elapse := time.Now().Sub(start).Seconds()
+			elapse := time.Since(start).Seconds()
 			if int(math.Round(elapse)) != tt.waitSecond {
 				t.Errorf("stream.Write() error, elapse not matched")
 			}

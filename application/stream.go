@@ -24,10 +24,14 @@ var (
 	ErrMismatchStreamID      = errors.New("mismatch streamID")
 	ErrMismatchClientID      = errors.New("mismatch clientID")
 	ErrRemoteRPCUnregistered = errors.New("remote rpc unregistered")
+	ErrPacketTooLarge        = errors.New("packet payload too large")
 )
 
 const (
 	registrationFormat = "%d-%d-registration"
+	// DefaultMaxPacketSize is the default maximum packet payload size (10MB)
+	// This prevents OOM attacks and memory exhaustion from oversized packets
+	DefaultMaxPacketSize = 10 * 1024 * 1024 // 10MB
 )
 
 type patternRPC struct {
@@ -163,7 +167,7 @@ func (sm *stream) Side() geminio.Side {
 func (sm *stream) handlePkt() {
 	writeInCh := sm.writeInCh
 
-	for {
+	for { //nolint:all // need select to handle channel close and IOErr
 		select {
 		case pkt, ok := <-writeInCh:
 			if !ok {
@@ -189,7 +193,7 @@ FINI:
 
 func (sm *stream) readPkt() {
 	readInCh := sm.dg.ReadC()
-	for {
+	for { //nolint:all // need select to handle channel close and IOErr
 		select {
 		case pkt, ok := <-readInCh:
 			if !ok {
@@ -258,7 +262,7 @@ func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORe
 	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	// we don't want block here, and also we don't want discard immediately.
-	select {
+	select { //nolint:all // select allows future non-blocking optimization
 	case sm.messageCh <- pkt:
 		/*
 			// TODO optimize it
