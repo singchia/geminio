@@ -132,6 +132,8 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 
 	go sm.handlePkt()
 	go sm.readPkt()
+	// Start channel monitoring for debugging memory issues
+	sm.startChannelMonitor(30 * time.Second)
 	return sm
 }
 
