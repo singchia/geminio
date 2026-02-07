@@ -2,7 +2,6 @@
 
 <img src="./docs/geminio.png" width="200">
 
-# Geminio
 
 > 强大的 Go 应用层网络编程库
 
