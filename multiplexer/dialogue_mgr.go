@@ -387,7 +387,18 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		}
 		dm.mtx.Lock()
 		dm.negotiatingDialogues[negotiatingID] = dg
-		dg.readInCh <- pkt
+		// SessionPacket is critical for dialogue negotiation, block to ensure delivery
+		// Use recover to handle panic if channel is closed (dialogue might be closing)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Channel is closed, dialogue is being closed
+					dm.log.Debugf("dialogue readInCh is closed (SessionPacket), packet dropped: clientID: %d, negotiatingID: %d, packetID: %d",
+						dm.cn.ClientID(), negotiatingID, pkt.ID())
+				}
+			}()
+			dg.readInCh <- pkt
+		}()
 		dm.mtx.Unlock()
 
 	case *packet.SessionAckPacket:
@@ -400,8 +411,18 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			dm.mtx.RUnlock()
 			return
 		}
-		// TODO do we need handle the packet in time? before data or dismiss coming.
-		dg.readInCh <- pkt
+		// SessionAckPacket is critical for dialogue negotiation, block to ensure delivery
+		// Use recover to handle panic if channel is closed (dialogue might be closing)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Channel is closed, dialogue is being closed
+					dm.log.Debugf("dialogue readInCh is closed (SessionAckPacket), packet dropped: clientID: %d, negotiatingID: %d, packetID: %d",
+						dm.cn.ClientID(), realPkt.NegotiateID(), pkt.ID())
+				}
+			}()
+			dg.readInCh <- pkt
+		}()
 		dm.mtx.RUnlock()
 
 	default:
@@ -426,8 +447,36 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		}
 		dm.log.Tracef("read to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
-		dg.readInCh <- pkt
+		// Check if dialogue is still valid before sending
+		// Check dialogueOK to avoid sending to a closing dialogue
+		dg.mtx.RLock()
+		dialogueOK := dg.dialogueOK
+		readInCh := dg.readInCh
+		dg.mtx.RUnlock()
 		dm.mtx.RUnlock()
+		
+		if !dialogueOK {
+			// Dialogue is closing, skip sending
+			dm.log.Debugf("dialogue is closing, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
+			return
+		}
+		
+		// Use recover to handle panic if channel is closed (race condition)
+		// This prevents crash when dialogue closes readInCh between our check and send
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Channel is closed, dialogue is being closed
+					dm.log.Debugf("dialogue readInCh is closed, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+						dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
+				}
+			}()
+			// Data packets: block to ensure delivery, no packet loss
+			// This ensures all packets are delivered to dialogue, even if it means slower processing
+			// The blocking will wait for dialogue to process packets and make room
+			readInCh <- pkt
+		}()
 	}
 }
 

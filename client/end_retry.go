@@ -94,8 +94,16 @@ func (re *RetryEnd) reinit(old *clientEnd) error {
 		return nil
 	}
 	// release the end
+	// Note: old.Close() will close the underlying connection and cleanup resources,
+	// including canceling the heartbeat tick (hbTick.Cancel()).
+	// The timer itself won't be closed since TimerOwner is re, not ce.
+	// This is correct because the timer is owned by RetryEnd and should remain
+	// active for the new connection.
 	if old != nil {
 		old.Close()
+		// Give some time for the old connection's heartbeat tick to be fully canceled
+		// and for any in-flight heartbeat packets to be processed
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	time.Sleep(3 * time.Second)

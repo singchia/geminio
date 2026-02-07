@@ -1,35 +1,125 @@
-<p align=center>
-<img src="./docs/geminio.png" width="40%">
-</p>
-
 <div align="center">
 
-[![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
+<img src="./docs/geminio.png" width="200">
+
+
+> A powerful application-layer network programming library for Go
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
 [![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Platform](https://img.shields.io/badge/platform-linux-brightgreen.svg)
-![Platform](https://img.shields.io/badge/platform-mac-brightgreen.svg)
-![Platform](https://img.shields.io/badge/platform-windows-brightgreen.svg)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
-English | [简体中文](./README_cn.md)
+[English](./README.md) | [简体中文](./README_cn.md)
 
 </div>
 
-## Introduction
+---
 
-Geminio is a library that provides **application-layer** network programming functions, named after [Doubling_Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm).
+## 📖 Introduction
 
-This library can make network development much easier with comprehensive capabilities like _**RPC**_, _**bidirectional-RPC**_, _**messager**_, _**multi-sessions**_, _**multiplexing**_ and still _**raw-connections**_.
+**Geminio** is a comprehensive application-layer network programming library for Go, named after the [Doubling Charm](https://harrypotter.fandom.com/wiki/Doubling_Charm) from Harry Potter. It provides a unified interface for building network applications with features like RPC, bidirectional RPC, messaging, multi-session management, connection multiplexing, and raw connection handling.
 
-## Architecture
+Geminio simplifies network development by abstracting away the complexity of low-level network programming, allowing developers to focus on business logic rather than connection management.
+
+## ✨ Features
+
+- 🔄 **RPC & Bidirectional RPC** - Full support for remote procedure calls with bidirectional capabilities
+- 📨 **Messaging** - Reliable message delivery with acknowledgment guarantees
+- 🔀 **Connection Multiplexing** - Multiple logical connections over a single physical connection
+- 🆔 **Connection Identification** - Unique ClientID and StreamID for connection management
+- 🔌 **Native Compatibility** - Seamless integration with Go's `net.Conn` and `net.Listener`
+- 🔁 **High Availability** - Built-in automatic reconnection mechanism for clients
+- ⚡ **High Performance** - Optimized for low latency and high throughput
+- 🛡️ **Production Ready** - Extensive testing including stress tests, chaos tests, and performance profiling
+- 📦 **Zero Dependencies** - Lightweight with minimal external dependencies
+
+## 🚀 Quick Start
+
+### Installation
+
+```bash
+go get github.com/singchia/geminio
+```
+
+### Basic Example
+
+**Server:**
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    ln, err := server.Listen("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        go func() {
+            msg, err := end.Receive(context.TODO())
+            if err != nil {
+                return
+            }
+            log.Printf("Received: %s", string(msg.Data()))
+            msg.Done()
+        }()
+    }
+}
+```
+
+**Client:**
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer end.Close()
+
+    msg := end.NewMessage([]byte("Hello, Geminio!"))
+    if err := end.Publish(context.TODO(), msg); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## 📚 Documentation
+
+### Architecture
+
+Geminio follows a layered architecture design:
 
 <img src="./docs/biz-arch.png" width="100%">
 
-### Interfaces
+### Core Interfaces
 
-Most of the library's abstractions are defined in the `geminio.go` file. You can understand the library's concepts by starting from `End` and combining it with the architecture diagram above. Alternatively, you can jump to the usage section below and directly look at the examples.
+The library's main abstractions are defined in `geminio.go`:
 
-```golang
+```go
+// RPC interface
 type RPCer interface {
     NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
     Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
@@ -37,147 +127,114 @@ type RPCer interface {
     Register(ctx context.Context, method string, rpc RPC) error
 }
 
+// Messaging interface
 type Messager interface {
     NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
-    
     Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
     PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
     Receive(ctx context.Context) (Message, error)
 }
 
-type Raw net.Conn
-
-type RawRPCMessager interface {
-    // raw
-    Raw
-    // rpc
-    RPCer
-    // message
-    Messager
-}
-
+// Stream interface (combines RPC, Messaging, and Raw connection)
 type Stream interface {
-    // a stream is a geminio
-    RawRPCMessager
-    // meta info for a stream
+    RawRPCMessager  // RPC + Messaging + net.Conn
     StreamID() uint64
     ClientID() uint64
     Meta() []byte
 }
-    
-// Stream multiplexer
+
+// Multiplexer for managing multiple streams
 type Multiplexer interface {
     OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
     AcceptStream() (Stream, error)
     ListStreams() []Stream
 }
-    
+
+// End is the main entry point
 type End interface {
-    // End is the entry for everything, and it's also a default stream with streamID 1
-    Stream
-    // End is a stream multiplexer
-    Multiplexer
-    // Close will close all from the End
+    Stream      // End is also a default stream (streamID = 1)
+    Multiplexer // End can manage multiple streams
     Close()
 }
 ```
 
-## Features
+## 💡 Usage Examples
 
-* **Basic RPC** (registration and invocation)
-* **Bidirectional RPC** (registration and invocation on both ends)
-* **Message send and acknowledgment** (message consistency guarantee)
-* **Synchronous/Asynchronous messaging** (waiting for return, asynchronous waiting)
-* **Connection multiplexing** (abstract countless TCP/UDP connections on a single connection)
-* **Connection identification** (unique ClientID and StreamID)
-* **Native net package compatibility** (support for abstracting net.Conn and net.Listener)
-* **High availability** (client's continuous reconnection mechanism)
-* **Extensive testing** (stress testing, chaos testing, runtime PProf analysis, etc.)
-* ...
+### Message Publishing
 
-## Usage
+**Server:**
 
-All usage examples can be found [here](./examples/usage).
-
-### Message
-
-**server:**
-
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
             msg, err := end.Receive(context.TODO())
             if err != nil {
                 return
             }
-            log.Infof("end receive: %s", string(msg.Data()))
+            log.Printf("Received: %s", string(msg.Data()))
             msg.Done()
         }()
     }
-
 }
 ```
 
-**client:**
+**Client:**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     end, err := client.NewEnd("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
+    defer end.Close()
+
     msg := end.NewMessage([]byte("hello"))
-    err = end.Publish(context.TODO(), msg)
-    if err != nil {
-        log.Errorf("end publish err: %s", err)
-        return
+    if err := end.Publish(context.TODO(), msg); err != nil {
+        log.Fatal(err)
     }
-    end.Close()
 }
 ```
 
 ### RPC
 
-**server:**
+**Server:**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/server"
 )
@@ -185,20 +242,19 @@ import (
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
             err := end.Register(context.TODO(), "echo", echo)
             if err != nil {
-                return
+                log.Fatal(err)
             }
         }()
     }
@@ -206,181 +262,163 @@ func main() {
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("echo:", string(req.Data()))
+    log.Printf("Echo: %s", string(req.Data()))
 }
 ```
 
-**client:**
+**Client:**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
     opt.SetWaitRemoteRPCs("echo")
+    
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
+    defer end.Close()
+
     rsp, err := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
     if err != nil {
-        log.Errorf("end call err: %s", err)
-        return
+        log.Fatal(err)
     }
-    if string(rsp.Data()) != "hello" {
-        log.Fatal("wrong echo", string(rsp.Data()))
-    }
-    log.Info("echo:", string(rsp.Data()))
-    end.Close()
+    
+    log.Printf("Response: %s", string(rsp.Data()))
 }
 ```
 
 ### Bidirectional RPC
 
-**server:**
+**Server:**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     opt := server.NewEndOptions()
-    // the option means all End from server will wait for the rpc registration
     opt.SetWaitRemoteRPCs("client-echo")
-    // pre-register server side method
     opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"server-echo", echo})
 
     ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
-            // call client side method
             rsp, err := end.Call(context.TODO(), "client-echo", end.NewRequest([]byte("foo")))
             if err != nil {
-                log.Errorf("end call err: %s", err)
-                return
+                log.Fatal(err)
             }
-            if string(rsp.Data()) != "foo" {
-                log.Fatal("wrong echo", string(rsp.Data()))
-            }
-            log.Info("client echo:", string(rsp.Data()))
+            log.Printf("Client echo: %s", string(rsp.Data()))
         }()
     }
 }
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("server echo:", string(req.Data()))
+    log.Printf("Server echo: %s", string(req.Data()))
 }
 ```
 
-**clent:**
+**Client:**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
-    // the option means all End from server will wait for the rpc registration
     opt.SetWaitRemoteRPCs("server-echo")
-    // pre-register client side method
     opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"client-echo", echo})
 
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
-    // call server side method
+    defer end.Close()
+
     rsp, err := end.Call(context.TODO(), "server-echo", end.NewRequest([]byte("bar")))
     if err != nil {
-        log.Errorf("end call err: %s", err)
-        return
+        log.Fatal(err)
     }
-    if string(rsp.Data()) != "bar" {
-        log.Fatal("wrong echo", string(rsp.Data()))
-    }
-    log.Info("server echo:", string(rsp.Data()))
-    end.Close()
+    
+    log.Printf("Server echo: %s", string(rsp.Data()))
 }
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("client echo:", string(req.Data()))
+    log.Printf("Client echo: %s", string(req.Data()))
 }
 ```
 
-### Multiplexer
+### Multiplexing
 
-**server:**
+**Server:**
 
-```golang
+```go
 package main
 
 import (
-    "github.com/jumboframes/armorigo/log"
+    "log"
+
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
-        // stream #1, and it's also a net.Conn
+        
+        // Open stream #1
         sm1, err := end.OpenStream()
         if err != nil {
-            log.Errorf("end open stream err: %s", err)
-            break
+            log.Fatal(err)
         }
         sm1.Write([]byte("hello#1"))
         sm1.Close()
 
-        // stream #2 and it's also a net.Conn
+        // Open stream #2
         sm2, err := end.OpenStream()
         if err != nil {
-            log.Errorf("end open stream err: %s", err)
-            break
+            log.Fatal(err)
         }
         sm2.Write([]byte("hello#2"))
         sm2.Close()
@@ -388,88 +426,101 @@ func main() {
 }
 ```
 
-**client:**
+**Client:**
 
-```golang
+```go
 package main
 
 import (
     "net"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     end, err := client.NewEnd("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
-    // the end is also a net.Listener
+    defer end.Close()
+
+    // End can be used as net.Listener
     ln := net.Listener(end)
     for {
         conn, err := ln.Accept()
         if err != nil {
-            log.Errorf("end accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func(conn net.Conn) {
             buf := make([]byte, 128)
-            _, err := conn.Read(buf)
+            n, err := conn.Read(buf)
             if err != nil {
                 return
             }
-            log.Info("read:", string(buf))
+            log.Printf("Read: %s", string(buf[:n]))
         }(conn)
     }
-    end.Close()
 }
 ```
 
-## Examples
+## 📦 More Examples
 
-* **Message and Acknowledgment** [messager](./examples/messager)
-* **Message Queue** [mq](./examples/mq)
-* **Chatroom** [chatroom](./examples/chatroom)
-* **Relay** [relay](./examples/relay)
-* **Intranet Penetration** [traversal](./examples/traversal)
+Check out the [examples](./examples) directory for more comprehensive examples:
 
+- **[Messager](./examples/messager)** - Message publishing and receiving with acknowledgment
+- **[Message Queue](./examples/mq)** - A simple message queue implementation
+- **[Chatroom](./examples/chatroom)** - Real-time chatroom example
+- **[Relay](./examples/relay)** - Network relay proxy
+- **[Intranet Penetration](./examples/traversal)** - NAT traversal example
 
-## Test
+## ⚡ Performance
 
-### Benchmarks
+Benchmark results (Intel Core i5-6267U @ 2.90GHz):
 
 ```
 goos: darwin
 goarch: amd64
 pkg: github.com/singchia/geminio/test/bench
 cpu: Intel(R) Core(TM) i5-6267U CPU @ 2.90GHz
+
 BenchmarkMessage-4   	   10117	    112584 ns/op	1164.21 MB/s	    5764 B/op	     181 allocs/op
 BenchmarkEnd-4       	   11644	     98586 ns/op	1329.52 MB/s	  550534 B/op	      73 allocs/op
 BenchmarkStream-4    	   12301	     96955 ns/op	1351.88 MB/s	  550605 B/op	      82 allocs/op
 BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     187 allocs/op
-PASS
 ```
 
-## Design
+## 🏗️ Design
 
-This library is implemented based on the following architecture
+Geminio is built with a layered architecture:
 
-<p align=center>
+<p align="center">
 <img src="./docs/design.png" width="80%">
 </p>
 
-## Contributing
-If you find any bugs, please submit the issue, we will respond in a short time.
- 
-If you want to contribute new features or help solve project problems, please feel free to submit a PR:
- 
- * Maintain consistent code style
- * Submit one feature at a time
- * Include unit tests with the code you submit
+## 🤝 Contributing
 
-<!-- Copy-paste in your Readme.md file -->
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Guidelines
+
+- Maintain consistent code style
+- Submit one feature at a time
+- Include unit tests with your code
+- Update documentation as needed
+
+For bug reports or feature requests, please open an issue on GitHub.
+
+## 📄 License
+
+Copyright © Austin Zhai, 2023-2030
+
+Licensed under the [Apache License 2.0](./LICENSE)
+
+---
+
+<div align="center">
 
 <a href="https://next.ossinsight.io/widgets/official/compose-activity-trends?repo_id=412119706" target="_blank" style="display: block" align="center">
   <picture>
@@ -478,10 +529,6 @@ If you want to contribute new features or help solve project problems, please fe
   </picture>
 </a>
 
-<!-- Made with [OSS Insight](https://ossinsight.io/) -->
+Made with [OSS Insight](https://ossinsight.io/)
 
-## License
-
-© Austin Zhai, 2023-2030
-
-Released under the [Apache License 2.0](https://github.com/singchia/geminio/blob/main/LICENSE)
+</div>

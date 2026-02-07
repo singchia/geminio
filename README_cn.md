@@ -1,35 +1,127 @@
-<p align=center>
-<img src="./docs/geminio.png" width="40%">
-</p>
-
 <div align="center">
 
-[![Go Reference](https://pkg.go.dev/badge/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
+<img src="./docs/geminio.png" width="200">
+
+
+> 强大的 Go 应用层网络编程库
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
 [![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-![Platform](https://img.shields.io/badge/platform-linux-brightgreen.svg)
-![Platform](https://img.shields.io/badge/platform-mac-brightgreen.svg)
-![Platform](https://img.shields.io/badge/platform-windows-brightgreen.svg)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
-[English](./README.md) | 简体中文
+[English](./README.md) | [简体中文](./README_cn.md)
 
 </div>
 
-## 介绍
+---
 
-Geminio是一个提供**应用层**网络编程的库，命名取自[Geminio](https://harrypotter.fandom.com/wiki/Doubling_Charm)，寓意有二，一是客户端和服务端连接的对等性，二是体现多路复用下会话的轻量性，如同复制魔法一样非常容易从一个连接上获取另一个抽象连接；集成这个库能让你的网络应用程序的事半功倍。
+## 📖 介绍
 
-这个库的诞生是因为市面上缺少如双向RPC、消息收发确认、裸连接管理、多会话和多路复用等多综合能力的库，而常常我们在开发例如消息队列、即时通讯、接入层网关、内网穿透、代理等应用软件或中间件时都严重依赖这些抽象，故此我开发了这个网络程序库，以能够让上层软件开发十分轻松。
+**Geminio** 是一个功能全面的 Go 应用层网络编程库，命名取自《哈利波特》中的[复制咒语](https://harrypotter.fandom.com/wiki/Doubling_Charm)（Geminio）。它提供了统一的接口来构建网络应用，支持 RPC、双向 RPC、消息传递、多会话管理、连接多路复用和原始连接处理等功能。
 
-## 架构
+Geminio 通过抽象底层网络编程的复杂性来简化网络开发，让开发者能够专注于业务逻辑而非连接管理。
+
+这个库的诞生是因为市面上缺少如双向 RPC、消息收发确认、裸连接管理、多会话和多路复用等综合能力的库，而我们在开发消息队列、即时通讯、接入层网关、内网穿透、代理等应用软件或中间件时都严重依赖这些抽象，故此开发了这个网络程序库，以能够让上层软件开发十分轻松。
+
+## ✨ 特性
+
+- 🔄 **RPC & 双向 RPC** - 完整支持远程过程调用，具备双向调用能力
+- 📨 **消息传递** - 可靠的消息传递，提供确认保证
+- 🔀 **连接多路复用** - 在单个物理连接上建立多个逻辑连接
+- 🆔 **连接标识** - 唯一的 ClientID 和 StreamID 用于连接管理
+- 🔌 **原生兼容** - 与 Go 的 `net.Conn` 和 `net.Listener` 无缝集成
+- 🔁 **高可用性** - 内置客户端自动重连机制
+- ⚡ **高性能** - 针对低延迟和高吞吐量优化
+- 🛡️ **生产就绪** - 包含压力测试、混沌测试和性能分析的全面测试
+- 📦 **零依赖** - 轻量级，最小化外部依赖
+
+## 🚀 快速开始
+
+### 安装
+
+```bash
+go get github.com/singchia/geminio
+```
+
+### 基础示例
+
+**服务端：**
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/singchia/geminio/server"
+)
+
+func main() {
+    ln, err := server.Listen("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    for {
+        end, err := ln.AcceptEnd()
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        go func() {
+            msg, err := end.Receive(context.TODO())
+            if err != nil {
+                return
+            }
+            log.Printf("收到消息: %s", string(msg.Data()))
+            msg.Done()
+        }()
+    }
+}
+```
+
+**客户端：**
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/singchia/geminio/client"
+)
+
+func main() {
+    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer end.Close()
+
+    msg := end.NewMessage([]byte("Hello, Geminio!"))
+    if err := end.Publish(context.TODO(), msg); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+## 📚 文档
+
+### 架构
+
+Geminio 采用分层架构设计：
 
 <img src="./docs/biz-arch.png" width="100%">
 
-### 接口
+### 核心接口
 
-本库的所有抽象基本都在首页```geminio.go```里，从End开始结合上面架构图即可理解本库的设计，当然你也可以跳到下面的使用章节直接看示例。
+本库的所有抽象基本都在 `geminio.go` 里，从 End 开始结合上面架构图即可理解本库的设计：
 
-```golang
+```go
+// RPC 接口
 type RPCer interface {
     NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
     Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
@@ -37,131 +129,100 @@ type RPCer interface {
     Register(ctx context.Context, method string, rpc RPC) error
 }
 
+// 消息接口
 type Messager interface {
     NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
-    
     Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
     PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
     Receive(ctx context.Context) (Message, error)
 }
 
-type Raw net.Conn
-
-type RawRPCMessager interface {
-    // raw
-    Raw
-    // rpc
-    RPCer
-    // message
-    Messager
-}
-
+// 流接口（结合了 RPC、消息传递和原始连接）
 type Stream interface {
-    // a stream is a geminio
-    RawRPCMessager
-    // meta info for a stream
+    RawRPCMessager  // RPC + 消息传递 + net.Conn
     StreamID() uint64
     ClientID() uint64
     Meta() []byte
 }
-    
-// Stream multiplexer
+
+// 多路复用器，用于管理多个流
 type Multiplexer interface {
     OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
     AcceptStream() (Stream, error)
     ListStreams() []Stream
 }
-    
+
+// End 是主入口点
 type End interface {
-    // End is the entry for everything, and it's also a default stream with streamID 1
-    Stream
-    // End is a stream multiplexer
-    Multiplexer
-    // Close will close all from the End
+    Stream      // End 也是默认流（streamID = 1）
+    Multiplexer // End 可以管理多个流
     Close()
 }
 ```
 
-### 特性
+## 💡 使用示例
 
-* 基本RPC（注册和调用）
-* 双向RPC（双方注册和调用）
-* 消息收发确认（消息一致性保障）
-* 同步/异步消息（等待返回、异步等待）
-* 连接多路复用（单tcp/udp连接上抽象无数tcp/udp连接）
-* 连接标识（唯一ClientID和唯一StreamID）
-* 支持net.Conn和net.Listener抽象
-* 高可用（RetryEnd的持续重连机制）
-* 测试充分（压力测试、Chaos测试、运行时PProf分析等）
-* ...
-
-## 使用
-
-### 消息
+### 消息发布
 
 **服务端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
             msg, err := end.Receive(context.TODO())
             if err != nil {
                 return
             }
-            log.Infof("end receive: %s", string(msg.Data()))
+            log.Printf("收到消息: %s", string(msg.Data()))
             msg.Done()
         }()
     }
-
 }
 ```
 
 **客户端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     end, err := client.NewEnd("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
+    defer end.Close()
+
     msg := end.NewMessage([]byte("hello"))
-    err = end.Publish(context.TODO(), msg)
-    if err != nil {
-        log.Errorf("end publish err: %s", err)
-        return
+    if err := end.Publish(context.TODO(), msg); err != nil {
+        log.Fatal(err)
     }
-    end.Close()
 }
 ```
 
@@ -169,13 +230,13 @@ func main() {
 
 **服务端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/server"
 )
@@ -183,20 +244,19 @@ import (
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
             err := end.Register(context.TODO(), "echo", echo)
             if err != nil {
-                return
+                log.Fatal(err)
             }
         }()
     }
@@ -204,139 +264,123 @@ func main() {
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("echo:", string(req.Data()))
+    log.Printf("Echo: %s", string(req.Data()))
 }
 ```
 
 **客户端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
     opt.SetWaitRemoteRPCs("echo")
+    
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
+    defer end.Close()
+
     rsp, err := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
     if err != nil {
-        log.Errorf("end call err: %s", err)
-        return
+        log.Fatal(err)
     }
-    if string(rsp.Data()) != "hello" {
-        log.Fatal("wrong echo", string(rsp.Data()))
-    }
-    log.Info("echo:", string(rsp.Data()))
-    end.Close()
+    
+    log.Printf("响应: %s", string(rsp.Data()))
 }
 ```
 
-### 双向RPC
+### 双向 RPC
 
 **服务端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     opt := server.NewEndOptions()
-    // the option means all End from server will wait for the rpc registration
     opt.SetWaitRemoteRPCs("client-echo")
-    // pre-register server side method
     opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"server-echo", echo})
 
     ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func() {
-            // call client side method
             rsp, err := end.Call(context.TODO(), "client-echo", end.NewRequest([]byte("foo")))
             if err != nil {
-                log.Errorf("end call err: %s", err)
-                return
+                log.Fatal(err)
             }
-            if string(rsp.Data()) != "foo" {
-                log.Fatal("wrong echo", string(rsp.Data()))
-            }
-            log.Info("client echo:", string(rsp.Data()))
+            log.Printf("客户端 echo: %s", string(rsp.Data()))
         }()
     }
 }
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("server echo:", string(req.Data()))
+    log.Printf("服务端 echo: %s", string(req.Data()))
 }
 ```
 
 **客户端：**
 
-```golang
+```go
 package main
 
 import (
     "context"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
-    // the option means all End from server will wait for the rpc registration
     opt.SetWaitRemoteRPCs("server-echo")
-    // pre-register client side method
     opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"client-echo", echo})
 
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
-    // call server side method
+    defer end.Close()
+
     rsp, err := end.Call(context.TODO(), "server-echo", end.NewRequest([]byte("bar")))
     if err != nil {
-        log.Errorf("end call err: %s", err)
-        return
+        log.Fatal(err)
     }
-    if string(rsp.Data()) != "bar" {
-        log.Fatal("wrong echo", string(rsp.Data()))
-    }
-    log.Info("server echo:", string(rsp.Data()))
-    end.Close()
+    
+    log.Printf("服务端 echo: %s", string(rsp.Data()))
 }
 
 func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
-    log.Info("client echo:", string(req.Data()))
+    log.Printf("客户端 echo: %s", string(req.Data()))
 }
 ```
 
@@ -344,41 +388,39 @@ func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 
 **服务端：**
 
-```golang
+```go
 package main
 
 import (
-    "github.com/jumboframes/armorigo/log"
+    "log"
+
     "github.com/singchia/geminio/server"
 )
 
 func main() {
     ln, err := server.Listen("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("server listen err: %s", err)
-        return
+        log.Fatal(err)
     }
 
     for {
         end, err := ln.AcceptEnd()
         if err != nil {
-            log.Errorf("accept err: %s", err)
-            break
+            log.Fatal(err)
         }
-        // stream #1, and it's also a net.Conn
+        
+        // 打开流 #1
         sm1, err := end.OpenStream()
         if err != nil {
-            log.Errorf("end open stream err: %s", err)
-            break
+            log.Fatal(err)
         }
         sm1.Write([]byte("hello#1"))
         sm1.Close()
 
-        // stream #2 and it's also a net.Conn
+        // 打开流 #2
         sm2, err := end.OpenStream()
         if err != nil {
-            log.Errorf("end open stream err: %s", err)
-            break
+            log.Fatal(err)
         }
         sm2.Write([]byte("hello#2"))
         sm2.Close()
@@ -388,86 +430,99 @@ func main() {
 
 **客户端：**
 
-```golang
+```go
 package main
 
 import (
     "net"
+    "log"
 
-    "github.com/jumboframes/armorigo/log"
     "github.com/singchia/geminio/client"
 )
 
 func main() {
     end, err := client.NewEnd("tcp", "127.0.0.1:8080")
     if err != nil {
-        log.Errorf("client dial err: %s", err)
-        return
+        log.Fatal(err)
     }
-    // the end is also a net.Listener
+    defer end.Close()
+
+    // End 可以作为 net.Listener 使用
     ln := net.Listener(end)
     for {
         conn, err := ln.Accept()
         if err != nil {
-            log.Errorf("end accept err: %s", err)
-            break
+            log.Fatal(err)
         }
+        
         go func(conn net.Conn) {
             buf := make([]byte, 128)
-            _, err := conn.Read(buf)
+            n, err := conn.Read(buf)
             if err != nil {
                 return
             }
-            log.Info("read:", string(buf))
+            log.Printf("读取: %s", string(buf[:n]))
         }(conn)
     }
-    end.Close()
 }
 ```
 
-## 示例
+## 📦 更多示例
 
-* 消息和确认 [messager](./examples/messager)
-* 简单消息队列  [mq](./examples/mq)
-* 聊天室  [chatroom](./examples/chatroom)
-* 中继器  [relay](./examples/relay)
-* 内网穿透 [traversal](./examples/traversal)
+查看 [examples](./examples) 目录获取更多完整示例：
 
-## 测试
+- **[消息传递](./examples/messager)** - 带确认的消息发布和接收
+- **[消息队列](./examples/mq)** - 简单的消息队列实现
+- **[聊天室](./examples/chatroom)** - 实时聊天室示例
+- **[中继器](./examples/relay)** - 网络中继代理
+- **[内网穿透](./examples/traversal)** - NAT 穿透示例
 
-### Benchmarks
+## ⚡ 性能
+
+基准测试结果（Intel Core i5-6267U @ 2.90GHz）：
 
 ```
 goos: darwin
 goarch: amd64
 pkg: github.com/singchia/geminio/test/bench
 cpu: Intel(R) Core(TM) i5-6267U CPU @ 2.90GHz
+
 BenchmarkMessage-4   	   10117	    112584 ns/op	1164.21 MB/s	    5764 B/op	     181 allocs/op
 BenchmarkEnd-4       	   11644	     98586 ns/op	1329.52 MB/s	  550534 B/op	      73 allocs/op
 BenchmarkStream-4    	   12301	     96955 ns/op	1351.88 MB/s	  550605 B/op	      82 allocs/op
 BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     187 allocs/op
-PASS
 ```
 
-## 设计
+## 🏗️ 设计
 
-本库按照以下架构实现
+Geminio 采用分层架构实现：
 
-<p align=center>
+<p align="center">
 <img src="./docs/design.png" width="80%">
 </p>
 
-## 参与开发
+## 🤝 参与开发
 
-如果你发现任何Bug，请提出Issue，项目Maintainers会及时响应相关问题。
- 
- 如果你希望能够提交Feature，更快速解决项目问题，满足以下简单条件下欢迎提交PR：
- 
- * 代码风格保持一致
- * 每次提交一个Feature
- * 提交的代码都携带单元测试
+欢迎贡献！请随时提交 Pull Request。
 
-<!-- Copy-paste in your Readme.md file -->
+### 开发指南
+
+- 保持一致的代码风格
+- 每次提交一个功能
+- 提交的代码都携带单元测试
+- 根据需要更新文档
+
+如果发现任何 Bug 或希望提交功能请求，请在 GitHub 上提交 Issue。
+
+## 📄 许可证
+
+版权所有 © Austin Zhai, 2023-2030
+
+基于 [Apache License 2.0](./LICENSE) 许可
+
+---
+
+<div align="center">
 
 <a href="https://next.ossinsight.io/widgets/official/compose-activity-trends?repo_id=412119706" target="_blank" style="display: block" align="center">
   <picture>
@@ -476,10 +531,6 @@ PASS
   </picture>
 </a>
 
-<!-- Made with [OSS Insight](https://ossinsight.io/) -->
+Made with [OSS Insight](https://ossinsight.io/)
 
-## 许可证
-
-© Austin Zhai, 2023-2030
-
-Released under the [Apache License 2.0](https://github.com/singchia/geminio/blob/main/LICENSE)
+</div>

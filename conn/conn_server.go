@@ -109,6 +109,8 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	sc.writeOutCh = make(chan packet.Packet, sc.writeOutSize)
 	sc.readOutCh = make(chan packet.Packet, sc.readOutSize)
 	sc.writeInCh = make(chan packet.Packet, sc.writeInSize)
+	sc.heartbeatCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (receive)
+	sc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
 	// timer
 	if !sc.tmrOutside {
 		sc.tmr = timer.NewTimer()
@@ -127,6 +129,8 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	// rolling up
 	go sc.writePkt()
 	go sc.handlePkt()
+	// Start channel monitoring for debugging memory issues
+	sc.startChannelMonitor(30 * time.Second)
 	err = sc.wait()
 	if err != nil {
 		goto ERR
@@ -206,8 +210,22 @@ func (sc *ServerConn) initFSM() {
 func (sc *ServerConn) handlePkt() {
 	readInCh := sc.readInCh
 	writeInCh := sc.writeInCh
+	heartbeatCh := sc.heartbeatCh
 	for {
 		select {
+		case pkt := <-heartbeatCh:
+			// Priority processing for heartbeat packets
+			sc.log.Tracef("conn read in heartbeat packet, clientID: %d, packetID: %d, packetType: %s",
+				sc.clientID, pkt.ID(), pkt.Type().String())
+			ret := sc.handleIn(pkt)
+			if ret == iodefine.IOErr {
+				sc.log.Errorf("conn handle in heartbeat packet err, clientID: %d", sc.clientID)
+				goto FINI
+			}
+			if ret == iodefine.IOClosed {
+				sc.log.Debugf("conn handle in heartbeat packet done, clientID: %d", sc.clientID)
+				goto FINI
+			}
 		case pkt, ok := <-readInCh:
 			if !ok {
 				goto FINI
@@ -330,7 +348,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 
 	// set the heartbeat
 	sc.heartbeat = pkt.Heartbeat
-	sc.hbTick = sc.tmr.Add(time.Duration(sc.heartbeat)*2*time.Second, timer.WithHandler(sc.waitHBTimeout))
+	sc.resetHeartbeatTimeout()
 	return iodefine.IOSuccess
 }
 
@@ -341,12 +359,19 @@ func (sc *ServerConn) handleInHeartbeatPacket(pkt *packet.HeartbeatPacket) iodef
 			sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
 		return iodefine.IODiscard
 	}
-	// reset hearbeat
-	sc.hbTick.Cancel()
-	sc.hbTick = sc.tmr.Add(time.Duration(sc.heartbeat)*2*time.Second, timer.WithHandler(sc.waitHBTimeout))
+	// reset heartbeat timeout
+	sc.resetHeartbeatTimeout()
 
 	retPkt := sc.pf.NewHeartbeatAckPacket(pkt.PacketID)
-	sc.writeOutCh <- retPkt
+	// Use priority channel for heartbeat ack to avoid being blocked by application layer messages
+	select {
+	case sc.heartbeatWriteCh <- retPkt:
+		// Successfully sent to priority channel
+	default:
+		// If priority channel is full, fallback to normal channel
+		// This should rarely happen as heartbeat packets are small and infrequent
+		sc.writeOutCh <- retPkt
+	}
 	if sc.dlgt != nil {
 		sc.dlgt.Heartbeat(sc)
 	}
@@ -365,6 +390,9 @@ func (sc *ServerConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		}
 		return iodefine.IODiscard
 	}
+	// Reset heartbeat timeout when receiving any data packet
+	// Any packet indicates the connection is alive, so extend the heartbeat wait time
+	sc.resetHeartbeatTimeout()
 	sc.readOutCh <- pkt
 	return iodefine.IOSuccess
 }
@@ -407,7 +435,13 @@ func (sc *ServerConn) Close() {
 			sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 
 		pkt := sc.pf.NewDisConnPacket()
-		sc.writeInCh <- pkt
+		// Use non-blocking send to avoid deadlock:
+		// Close() may be called from handlePkt() goroutine (e.g., via handleInDisConnPacket -> Close()),
+		// so if writeInCh is full, blocking here would cause deadlock
+		// Use a goroutine to send asynchronously to break the deadlock
+		go func() {
+			sc.writeInCh <- pkt
+		}()
 	})
 }
 
@@ -466,10 +500,21 @@ func (sc *ServerConn) fini() {
 	// collect id
 	sc.clientIDs = nil
 	// collect channels
-	sc.readInCh, sc.writeInCh, sc.writeOutCh = nil, nil, nil
+	close(sc.heartbeatCh)
+	close(sc.heartbeatWriteCh)
+	sc.readInCh, sc.writeInCh, sc.writeOutCh, sc.heartbeatCh, sc.heartbeatWriteCh = nil, nil, nil, nil, nil
 
 	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+}
+
+// resetHeartbeatTimeout resets the heartbeat timeout timer
+// This should be called whenever any packet is received, as any packet indicates the connection is alive
+func (sc *ServerConn) resetHeartbeatTimeout() {
+	if sc.hbTick != nil {
+		sc.hbTick.Cancel()
+	}
+	sc.hbTick = sc.tmr.Add(time.Duration(sc.heartbeat)*2*time.Second, timer.WithHandler(sc.waitHBTimeout))
 }
 
 func (sc *ServerConn) waitHBTimeout(event *timer.Event) {

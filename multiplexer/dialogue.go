@@ -73,6 +73,9 @@ type dialogue struct {
 	readOutSize, writeInSize int
 	failedCh                 chan packet.Packet
 
+	// rate limiter for data packets (PPS limit)
+	rateLimiter *RateLimiter
+
 	closeOnce   *gsync.Once
 	closeIOOnce *gsync.Once
 }
@@ -135,6 +138,15 @@ func OptionDialogueBufferSize(read, write int) DialogueOption {
 	}
 }
 
+// OptionDialogueRateLimit sets the rate limit (PPS - packets per second) for data packets
+// pps: packets per second (default: 1000 if <= 0)
+// burst: maximum burst size (default: 2x pps if <= 0)
+func OptionDialogueRateLimit(pps, burst int) DialogueOption {
+	return func(dg *dialogue) {
+		dg.rateLimiter = NewRateLimiter(pps, burst)
+	}
+}
+
 func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogue, error) {
 	dg := &dialogue{
 		opts:         baseOpts,
@@ -156,6 +168,12 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	for _, opt := range opts {
 		opt(dg)
 	}
+	// Initialize rate limiter with default values if not set
+	// Default: 1000 pps (packets per second), 2000 burst
+	// This ensures all dialogues have rate limiting enabled by default
+	if dg.rateLimiter == nil {
+		dg.rateLimiter = NewRateLimiter(1000, 2000)
+	}
 	// io size
 	dg.readInCh = make(chan packet.Packet, dg.readInSize)
 	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
@@ -175,6 +193,8 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	// rolling up
 	go dg.handlePkt()
 	go dg.writePkt()
+	// Start channel monitoring for debugging memory issues
+	dg.startChannelMonitor(30 * time.Second)
 	return dg, nil
 }
 
@@ -465,7 +485,13 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 	dg.meta = pkt.SessionData.Meta
 
 	retPkt := dg.pf.NewSessionAckPacket(pkt.PacketID, pkt.NegotiateID(), dialogueID, nil)
-	dg.writeInCh <- retPkt
+	// Use non-blocking send to avoid deadlock:
+	// handlePkt() is reading from writeInCh in the same goroutine,
+	// so if writeInCh is full, blocking here would cause deadlock
+	// Use a goroutine to send asynchronously to break the deadlock
+	go func() {
+		dg.writeInCh <- retPkt
+	}()
 	return iodefine.IOSuccess
 }
 
@@ -504,7 +530,13 @@ func (dg *dialogue) handleInDismissPacket(pkt *packet.DismissPacket) iodefine.IO
 	}
 	retPkt := dg.pf.NewDismissAckPacket(pkt.ID(),
 		pkt.SessionID(), nil)
-	dg.writeInCh <- retPkt
+	// Use non-blocking send to avoid deadlock:
+	// handlePkt() is reading from writeInCh in the same goroutine,
+	// so if writeInCh is full, blocking here would cause deadlock
+	// Use a goroutine to send asynchronously to break the deadlock
+	go func() {
+		dg.writeInCh <- retPkt
+	}()
 	// send out side dismiss while receiving dismiss packet
 	dg.Close()
 	return iodefine.IOSuccess
@@ -541,6 +573,17 @@ func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		}
 		return iodefine.IODiscard
 	}
+	// Apply PPS rate limiting: wait for rate limiter to allow the packet
+	// This provides smooth rate limiting while ensuring no packet loss
+	// Block until rate limiter allows the packet (may slow down but no loss)
+	for !dg.rateLimiter.Allow() {
+		// Rate limited: wait a short time and retry
+		// This ensures packets are not lost, just delayed
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Data packets: block to ensure delivery, no packet loss
+	// This ensures all packets are delivered to stream layer, even if it means slower processing
+	// The blocking will wait for stream layer to read packets and make room
 	dg.readOutCh <- pkt
 	return iodefine.IOSuccess
 }
@@ -651,7 +694,13 @@ func (dg *dialogue) Close() {
 		dg.log.Debugf("dialogue async close, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		dg.writeInCh <- pkt
+		// Use non-blocking send to avoid deadlock:
+		// Close() may be called from handlePkt() goroutine (e.g., via handleInDismissPacket -> Close()),
+		// so if writeInCh is full, blocking here would cause deadlock
+		// Use a goroutine to send asynchronously to break the deadlock
+		go func() {
+			dg.writeInCh <- pkt
+		}()
 
 		go func() {
 			// we don't use shub WithCallback because the force close may arrive firse
@@ -681,7 +730,13 @@ func (dg *dialogue) CloseWait() {
 		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		dg.writeInCh <- pkt
+		// Use non-blocking send to avoid deadlock:
+		// CloseWait() may be called from handlePkt() goroutine,
+		// so if writeInCh is full, blocking here would cause deadlock
+		// Use a goroutine to send asynchronously to break the deadlock
+		go func() {
+			dg.writeInCh <- pkt
+		}()
 		dg.mtx.RUnlock()
 		// the sync shouldn't be locked
 		event := <-dg.closewait.C()

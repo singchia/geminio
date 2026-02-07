@@ -109,10 +109,10 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 			fsm:          yafsm.NewFSM(),
 			side:         geminio.InitiatorSide,
 			connOK:       true,
-			readInSize:   32,
-			writeOutSize: 32,
-			readOutSize:  32,
-			writeInSize:  32,
+			readInSize:   256,
+			writeOutSize: 256,
+			readOutSize:  256,
+			writeInSize:  256,
 		},
 		//finiOnce:  new(sync.Once),
 		closeOnce: new(sync.Once),
@@ -130,6 +130,8 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 	cc.writeOutCh = make(chan packet.Packet, cc.writeOutSize)
 	cc.readOutCh = make(chan packet.Packet, cc.readOutSize)
 	cc.writeInCh = make(chan packet.Packet, cc.writeInSize)
+	cc.heartbeatCh = make(chan packet.Packet, 10)      // priority channel for heartbeat packets (receive)
+	cc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
 	// timer
 	if !cc.tmrOutside {
 		cc.tmr = timer.NewTimer()
@@ -152,12 +154,19 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 	go cc.readPkt()
 	go cc.writePkt()
 	go cc.handlePkt()
+	// Start channel monitoring for debugging memory issues
+	cc.startChannelMonitor(30 * time.Second)
 	err = cc.connect()
 	if err != nil {
 		goto ERR
 	}
 	return cc, nil
 ERR:
+	// cancel heartbeat tick before closing connection
+	if cc.hbTick != nil {
+		cc.hbTick.Cancel()
+		cc.hbTick = nil
+	}
 	// let fini finish the end
 	cc.netconn.Close()
 	return nil, err
@@ -216,8 +225,22 @@ func (cc *ClientConn) connect() error {
 func (cc *ClientConn) handlePkt() {
 	readInCh := cc.readInCh
 	writeInCh := cc.writeInCh
+	heartbeatCh := cc.heartbeatCh
 	for {
 		select {
+		case pkt := <-heartbeatCh:
+			// Priority processing for heartbeat packets
+			cc.log.Tracef("conn read in heartbeat packet, clientID: %d, packetID: %d, packetType: %s",
+				cc.clientID, pkt.ID(), pkt.Type().String())
+			ret := cc.handleIn(pkt)
+			if ret == iodefine.IOErr {
+				cc.log.Errorf("handle in heartbeat packet err, clientID: %d", cc.clientID)
+				goto FINI
+			}
+			if ret == iodefine.IOClosed {
+				cc.log.Debugf("handle in heartbeat packet done, clientID: %d", cc.clientID)
+				goto FINI
+			}
 		case pkt, ok := <-readInCh:
 			if !ok {
 				goto FINI
@@ -232,6 +255,9 @@ func (cc *ClientConn) handlePkt() {
 				goto FINI
 			}
 		case pkt := <-writeInCh:
+			// Log when processing packet from writeInCh to track if heartbeat packets are being processed
+			cc.log.Tracef("handlePkt processing writeInCh packet, clientID: %d, packetID: %d, packetType: %s",
+				cc.clientID, pkt.ID(), pkt.Type().String())
 			ret := cc.handleOut(pkt)
 			if ret == iodefine.IOErr {
 				cc.log.Errorf("handle out packet err, clientID: %d", cc.clientID)
@@ -240,6 +266,11 @@ func (cc *ClientConn) handlePkt() {
 			if ret == iodefine.IOClosed {
 				cc.log.Debugf("handle out packet done, clientID: %d", cc.clientID)
 				goto FINI
+			}
+			if ret == iodefine.IODiscard {
+				// Log when packet is discarded to track if writeOutCh is full
+				cc.log.Debugf("handle out packet discarded, clientID: %d, packetID: %d, packetType: %s",
+					cc.clientID, pkt.ID(), pkt.Type().String())
 			}
 		}
 	}
@@ -301,7 +332,13 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 		cc.shub.Error(pkt.PacketID, errors.New(pkt.ConnData.Error))
 		// close the conn
 		retPkt := cc.pf.NewDisConnPacket()
-		cc.writeInCh <- retPkt
+		// Use non-blocking send to avoid deadlock:
+		// handlePkt() is reading from writeInCh in the same goroutine,
+		// so if writeInCh is full, blocking here would cause deadlock
+		// Use a goroutine to send asynchronously to break the deadlock
+		go func() {
+			cc.writeInCh <- retPkt
+		}()
 		return iodefine.IOSuccess
 	}
 	cc.shub.Done(pkt.PacketID)
@@ -329,6 +366,9 @@ func (cc *ClientConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 			cc.clientID, pkt.ID(), cc.netconn.RemoteAddr(), string(cc.meta))
 		return iodefine.IODiscard
 	}
+	// Data packets: block to ensure delivery, no packet loss
+	// This ensures all packets are delivered to upper layer, even if it means slower processing
+	// The blocking will wait for upper layer to read packets and make room
 	cc.readOutCh <- pkt
 	return iodefine.IOSuccess
 }
@@ -344,6 +384,8 @@ func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet
 		cc.shub.Error(pkt.ID(), err)
 		return iodefine.IOErr
 	}
+	// ConnPacket is critical, must be sent successfully, so we block here
+	// This ensures the connection packet is always sent, even if writeOutCh is full
 	cc.writeOutCh <- pkt
 	cc.log.Debugf("send conn succeed, clientID: %d, PacketID: %d, packetType: %s",
 		cc.clientID, pkt.ID(), pkt.Type().String())
@@ -351,21 +393,44 @@ func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet
 }
 
 func (cc *ClientConn) handleOutHeartbeatPacket(pkt *packet.HeartbeatPacket) iodefine.IORet {
-	cc.writeOutCh <- pkt
-	cc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
-		cc.clientID, pkt.ID(), pkt.Type().String())
-	return iodefine.IOSuccess
+	// HeartbeatPacket is critical, must be sent successfully, so we block here
+	// Try priority channel first, if full, fallback to normal channel and block
+	select {
+	case cc.heartbeatWriteCh <- pkt:
+		// Successfully sent to priority channel
+		cc.log.Debugf("send heartbeat succeed, clientID: %d, PacketID: %d, packetType: %s",
+			cc.clientID, pkt.ID(), pkt.Type().String())
+		return iodefine.IOSuccess
+	default:
+		// If priority channel is full, fallback to normal channel and block
+		// This ensures heartbeat packets are always sent, even if channels are full
+		cc.writeOutCh <- pkt
+		cc.log.Debugf("send heartbeat succeed (fallback), clientID: %d, PacketID: %d, packetType: %s",
+			cc.clientID, pkt.ID(), pkt.Type().String())
+		return iodefine.IOSuccess
+	}
 }
 
 func (cc *ClientConn) sendHeartbeat(event *timer.Event) {
 	cc.connMtx.RLock()
 	if !cc.connOK {
 		cc.connMtx.RUnlock()
+		cc.log.Debugf("heartbeat skipped, connOK is false, clientID: %d", cc.clientID)
 		return
 	}
+	// Create packet before releasing lock to avoid race condition
 	pkt := cc.pf.NewHeartbeatPacket()
-	cc.writeInCh <- pkt
+	writeInCh := cc.writeInCh
 	cc.connMtx.RUnlock()
+
+	// HeartbeatPacket is critical, must be sent successfully, so we block here
+	// This ensures heartbeat packets are always sent, even if writeInCh is full
+	// The blocking will wait for handlePkt() to process packets and make room
+	writeInCh <- pkt
+	// Successfully sent heartbeat packet to writeInCh
+	// Note: The packet will be processed by handlePkt() and then sent to heartbeatWriteCh or writeOutCh
+	// "conn write heartbeat down" will be printed in writePkt() when the packet is actually written to network
+	cc.log.Tracef("heartbeat packet sent to writeInCh, clientID: %d, packetID: %d", cc.clientID, pkt.ID())
 }
 
 func (cc *ClientConn) Close() {
@@ -384,7 +449,13 @@ func (cc *ClientConn) Close() {
 			cc.clientID, cc.netconn.RemoteAddr(), string(cc.meta))
 
 		pkt := cc.pf.NewDisConnPacket()
-		cc.writeInCh <- pkt
+		// Use non-blocking send to avoid deadlock:
+		// Close() may be called from handlePkt() goroutine (e.g., via handleInDisConnPacket -> Close()),
+		// so if writeInCh is full, blocking here would cause deadlock
+		// Use a goroutine to send asynchronously to break the deadlock
+		go func() {
+			cc.writeInCh <- pkt
+		}()
 	})
 }
 
@@ -432,7 +503,9 @@ func (cc *ClientConn) fini() {
 	cc.fsm.Close()
 	cc.fsm = nil
 	// collect channels
-	cc.readInCh, cc.writeInCh, cc.writeOutCh = nil, nil, nil
+	close(cc.heartbeatCh)
+	close(cc.heartbeatWriteCh)
+	cc.readInCh, cc.writeInCh, cc.writeOutCh, cc.heartbeatCh, cc.heartbeatWriteCh = nil, nil, nil, nil, nil
 
 	cc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))
