@@ -21,16 +21,12 @@ func (bc *baseConn) logChannelStats() {
 	readInLen := len(bc.readInCh)
 	writeOutLen := len(bc.writeOutCh)
 	readOutLen := len(bc.readOutCh)
-	writeInLen := len(bc.writeInCh)
-	heartbeatLen := len(bc.heartbeatCh)
-	heartbeatWriteLen := len(bc.heartbeatWriteCh)
 
 	// Read sizes and clientID without lock - these are read-only after initialization
 	// connOK may be slightly stale but that's acceptable for monitoring purposes
 	readInSize := bc.readInSize
 	writeOutSize := bc.writeOutSize
 	readOutSize := bc.readOutSize
-	writeInSize := bc.writeInSize
 	clientID := bc.clientID
 	connOK := bc.connOK
 
@@ -42,29 +38,20 @@ func (bc *baseConn) logChannelStats() {
 	readInUsage := float64(readInLen) / float64(readInSize) * 100
 	writeOutUsage := float64(writeOutLen) / float64(writeOutSize) * 100
 	readOutUsage := float64(readOutLen) / float64(readOutSize) * 100
-	writeInUsage := float64(writeInLen) / float64(writeInSize) * 100
-	heartbeatUsage := float64(heartbeatLen) / 10.0 * 100
-	heartbeatWriteUsage := float64(heartbeatWriteLen) / 10.0 * 100
 
 	// Use WARN level if any channel is > 80% full, otherwise INFO
-	if readInUsage > 80 || writeOutUsage > 80 || readOutUsage > 80 || writeInUsage > 80 || heartbeatUsage > 80 || heartbeatWriteUsage > 80 {
-		bc.log.Warnf("channel stats (HIGH USAGE), clientID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%), writeInCh: %d/%d (%.1f%%), heartbeatCh: %d/10 (%.1f%%), heartbeatWriteCh: %d/10 (%.1f%%)",
+	if readInUsage > 80 || writeOutUsage > 80 || readOutUsage > 80 {
+		bc.log.Warnf("channel stats (HIGH USAGE), clientID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%)",
 			clientID,
 			readInLen, readInSize, readInUsage,
 			writeOutLen, writeOutSize, writeOutUsage,
-			readOutLen, readOutSize, readOutUsage,
-			writeInLen, writeInSize, writeInUsage,
-			heartbeatLen, heartbeatUsage,
-			heartbeatWriteLen, heartbeatWriteUsage)
+			readOutLen, readOutSize, readOutUsage)
 	} else {
-		bc.log.Infof("channel stats, clientID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%), writeInCh: %d/%d (%.1f%%), heartbeatCh: %d/10 (%.1f%%), heartbeatWriteCh: %d/10 (%.1f%%)",
+		bc.log.Infof("channel stats, clientID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%)",
 			clientID,
 			readInLen, readInSize, readInUsage,
 			writeOutLen, writeOutSize, writeOutUsage,
-			readOutLen, readOutSize, readOutUsage,
-			writeInLen, writeInSize, writeInUsage,
-			heartbeatLen, heartbeatUsage,
-			heartbeatWriteLen, heartbeatWriteUsage)
+			readOutLen, readOutSize, readOutUsage)
 	}
 }
 

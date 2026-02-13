@@ -21,14 +21,12 @@ func (dg *dialogue) logChannelStats() {
 	readInLen := len(dg.readInCh)
 	writeOutLen := len(dg.writeOutCh)
 	readOutLen := len(dg.readOutCh)
-	writeInLen := len(dg.writeInCh)
 
 	// Read sizes and dialogueID without lock - these are read-only after initialization
 	// dialogueOK may be slightly stale but that's acceptable for monitoring purposes
 	readInSize := dg.readInSize
 	writeOutSize := dg.writeOutSize
 	readOutSize := dg.readOutSize
-	writeInSize := dg.writeInSize
 	dialogueID := dg.dialogueID
 	dialogueOK := dg.dialogueOK
 	clientID := dg.cn.ClientID()
@@ -41,23 +39,20 @@ func (dg *dialogue) logChannelStats() {
 	readInUsage := float64(readInLen) / float64(readInSize) * 100
 	writeOutUsage := float64(writeOutLen) / float64(writeOutSize) * 100
 	readOutUsage := float64(readOutLen) / float64(readOutSize) * 100
-	writeInUsage := float64(writeInLen) / float64(writeInSize) * 100
 
 	// Use WARN level if any channel is > 80% full, otherwise INFO
-	if readInUsage > 80 || writeOutUsage > 80 || readOutUsage > 80 || writeInUsage > 80 {
-		dg.log.Warnf("dialogue channel stats (HIGH USAGE), clientID: %d, dialogueID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%), writeInCh: %d/%d (%.1f%%)",
+	if readInUsage > 80 || writeOutUsage > 80 || readOutUsage > 80 {
+		dg.log.Warnf("dialogue channel stats (HIGH USAGE), clientID: %d, dialogueID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%)",
 			clientID, dialogueID,
 			readInLen, readInSize, readInUsage,
 			writeOutLen, writeOutSize, writeOutUsage,
-			readOutLen, readOutSize, readOutUsage,
-			writeInLen, writeInSize, writeInUsage)
+			readOutLen, readOutSize, readOutUsage)
 	} else {
-		dg.log.Infof("dialogue channel stats, clientID: %d, dialogueID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%), writeInCh: %d/%d (%.1f%%)",
+		dg.log.Infof("dialogue channel stats, clientID: %d, dialogueID: %d, readInCh: %d/%d (%.1f%%), writeOutCh: %d/%d (%.1f%%), readOutCh: %d/%d (%.1f%%)",
 			clientID, dialogueID,
 			readInLen, readInSize, readInUsage,
 			writeOutLen, writeOutSize, writeOutUsage,
-			readOutLen, readOutSize, readOutUsage,
-			writeInLen, writeInSize, writeInUsage)
+			readOutLen, readOutSize, readOutUsage)
 	}
 }
 
@@ -82,12 +77,12 @@ func (dg *dialogue) startChannelMonitor(interval time.Duration) {
 			// 2. Reading without lock may see a slightly stale value, but that's acceptable
 			// 3. If we see false, we exit; if we see true but it's actually false, logChannelStats() will check again
 			dialogueOK := dg.dialogueOK
-			
+
 			if !dialogueOK {
 				// Dialogue is closing, exit the monitor goroutine
 				return
 			}
-			
+
 			dg.logChannelStats()
 		}
 	}()

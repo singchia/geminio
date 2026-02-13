@@ -117,6 +117,9 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		failedChSize:      32,
 		writeInSize:       32,
 	}
+
+	sm.log.Debugf("new stream, clientID: %d, dialogueID: %d, log is nil", sm.cn.ClientID(), sm.dg.DialogueID())
+
 	if opts.readBufferSize > 0 {
 		sm.messageChSize = opts.readBufferSize
 		sm.streamChSize = opts.readBufferSize

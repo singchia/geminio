@@ -27,6 +27,7 @@ type ServerConn struct {
 	clientIDs id.IDFactory
 
 	closeOnce *sync.Once
+	finiOnce  *sync.Once
 }
 
 type ServerConnOption func(*ServerConn)
@@ -68,7 +69,7 @@ func OptionServerConnBufferSize(read, write int) ServerConnOption {
 			sc.readOutSize = read
 		}
 		if write > 0 {
-			sc.writeInSize = write
+			sc.writeOutSize = write
 		}
 	}
 }
@@ -93,10 +94,10 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			readInSize:   32,
 			writeOutSize: 32,
 			readOutSize:  32,
-			writeInSize:  32,
 		},
 
 		closeOnce: new(sync.Once),
+		finiOnce:  new(sync.Once),
 		clientIDs: id.DefaultIncIDCounter,
 	}
 	sc.cn = sc
@@ -108,9 +109,6 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	sc.readInCh = make(chan packet.Packet, sc.readInSize)
 	sc.writeOutCh = make(chan packet.Packet, sc.writeOutSize)
 	sc.readOutCh = make(chan packet.Packet, sc.readOutSize)
-	sc.writeInCh = make(chan packet.Packet, sc.writeInSize)
-	sc.heartbeatCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (receive)
-	sc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
 	// timer
 	if !sc.tmrOutside {
 		sc.tmr = timer.NewTimer()
@@ -207,25 +205,61 @@ func (sc *ServerConn) initFSM() {
 	sc.fsm.AddEvent(ET_FINI, closed, fini)
 }
 
-func (sc *ServerConn) handlePkt() {
-	readInCh := sc.readInCh
-	writeInCh := sc.writeInCh
-	heartbeatCh := sc.heartbeatCh
+func (sc *ServerConn) writePkt() {
+	writeOutCh := sc.writeOutCh
+	lastLogTime := time.Now()
+	packetCount := 0
+
 	for {
 		select {
-		case pkt := <-heartbeatCh:
-			// Priority processing for heartbeat packets
-			sc.log.Tracef("conn read in heartbeat packet, clientID: %d, packetID: %d, packetType: %s",
-				sc.clientID, pkt.ID(), pkt.Type().String())
-			ret := sc.handleIn(pkt)
+		case pkt, ok := <-writeOutCh:
+			if !ok {
+				sc.log.Debugf("conn write done, clientID: %d", sc.clientID)
+				return
+			}
+			packetCount++
+			// Log periodically to ensure writePkt() is still running
+			now := time.Now()
+			if now.Sub(lastLogTime) > 10*time.Second {
+				sc.log.Infof("writePkt() is running, clientID: %d, packets processed: %d, writeOutCh remaining: %d/%d",
+					sc.clientID, packetCount, len(writeOutCh), sc.writeOutSize)
+				lastLogTime = now
+			}
+			sc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
+				sc.clientID, pkt.ID(), pkt.Type().String(), len(writeOutCh), sc.writeOutSize)
+			writeStart := time.Now()
+
+			ret := sc.handleOut(pkt)
 			if ret == iodefine.IOErr {
-				sc.log.Errorf("conn handle in heartbeat packet err, clientID: %d", sc.clientID)
+				sc.log.Errorf("handle out packet err, clientID: %d", sc.clientID)
 				goto FINI
 			}
 			if ret == iodefine.IOClosed {
-				sc.log.Debugf("conn handle in heartbeat packet done, clientID: %d", sc.clientID)
+				sc.log.Debugf("handle out packet done, clientID: %d", sc.clientID)
 				goto FINI
 			}
+			if ret == iodefine.IODiscard {
+				// Log when packet is discarded to track if writeOutCh is full
+				sc.log.Debugf("handle out packet discarded, clientID: %d, packetID: %d, packetType: %s",
+					sc.clientID, pkt.ID(), pkt.Type().String())
+			}
+
+			writeDuration := time.Since(writeStart)
+			if writeDuration > 5*time.Second {
+				sc.log.Warnf("data packet write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
+					sc.clientID, pkt.ID(), writeDuration)
+			}
+		}
+	}
+FINI:
+	sc.log.Debugf("writePkt done, clientID: %d", sc.clientID)
+	sc.finiOnce.Do(sc.fini)
+}
+
+func (sc *ServerConn) handlePkt() {
+	readInCh := sc.readInCh
+	for {
+		select {
 		case pkt, ok := <-readInCh:
 			if !ok {
 				goto FINI
@@ -241,31 +275,13 @@ func (sc *ServerConn) handlePkt() {
 				sc.log.Debugf("conn handle in packet done, clientID: %d", sc.clientID)
 				goto FINI
 			}
-		case pkt, ok := <-writeInCh:
-			if !ok {
-				// BUG! should never be here.
-				goto FINI
-			}
-			ret := sc.handleOut(pkt)
-			if ret == iodefine.IOErr {
-				sc.log.Errorf("conn handle out packet err, clientID: %d", sc.clientID)
-				goto FINI
-			}
-			if ret == iodefine.IOClosed {
-				sc.log.Debugf("conn handle out packet done, clientID: %d", sc.clientID)
-				goto FINI
-			}
 		}
 	}
 FINI:
 	sc.log.Debugf("handle pkt done, clientID: %d", sc.clientID)
-	// only onlined Conn need to be notified
-	if sc.dlgt != nil && sc.onlined {
-		// not that delegate is different from client's delegate
-		sc.dlgt.ConnOffline(sc)
-	}
+
 	// only handlePkt leads this fini, and reclaims all channels and other resources
-	sc.fini()
+	sc.finiOnce.Do(sc.fini)
 }
 
 func (sc *ServerConn) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -291,6 +307,8 @@ func (sc *ServerConn) handleOut(pkt packet.Packet) iodefine.IORet {
 		return sc.handleOutDisConnPacket(realPkt)
 	case *packet.DisConnAckPacket:
 		return sc.handleOutDisConnAckPacket(realPkt)
+	case *packet.HeartbeatAckPacket:
+		return sc.handleOutHeartbeatAckPacket(realPkt)
 	default:
 		return sc.handleOutDataPacket(pkt)
 	}
@@ -322,7 +340,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 			sc.log.Warnf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
-			sc.writeInCh <- retPkt
+			sc.writeOutCh <- retPkt
 			return iodefine.IOSuccess
 		}
 	} else {
@@ -337,14 +355,14 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
-			sc.writeInCh <- retPkt
+			sc.writeOutCh <- retPkt
 			return iodefine.IOSuccess
 		}
 	}
 	// the first packet received.
 	sc.shub.Ack(sc.getSyncID(), nil)
 	retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, nil)
-	sc.writeInCh <- retPkt
+	sc.writeOutCh <- retPkt
 
 	// set the heartbeat
 	sc.heartbeat = pkt.Heartbeat
@@ -363,15 +381,7 @@ func (sc *ServerConn) handleInHeartbeatPacket(pkt *packet.HeartbeatPacket) iodef
 	sc.resetHeartbeatTimeout()
 
 	retPkt := sc.pf.NewHeartbeatAckPacket(pkt.PacketID)
-	// Use priority channel for heartbeat ack to avoid being blocked by application layer messages
-	select {
-	case sc.heartbeatWriteCh <- retPkt:
-		// Successfully sent to priority channel
-	default:
-		// If priority channel is full, fallback to normal channel
-		// This should rarely happen as heartbeat packets are small and infrequent
-		sc.writeOutCh <- retPkt
-	}
+	sc.writeOutCh <- retPkt
 	if sc.dlgt != nil {
 		sc.dlgt.Heartbeat(sc)
 	}
@@ -406,7 +416,12 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 				pkt.ConnData.Error, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			return iodefine.IOErr
 		}
-		sc.writeOutCh <- pkt
+		err = sc.dowritePkt(pkt, true)
+		if err != nil {
+			sc.log.Errorf("send conn ack packet err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
+				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
+			return iodefine.IOErr
+		}
 		// this situation shouldn't be seen as connected, so don't set onlined.
 		return iodefine.IOSuccess
 	}
@@ -416,7 +431,12 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 			err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
 		return iodefine.IOErr
 	}
-	sc.writeOutCh <- pkt
+	err = sc.dowritePkt(pkt, true)
+	if err != nil {
+		sc.log.Errorf("send conn ack packet err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
+			err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
+		return iodefine.IOErr
+	}
 	sc.log.Debugf("send conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 	sc.onlined = true
@@ -426,22 +446,18 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 func (sc *ServerConn) Close() {
 	sc.closeOnce.Do(func() {
 		sc.connMtx.RLock()
-		defer sc.connMtx.RUnlock()
 		if !sc.connOK {
+			sc.connMtx.RUnlock()
 			return
 		}
 
 		sc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
 			sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 
+		sc.connMtx.RUnlock()
 		pkt := sc.pf.NewDisConnPacket()
-		// Use non-blocking send to avoid deadlock:
-		// Close() may be called from handlePkt() goroutine (e.g., via handleInDisConnPacket -> Close()),
-		// so if writeInCh is full, blocking here would cause deadlock
-		// Use a goroutine to send asynchronously to break the deadlock
-		go func() {
-			sc.writeInCh <- pkt
-		}()
+		sc.writeOutCh <- pkt
+
 	})
 }
 
@@ -453,6 +469,12 @@ func (sc *ServerConn) closeWrapper(_ *yafsm.Event) {
 func (sc *ServerConn) fini() {
 	sc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+
+	// only onlined Conn need to be notified
+	if sc.dlgt != nil && sc.onlined {
+		// not that delegate is different from client's delegate
+		sc.dlgt.ConnOffline(sc)
+	}
 
 	// if we are in conn stage,
 	sc.shub.Error(sc.getSyncID(), errors.New("connection closed"))
@@ -471,14 +493,8 @@ func (sc *ServerConn) fini() {
 	// lock protect conn status and input resource
 	sc.connMtx.Lock()
 	sc.connOK = false
-	close(sc.writeInCh)
 	sc.connMtx.Unlock()
-	// writeInCh must be cared since buffer might still has data
-	for pkt := range sc.writeInCh {
-		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
-			sc.failedCh <- pkt
-		}
-	}
+
 	// the outside should care about channel status
 	close(sc.readOutCh)
 	// writeOutCh must be cared since writhPkt might quit first
@@ -499,10 +515,8 @@ func (sc *ServerConn) fini() {
 	sc.fsm = nil
 	// collect id
 	sc.clientIDs = nil
-	// collect channels
-	close(sc.heartbeatCh)
-	close(sc.heartbeatWriteCh)
-	sc.readInCh, sc.writeInCh, sc.writeOutCh, sc.heartbeatCh, sc.heartbeatWriteCh = nil, nil, nil, nil, nil
+
+	sc.readInCh, sc.writeOutCh = nil, nil
 
 	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
