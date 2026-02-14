@@ -192,7 +192,8 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 
 	// rolling up
 	go dg.handlePkt()
-	go dg.writePkt()
+	// Note: writePkt() is no longer needed - dialogueMgr's scheduler processes packets directly
+	// This avoids blocking on schedulerCh and maintains fair scheduling
 	// Start channel monitoring for debugging memory issues
 	dg.startChannelMonitor(30 * time.Second)
 	return dg, nil
@@ -225,32 +226,65 @@ func (dg *dialogue) Peer() string {
 
 func (dg *dialogue) Write(pkt packet.Packet) error {
 	dg.mtx.RLock()
-	defer dg.mtx.RUnlock()
+	dialogueOK := dg.dialogueOK
+	dialogueID := dg.dialogueID
+	writeOutCh := dg.writeOutCh
+	dg.mtx.RUnlock()
 
-	if !dg.dialogueOK {
+	if !dialogueOK {
 		return io.EOF
 	}
-	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
-	select {
-	case dg.writeOutCh <- pkt:
-		/*
-			// TODO optimize it
-			default:
-				return fmt.Errorf("%s, len: %d", io.ErrShortBuffer, len(dg.writeInCh))
-		*/
+	pkt.(packet.SessionAbove).SetSessionID(dialogueID)
+	// Send to writeOutCh - scheduler will read from here and process directly
+	// This ensures fair scheduling across all dialogues
+	// Blocking here ensures no packet loss - scheduler will process it fairly
+	// Note: We release the lock before sending to avoid deadlock with fini()
+	// Use recover to handle panic if channel is closed (race condition with fini())
+	var sendErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Channel is closed, dialogue is being closed
+				// This is expected during shutdown
+				sendErr = io.EOF
+			}
+		}()
+		writeOutCh <- pkt
+	}()
+	if sendErr != nil {
+		return sendErr
 	}
 	return nil
 }
 
 func (dg *dialogue) WriteWait(pkt packet.Packet) error {
 	dg.mtx.RLock()
-	defer dg.mtx.RUnlock()
+	dialogueOK := dg.dialogueOK
+	dialogueID := dg.dialogueID
+	writeOutCh := dg.writeOutCh
+	dg.mtx.RUnlock()
 
-	if !dg.dialogueOK {
+	if !dialogueOK {
 		return io.EOF
 	}
-	pkt.(packet.SessionAbove).SetSessionID(dg.dialogueID)
-	dg.writeOutCh <- pkt
+	pkt.(packet.SessionAbove).SetSessionID(dialogueID)
+	// Send to writeOutCh - scheduler will read from here and process directly
+	// Note: We release the lock before sending to avoid deadlock with fini()
+	// Use recover to handle panic if channel is closed (race condition with fini())
+	var sendErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Channel is closed, dialogue is being closed
+				// This is expected during shutdown
+				sendErr = io.EOF
+			}
+		}()
+		writeOutCh <- pkt
+	}()
+	if sendErr != nil {
+		return sendErr
+	}
 	return nil
 }
 
@@ -328,6 +362,7 @@ func (dg *dialogue) open() error {
 		dg.mtx.RUnlock()
 		return io.EOF
 	}
+	// Send to writeOutCh for handshake packet - scheduler will process directly
 	dg.writeOutCh <- pkt
 	dg.mtx.RUnlock()
 
@@ -344,44 +379,8 @@ func (dg *dialogue) open() error {
 	return event.Error
 }
 
-// we may or not separate the goroutine because the underlay is still a channel
-func (dg *dialogue) writePkt() {
-	writeOutCh := dg.writeOutCh
-
-	for {
-		select {
-		case pkt, ok := <-writeOutCh:
-			if !ok {
-				dg.log.Debugf("dialogue write done, clientID: %d, dialogueID: %d",
-					dg.cn.ClientID(), dg.dialogueID)
-				return
-			}
-			dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-			ret := dg.handleOut(pkt)
-			switch ret {
-			case iodefine.IONewPassive, iodefine.IOSuccess:
-				continue
-			case iodefine.IOClosed:
-				goto FINI
-			case iodefine.IOErr:
-				goto FINI
-			}
-			/*
-				err = dg.dowritePkt(pkt, true)
-				if err != nil {
-					dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-						err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-					return
-				}
-			*/
-		}
-	}
-FINI:
-	dg.log.Debugf("dialogue write pkt done, clientID: %d, dialogueID: %d",
-		dg.cn.ClientID(), dg.dialogueID)
-	dg.finiOnce.Do(dg.fini)
-}
+// writePkt is no longer needed - dialogueMgr's scheduler processes packets directly
+// This avoids blocking on schedulerCh and maintains fair scheduling across all dialogues
 
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 	err := dg.cn.Write(pkt)
@@ -478,6 +477,7 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 	dg.meta = pkt.SessionData.Meta
 
 	retPkt := dg.pf.NewSessionAckPacket(pkt.PacketID, pkt.NegotiateID(), dialogueID, nil)
+	// Send to writeOutCh - scheduler will forward to schedulerCh
 	dg.writeOutCh <- retPkt
 	return iodefine.IOSuccess
 }
@@ -518,6 +518,7 @@ func (dg *dialogue) handleInDismissPacket(pkt *packet.DismissPacket) iodefine.IO
 
 	retPkt := dg.pf.NewDismissAckPacket(pkt.ID(),
 		pkt.SessionID(), nil)
+	// Send to writeOutCh - scheduler will forward to schedulerCh
 	dg.writeOutCh <- retPkt
 	// send out side dismiss while receiving dismiss packet
 	dg.Close()
@@ -694,6 +695,7 @@ func (dg *dialogue) Close() {
 		dg.log.Debugf("dialogue async close, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
+		// Send to writeOutCh - scheduler will forward to schedulerCh
 		dg.writeOutCh <- pkt
 
 		go func() {
@@ -724,6 +726,7 @@ func (dg *dialogue) CloseWait() {
 		dg.log.Debugf("dialogue is closing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
+		// Send to writeOutCh - scheduler will forward to schedulerCh
 		dg.writeOutCh <- pkt
 		dg.mtx.RUnlock()
 		// the sync shouldn't be locked
@@ -772,11 +775,10 @@ func (dg *dialogue) fini() {
 
 	// collect shub
 	dg.shub.Close()
-	dg.shub = nil
 
 	// the outside should care about channel status
 	close(dg.readOutCh)
-	// writeOutCh must be cared since writhPkt might quit first
+	// writeOutCh must be cared since scheduler might be reading from it
 	close(dg.writeOutCh)
 	// collect channels
 	dg.writeOutCh = nil
@@ -785,7 +787,6 @@ func (dg *dialogue) fini() {
 	// collect fsm
 	dg.fsm.EmitEvent(ET_FINI)
 	dg.fsm.Close()
-	dg.fsm = nil
 
 	dg.log.Debugf("dialogue finished, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)

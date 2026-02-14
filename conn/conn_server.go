@@ -512,7 +512,6 @@ func (sc *ServerConn) fini() {
 	// collect fsm
 	sc.fsm.EmitEvent(ET_FINI)
 	sc.fsm.Close()
-	sc.fsm = nil
 	// collect id
 	sc.clientIDs = nil
 

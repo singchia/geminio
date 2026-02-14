@@ -3,7 +3,10 @@ package multiplexer
 import (
 	"errors"
 	"io"
+	"reflect"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio"
@@ -11,6 +14,7 @@ import (
 	"github.com/singchia/geminio/delegate"
 	"github.com/singchia/geminio/packet"
 	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/geminio/pkg/iodefine"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -61,6 +65,22 @@ type dialogueMgr struct {
 	mgrOK                bool
 	dialogues            map[uint64]*dialogue // key: dialogueID, value: dialogue
 	negotiatingDialogues map[uint64]*dialogue
+
+	// write scheduler for fair write scheduling across dialogues
+	writeSchedulerStopCh chan struct{}
+	writeSchedulerWg     sync.WaitGroup
+	// schedulerDialogueChs: cached list of dialogue channels for scheduler (protected by schedulerMtx)
+	schedulerMtx         sync.RWMutex
+	schedulerDialogueChs []*dialogueWriteCh
+	// schedulerUpdateCh: notification channel to trigger scheduler to rebuild cases when dialogues are added/removed
+	schedulerUpdateCh chan struct{}
+	// schedulerRoundRobinIndex: round-robin index for fair scheduling (using atomic operations for lock-free updates)
+	schedulerRoundRobinIndex int64
+}
+
+type dialogueWriteCh struct {
+	dg *dialogue
+	ch chan packet.Packet
 }
 
 type MultiplexerOption func(*multiplexerOpts)
@@ -180,8 +200,15 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	dg.dialogueID = packet.SessionID1
 	dm.defaultDialogue = dg
 	dm.dialogues[packet.SessionID1] = dg
+	// Initialize scheduler dialogue list with default dialogue
+	dm.updateSchedulerDialogueList()
 	// rolling up
 	go dm.readPkt()
+	// start write scheduler for fair write scheduling across dialogues
+	dm.writeSchedulerStopCh = make(chan struct{})
+	dm.schedulerUpdateCh = make(chan struct{}, 1) // buffered to avoid blocking
+	dm.writeSchedulerWg.Add(1)
+	go dm.writeScheduler()
 	return dm, nil
 ERR:
 	if dm.tmrOwner == dm {
@@ -203,19 +230,62 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	if ok {
 		delete(dm.negotiatingDialogues, dg.NegotiatingID())
 	}
-	dm.dialogues[dg.DialogueID()] = dg.(*dialogue)
+	dialogue := dg.(*dialogue)
+	dm.dialogues[dg.DialogueID()] = dialogue
 	if dm.dlgt != nil {
 		dm.dlgt.DialogueOnline(dg)
 	}
 	// notify outside that a dialogue is accepting
 	if dm.dialogueAcceptFn != nil {
-		dm.dialogueAcceptFn(dg.(Dialogue))
+		dm.dialogueAcceptFn(dialogue)
 
 	} else if dm.dialogueAcceptCh != nil {
 		// this must not be blocked, or else the whole system will stop
-		dm.dialogueAcceptCh <- dg.(*dialogue)
+		dm.dialogueAcceptCh <- dialogue
+	}
+
+	// Update scheduler's dialogue list
+	dm.updateSchedulerDialogueList()
+	// Notify scheduler to rebuild cases (non-blocking)
+	select {
+	case dm.schedulerUpdateCh <- struct{}{}:
+	default:
+		// Channel is full, notification already pending
 	}
 	return nil
+}
+
+// updateSchedulerDialogueList rebuilds the cached dialogue list for the scheduler
+// This is called when dialogues are added or removed, avoiding frequent rebuilds in the scheduler
+func (dm *dialogueMgr) updateSchedulerDialogueList() {
+	dm.schedulerMtx.Lock()
+	defer dm.schedulerMtx.Unlock()
+
+	dm.schedulerDialogueChs = make([]*dialogueWriteCh, 0, len(dm.dialogues)+len(dm.negotiatingDialogues))
+
+	// Add all dialogues - monitor writeOutCh (Write() sends here)
+	// Scheduler will read from writeOutCh and process directly (no schedulerCh needed)
+	for _, dg := range dm.dialogues {
+		dg.mtx.RLock()
+		if dg.dialogueOK && dg.writeOutCh != nil {
+			dm.schedulerDialogueChs = append(dm.schedulerDialogueChs, &dialogueWriteCh{
+				dg: dg,
+				ch: dg.writeOutCh, // Monitor writeOutCh (Write() sends here)
+			})
+		}
+		dg.mtx.RUnlock()
+	}
+	// Add negotiating dialogues
+	for _, dg := range dm.negotiatingDialogues {
+		dg.mtx.RLock()
+		if dg.dialogueOK && dg.writeOutCh != nil {
+			dm.schedulerDialogueChs = append(dm.schedulerDialogueChs, &dialogueWriteCh{
+				dg: dg,
+				ch: dg.writeOutCh, // Monitor writeOutCh (Write() sends here)
+			})
+		}
+		dg.mtx.RUnlock()
+	}
 }
 
 func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
@@ -243,6 +313,14 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 		// this must not be blocked, or else the whole system will stop
 		dm.dialogueClosedCh <- dg.(*dialogue)
 
+	}
+	// Update scheduler's dialogue list
+	dm.updateSchedulerDialogueList()
+	// Notify scheduler to rebuild cases (non-blocking)
+	select {
+	case dm.schedulerUpdateCh <- struct{}{}:
+	default:
+		// Channel is full, notification already pending
 	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound
@@ -280,6 +358,15 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 	dm.mtx.Lock()
 	dm.negotiatingDialogues[negotiatingID] = dg
 	dm.mtx.Unlock()
+	// Update scheduler's dialogue list to include negotiating dialogue
+	// This ensures handshake packets (SessionPacket) can be processed by the scheduler
+	dm.updateSchedulerDialogueList()
+	// Notify scheduler to rebuild cases (non-blocking)
+	select {
+	case dm.schedulerUpdateCh <- struct{}{}:
+	default:
+		// Channel is full, notification already pending
+	}
 	// Open take times, shouldn't be locked
 	err = dg.open()
 	if err != nil {
@@ -295,12 +382,21 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 		// delete(dm.dialogues, dg.dialogueID)
 		// !mgrOK only happens after dialogueMgr fini, so fini the dialogue
 		dm.mtx.Unlock()
-		dg.fini()
+		dg.finiOnce.Do(dg.fini)
 		return nil, ErrOperationOnClosedMultiplexer
 	}
 	// the logic on negotiatingDialogues is tricky, be care of it.
 	dm.dialogues[dg.dialogueID] = dg
 	dm.mtx.Unlock()
+	// Update scheduler's dialogue list after dialogue moves from negotiatingDialogues to dialogues
+	// This ensures the scheduler uses the correct dialogue list
+	dm.updateSchedulerDialogueList()
+	// Notify scheduler to rebuild cases (non-blocking)
+	select {
+	case dm.schedulerUpdateCh <- struct{}{}:
+	default:
+		// Channel is full, notification already pending
+	}
 	return dg, nil
 }
 
@@ -400,6 +496,15 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			dg.readInCh <- pkt
 		}()
 		dm.mtx.Unlock()
+		// Update scheduler's dialogue list to include negotiating dialogue
+		// This ensures handshake packets (SessionAckPacket) can be processed by the scheduler
+		dm.updateSchedulerDialogueList()
+		// Notify scheduler to rebuild cases (non-blocking)
+		select {
+		case dm.schedulerUpdateCh <- struct{}{}:
+		default:
+			// Channel is full, notification already pending
+		}
 
 	case *packet.SessionAckPacket:
 		dm.mtx.RLock()
@@ -454,14 +559,14 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		readInCh := dg.readInCh
 		dg.mtx.RUnlock()
 		dm.mtx.RUnlock()
-		
+
 		if !dialogueOK {
 			// Dialogue is closing, skip sending
 			dm.log.Debugf("dialogue is closing, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 			return
 		}
-		
+
 		// Use recover to handle panic if channel is closed (race condition)
 		// This prevents crash when dialogue closes readInCh between our check and send
 		func() {
@@ -512,8 +617,252 @@ func (dm *dialogueMgr) Close() {
 	return
 }
 
+// writeScheduler implements fair round-robin scheduling for writes across all dialogues
+// This ensures that if one dialogue has a lot of data, it won't starve other dialogues
+// The dialogue list is cached and only updated when dialogues are added/removed (via DialogueOnline/DialogueOffline)
+// Uses round-robin with non-blocking reads: each dialogue gets one packet per round, ensuring fairness
+func (dm *dialogueMgr) writeScheduler() {
+	defer dm.writeSchedulerWg.Done()
+
+	for {
+		// Check for stop signal first (non-blocking)
+		select {
+		case <-dm.writeSchedulerStopCh:
+			return
+		case <-dm.schedulerUpdateCh:
+			// Dialogue list updated, reset round-robin index
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+			// Drain the channel (non-blocking)
+			select {
+			case <-dm.schedulerUpdateCh:
+			default:
+			}
+		default:
+		}
+
+		// Get cached dialogue list and round-robin index
+		dm.schedulerMtx.RLock()
+		dialogueChs := dm.schedulerDialogueChs
+		dm.schedulerMtx.RUnlock()
+		roundRobinIndex := int(atomic.LoadInt64(&dm.schedulerRoundRobinIndex))
+
+		if len(dialogueChs) == 0 {
+			// No dialogues available, wait a bit and retry
+			select {
+			case <-dm.writeSchedulerStopCh:
+				return
+			case <-dm.schedulerUpdateCh:
+				// Dialogue list updated, reset round-robin index
+				atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+				// Drain the channel (non-blocking)
+				select {
+				case <-dm.schedulerUpdateCh:
+				default:
+				}
+				continue
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
+		// Round-robin: try to read one packet from each dialogue starting from current index
+		// This ensures fairness: even if one dialogue has many packets, others get a chance
+		processed := false
+		for i := 0; i < len(dialogueChs); i++ {
+			idx := (roundRobinIndex + i) % len(dialogueChs)
+			dialogueCh := dialogueChs[idx]
+
+			// Check if dialogue is still valid
+			dialogueCh.dg.mtx.RLock()
+			dialogueOK := dialogueCh.dg.dialogueOK
+			writeOutCh := dialogueCh.ch
+			dialogueCh.dg.mtx.RUnlock()
+
+			if !dialogueOK || writeOutCh == nil {
+				continue
+			}
+
+			// Try non-blocking read from this dialogue's channel
+			select {
+			case pkt, ok := <-writeOutCh:
+				if !ok {
+					// Channel closed: writeOutCh was closed, which means fini() was called
+					// Update scheduler list to remove this dialogue
+					dm.updateSchedulerDialogueList()
+					// Reset round-robin index after list update
+					atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+					processed = true
+					break
+				}
+
+				// Check if dialogue is still valid before processing
+				dialogueCh.dg.mtx.RLock()
+				dialogueOK = dialogueCh.dg.dialogueOK
+				dialogueCh.dg.mtx.RUnlock()
+
+				if !dialogueOK {
+					// Dialogue is closing, skip this packet
+					// Move to next dialogue in round-robin
+					atomic.StoreInt64(&dm.schedulerRoundRobinIndex, int64((idx+1)%len(dialogueChs)))
+					processed = true
+					break
+				}
+
+				// Process the packet directly (same as what writePkt() would do)
+				ret := dialogueCh.dg.handleOut(pkt)
+				switch ret {
+				case iodefine.IONewPassive, iodefine.IOSuccess:
+					// Success, move to next dialogue in round-robin
+					atomic.StoreInt64(&dm.schedulerRoundRobinIndex, int64((idx+1)%len(dialogueChs)))
+					processed = true
+				case iodefine.IOClosed, iodefine.IOErr:
+					// Error or closed: call fini() to clean up dialogue resources
+					dm.log.Debugf("dialogue write error in scheduler, calling fini, clientID: %d, dialogueID: %d, ret: %v",
+						dm.cn.ClientID(), dialogueCh.dg.dialogueID, ret)
+					dialogueCh.dg.finiOnce.Do(dialogueCh.dg.fini)
+					// Update scheduler list to remove this dialogue
+					dm.updateSchedulerDialogueList()
+					// Reset round-robin index after list update
+					atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+					processed = true
+				}
+				// Break after processing one packet to ensure fairness
+				break
+			default:
+				// No data in this channel, continue to next dialogue
+				continue
+			}
+		}
+
+		if processed {
+			// Successfully processed a packet, continue to next round
+			continue
+		}
+
+		// No dialogue had data available (all channels empty)
+		// Use reflect.Select to block until at least one channel has data
+		// Build select cases for all dialogue channels + stop channel + update notification channel
+		cases := make([]reflect.SelectCase, 0, len(dialogueChs)+2)
+		// Add stop channel first (index 0)
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(dm.writeSchedulerStopCh),
+		})
+		// Add update notification channel (index 1)
+		cases = append(cases, reflect.SelectCase{
+			Dir:  reflect.SelectRecv,
+			Chan: reflect.ValueOf(dm.schedulerUpdateCh),
+		})
+		// Add all dialogue channels
+		validDialogueIndices := make([]int, 0, len(dialogueChs))
+		for i := range dialogueChs {
+			// Check if dialogue is still valid
+			dialogueChs[i].dg.mtx.RLock()
+			dialogueOK := dialogueChs[i].dg.dialogueOK
+			writeOutCh := dialogueChs[i].ch
+			dialogueChs[i].dg.mtx.RUnlock()
+
+			if !dialogueOK || writeOutCh == nil {
+				continue
+			}
+
+			cases = append(cases, reflect.SelectCase{
+				Dir:  reflect.SelectRecv,
+				Chan: reflect.ValueOf(writeOutCh),
+			})
+			validDialogueIndices = append(validDialogueIndices, i)
+		}
+
+		if len(cases) == 2 {
+			// Only stop channel and update channel, no valid dialogues, wait and retry
+			select {
+			case <-dm.writeSchedulerStopCh:
+				return
+			case <-dm.schedulerUpdateCh:
+				// Dialogue list updated, reset round-robin index
+				atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+				// Drain the channel (non-blocking)
+				select {
+				case <-dm.schedulerUpdateCh:
+				default:
+				}
+				continue
+			case <-time.After(100 * time.Millisecond):
+				continue
+			}
+		}
+
+		// Block until at least one channel has data (or stop signal or update notification)
+		chosen, value, ok := reflect.Select(cases)
+		if chosen == 0 {
+			// Stop channel was selected
+			return
+		}
+		if chosen == 1 {
+			// Update notification channel was selected - reset round-robin index
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+			// Drain the channel (non-blocking)
+			select {
+			case <-dm.schedulerUpdateCh:
+			default:
+			}
+			continue
+		}
+
+		// A dialogue channel was selected (chosen >= 2, so subtract 2 for dialogue index)
+		dialogueIdx := validDialogueIndices[chosen-2]
+		if !ok {
+			// Channel closed: writeOutCh was closed, which means fini() was called
+			// Update scheduler list to remove this dialogue
+			dm.updateSchedulerDialogueList()
+			// Reset round-robin index after list update
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+			continue
+		}
+
+		// Process packet directly: call handleOut() to avoid blocking on schedulerCh
+		pkt := value.Interface().(packet.Packet)
+		dg := dialogueChs[dialogueIdx].dg
+
+		// Check if dialogue is still valid before processing
+		dg.mtx.RLock()
+		dialogueOK := dg.dialogueOK
+		dg.mtx.RUnlock()
+
+		if !dialogueOK {
+			// Dialogue is closing, skip this packet
+			// Move to next dialogue in round-robin
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, int64((dialogueIdx+1)%len(dialogueChs)))
+			continue
+		}
+
+		// Process the packet directly (same as what writePkt() would do)
+		ret := dg.handleOut(pkt)
+		switch ret {
+		case iodefine.IONewPassive, iodefine.IOSuccess:
+			// Success, move to next dialogue in round-robin
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, int64((dialogueIdx+1)%len(dialogueChs)))
+		case iodefine.IOClosed, iodefine.IOErr:
+			// Error or closed: call fini() to clean up dialogue resources
+			dm.log.Debugf("dialogue write error in scheduler, calling fini, clientID: %d, dialogueID: %d, ret: %v",
+				dm.cn.ClientID(), dg.dialogueID, ret)
+			dg.finiOnce.Do(dg.fini)
+			// Update scheduler list to remove this dialogue
+			dm.updateSchedulerDialogueList()
+			// Reset round-robin index after list update
+			atomic.StoreInt64(&dm.schedulerRoundRobinIndex, 0)
+		}
+	}
+}
+
 func (dm *dialogueMgr) fini() {
 	dm.log.Debugf("dialogue manager finishing, clientID: %d", dm.cn.ClientID())
+
+	// Stop write scheduler first
+	if dm.writeSchedulerStopCh != nil {
+		close(dm.writeSchedulerStopCh)
+		dm.writeSchedulerWg.Wait()
+	}
 
 	dm.mtx.Lock()
 	defer dm.mtx.Unlock()

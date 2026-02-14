@@ -179,8 +179,8 @@ func (sm *stream) handlePkt() {
 				// BUG! shoud never be here.
 				goto FINI
 			}
-			sm.log.Tracef("stream write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			sm.log.Tracef("stream write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, packetLen: %d",
+				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), pkt.Length())
 			ret := sm.handleOut(pkt)
 			switch ret {
 			case iodefine.IOSuccess:
@@ -204,15 +204,15 @@ func (sm *stream) readPkt() {
 			if !ok {
 				goto FINI
 			}
-			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, packetLen: %d",
+				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), pkt.Length())
 			ret := sm.handleIn(pkt)
 			switch ret {
 			case iodefine.IOSuccess:
 				continue
 			case iodefine.IODiscard:
-				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s, packetLen: %d",
+					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String(), pkt.Length())
 			case iodefine.IOErr:
 				goto FINI
 			}
