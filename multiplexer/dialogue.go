@@ -422,7 +422,7 @@ FINI:
 		dg.cn.ClientID(), dg.dialogueID)
 
 	// only handlePkt leads to this fini, and reclaims all channels and other resources
-	dg.fini()
+	dg.finiOnce.Do(dg.fini)
 }
 
 func (dg *dialogue) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -780,6 +780,7 @@ func (dg *dialogue) fini() {
 	close(dg.readOutCh)
 	// writeOutCh must be cared since scheduler might be reading from it
 	close(dg.writeOutCh)
+	dg.closeIO()
 	// collect channels
 	dg.writeOutCh = nil
 	// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
