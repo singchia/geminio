@@ -57,6 +57,7 @@ func (bc *baseConn) logChannelStats() {
 
 // startChannelMonitor starts a goroutine that periodically logs channel statistics
 // interval: logging interval (default: 30 seconds if <= 0)
+// The goroutine will exit when connOK becomes false (checked in logChannelStats)
 func (bc *baseConn) startChannelMonitor(interval time.Duration) {
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -67,6 +68,20 @@ func (bc *baseConn) startChannelMonitor(interval time.Duration) {
 		defer ticker.Stop()
 
 		for range ticker.C {
+			// Check if connection is still OK before logging
+			// If connOK is false, the connection is closing/finished, so exit the monitor
+			// Read connOK without lock to avoid deadlock with fini() which holds Lock()
+			// This is safe because:
+			// 1. connOK is only set to false once in fini() (protected by Lock())
+			// 2. Reading without lock may see a slightly stale value, but that's acceptable
+			// 3. If we see false, we exit; if we see true but it's actually false, logChannelStats() will check again
+			connOK := bc.connOK
+
+			if !connOK {
+				// Connection is closing, exit the monitor goroutine
+				return
+			}
+
 			bc.logChannelStats()
 		}
 	}()

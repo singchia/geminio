@@ -74,14 +74,14 @@ type baseConn struct {
 	readInSize, writeOutSize int
 	readOutSize              int
 	failedCh                 chan packet.Packet
-	heartbeatCh              chan packet.Packet // priority channel for heartbeat packets (receive)
-	heartbeatWriteCh         chan packet.Packet // priority channel for heartbeat packets (send)
 
 	// heartbeat
 	hbTick timer.Tick
 
 	connOK  bool
 	connMtx sync.RWMutex
+
+	allDoneCount int64
 }
 
 func (bc *baseConn) Read() (packet.Packet, error) {
@@ -188,18 +188,7 @@ func (bc *baseConn) readPkt() {
 		}
 		bc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
 			pkt.Type().String(), bc.clientID, pkt.ID(), pkt.Type().String())
-		// Route heartbeat packets to priority channel for fast processing
-		if pkt.Type() == packet.TypeHeartbeatPacket || pkt.Type() == packet.TypeHeartbeatAckPacket {
-			select {
-			case bc.heartbeatCh <- pkt:
-			default:
-				// If heartbeat channel is full, fallback to normal channel
-				// This should rarely happen as heartbeat packets are small and infrequent
-				readInCh <- pkt
-			}
-		} else {
-			readInCh <- pkt
-		}
+		readInCh <- pkt
 	}
 FINI:
 	close(readInCh)

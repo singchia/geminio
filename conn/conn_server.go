@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -254,6 +255,7 @@ func (sc *ServerConn) writePkt() {
 FINI:
 	sc.log.Debugf("writePkt done, clientID: %d", sc.clientID)
 	sc.finiOnce.Do(sc.fini)
+	sc.collectSharedResources()
 }
 
 func (sc *ServerConn) handlePkt() {
@@ -282,6 +284,7 @@ FINI:
 
 	// only handlePkt leads this fini, and reclaims all channels and other resources
 	sc.finiOnce.Do(sc.fini)
+	sc.collectSharedResources()
 }
 
 func (sc *ServerConn) handleIn(pkt packet.Packet) iodefine.IORet {
@@ -487,7 +490,6 @@ func (sc *ServerConn) fini() {
 
 	// collect shub
 	sc.shub.Close()
-	sc.shub = nil
 	// collect net.Conn
 	sc.netconn.Close()
 	// lock protect conn status and input resource
@@ -504,21 +506,31 @@ func (sc *ServerConn) fini() {
 			sc.failedCh <- pkt
 		}
 	}
+	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
+		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
+}
+
+// collectSharedResources is called when a goroutine (writePkt or handlePkt) finishes
+// When called the second time (both goroutines finished), it collects shared resources
+func (sc *ServerConn) collectSharedResources() {
+	count := atomic.AddInt64(&sc.allDoneCount, 1)
+	if count != 2 {
+		// First call, just return
+		return
+	}
+	// Second call means both writePkt and handlePkt have finished, safe to collect shared resources
 	// collect timer
 	if !sc.tmrOutside {
 		sc.tmr.Close()
 	}
 	sc.tmr = nil
-	// collect fsm
+	// collect fsm (used by both writePkt and handlePkt)
 	sc.fsm.EmitEvent(ET_FINI)
 	sc.fsm.Close()
 	// collect id
 	sc.clientIDs = nil
 
 	sc.readInCh, sc.writeOutCh = nil, nil
-
-	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
-		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 }
 
 // resetHeartbeatTimeout resets the heartbeat timeout timer
