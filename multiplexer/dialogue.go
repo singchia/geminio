@@ -372,7 +372,7 @@ func (dg *dialogue) open() error {
 			event.Error, dg.cn.ClientID(), dg.dialogueID)
 		dg.mtx.Lock()
 		if dg.dialogueOK {
-			close(dg.readInCh)
+			dg.closeIO()
 		}
 		dg.mtx.Unlock()
 	}

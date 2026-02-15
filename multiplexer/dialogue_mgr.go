@@ -220,9 +220,9 @@ ERR:
 func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
-	defer dm.mtx.Unlock()
 
 	if !dm.mgrOK {
+		dm.mtx.Unlock()
 		return ErrOperationOnClosedMultiplexer
 	}
 	// remove from the negotiating dialogues, and add to ready dialogues.
@@ -243,8 +243,10 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 		// this must not be blocked, or else the whole system will stop
 		dm.dialogueAcceptCh <- dialogue
 	}
+	dm.mtx.Unlock()
 
-	// Update scheduler's dialogue list
+	// Update scheduler's dialogue list (must be called after releasing dm.mtx to avoid deadlock)
+	// updateSchedulerDialogueList() needs dm.mtx.RLock(), which would deadlock if we still hold dm.mtx.Lock()
 	dm.updateSchedulerDialogueList()
 	// Notify scheduler to rebuild cases (non-blocking)
 	select {
@@ -258,14 +260,31 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 // updateSchedulerDialogueList rebuilds the cached dialogue list for the scheduler
 // This is called when dialogues are added or removed, avoiding frequent rebuilds in the scheduler
 func (dm *dialogueMgr) updateSchedulerDialogueList() {
+	// Acquire mtx first to protect map iteration (prevent concurrent map write)
+	// This lock order (dm.mtx -> schedulerMtx) prevents deadlock with:
+	// - dialogue.fini() which holds dg.mtx -> calls DialogueOffline() -> needs dm.mtx
+	// - writeScheduler() which holds schedulerMtx.RLock() -> needs dg.mtx.RLock()
+	dm.mtx.RLock()
+	// Create a snapshot of dialogues to avoid holding lock during iteration
+	dialoguesSnapshot := make([]*dialogue, 0, len(dm.dialogues))
+	for _, dg := range dm.dialogues {
+		dialoguesSnapshot = append(dialoguesSnapshot, dg)
+	}
+	negotiatingDialoguesSnapshot := make([]*dialogue, 0, len(dm.negotiatingDialogues))
+	for _, dg := range dm.negotiatingDialogues {
+		negotiatingDialoguesSnapshot = append(negotiatingDialoguesSnapshot, dg)
+	}
+	dm.mtx.RUnlock()
+
+	// Now acquire schedulerMtx to update the cached list
 	dm.schedulerMtx.Lock()
 	defer dm.schedulerMtx.Unlock()
 
-	dm.schedulerDialogueChs = make([]*dialogueWriteCh, 0, len(dm.dialogues)+len(dm.negotiatingDialogues))
+	dm.schedulerDialogueChs = make([]*dialogueWriteCh, 0, len(dialoguesSnapshot)+len(negotiatingDialoguesSnapshot))
 
 	// Add all dialogues - monitor writeOutCh (Write() sends here)
 	// Scheduler will read from writeOutCh and process directly (no schedulerCh needed)
-	for _, dg := range dm.dialogues {
+	for _, dg := range dialoguesSnapshot {
 		dg.mtx.RLock()
 		if dg.dialogueOK && dg.writeOutCh != nil {
 			dm.schedulerDialogueChs = append(dm.schedulerDialogueChs, &dialogueWriteCh{
@@ -276,7 +295,7 @@ func (dm *dialogueMgr) updateSchedulerDialogueList() {
 		dg.mtx.RUnlock()
 	}
 	// Add negotiating dialogues
-	for _, dg := range dm.negotiatingDialogues {
+	for _, dg := range negotiatingDialoguesSnapshot {
 		dg.mtx.RLock()
 		if dg.dialogueOK && dg.writeOutCh != nil {
 			dm.schedulerDialogueChs = append(dm.schedulerDialogueChs, &dialogueWriteCh{
@@ -294,7 +313,6 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 
 	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", clientID, dialogueID)
 	dm.mtx.Lock()
-	defer dm.mtx.Unlock()
 
 	_, ok := dm.dialogues[dialogueID]
 	if ok {
@@ -314,7 +332,10 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 		dm.dialogueClosedCh <- dg.(*dialogue)
 
 	}
-	// Update scheduler's dialogue list
+	dm.mtx.Unlock()
+
+	// Update scheduler's dialogue list (must be called after releasing dm.mtx to avoid deadlock)
+	// updateSchedulerDialogueList() needs dm.mtx.RLock(), which would deadlock if we still hold dm.mtx.Lock()
 	dm.updateSchedulerDialogueList()
 	// Notify scheduler to rebuild cases (non-blocking)
 	select {
