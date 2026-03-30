@@ -68,9 +68,13 @@ func (bc *baseConn) logChannelStats() {
 	}
 }
 
-// startChannelMonitor starts a goroutine that periodically logs channel statistics
+// startChannelMonitor starts a goroutine that periodically logs channel statistics.
+// enabled: only starts the goroutine when true; set false in production to avoid per-conn goroutine overhead.
 // interval: logging interval (default: 30 seconds if <= 0)
-func (bc *baseConn) startChannelMonitor(interval time.Duration) {
+func (bc *baseConn) startChannelMonitor(enabled bool, interval time.Duration) {
+	if !enabled {
+		return
+	}
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}

@@ -184,7 +184,7 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	go dg.handlePkt()
 	go dg.writePkt()
 	// Start channel monitoring for debugging memory issues
-	dg.startChannelMonitor(30 * time.Second)
+	dg.startChannelMonitor(false, 30*time.Second)
 	return dg, nil
 }
 

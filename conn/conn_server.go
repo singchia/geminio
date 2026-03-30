@@ -133,7 +133,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	go sc.writePkt()
 	go sc.handlePkt()
 	// Start channel monitoring for debugging memory issues
-	sc.startChannelMonitor(30 * time.Second)
+	sc.startChannelMonitor(false, 30*time.Second)
 	err = sc.wait()
 	if err != nil {
 		goto ERR

@@ -158,7 +158,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 	go cc.writePkt()
 	go cc.handlePkt()
 	// Start channel monitoring for debugging memory issues
-	cc.startChannelMonitor(30 * time.Second)
+	cc.startChannelMonitor(false, 30*time.Second)
 	err = cc.connect()
 	if err != nil {
 		goto ERR

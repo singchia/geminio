@@ -62,10 +62,14 @@ func (dg *dialogue) logChannelStats() {
 	}
 }
 
-// startChannelMonitor starts a goroutine that periodically logs channel statistics
+// startChannelMonitor starts a goroutine that periodically logs channel statistics.
+// enabled: only starts the goroutine when true; set false in production to avoid per-dialogue goroutine overhead.
 // interval: logging interval (default: 30 seconds if <= 0)
 // The goroutine will exit when dialogueOK becomes false (checked in logChannelStats)
-func (dg *dialogue) startChannelMonitor(interval time.Duration) {
+func (dg *dialogue) startChannelMonitor(enabled bool, interval time.Duration) {
+	if !enabled {
+		return
+	}
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
