@@ -354,7 +354,7 @@ func BenchmarkEndRawThroughput(b *testing.B) {
 		for {
 			n, _ := sEnd.Read(buf2)
 			count += n
-			if count == 128*1024*b.N {
+			if count >= 128*1024*b.N {
 				return
 			}
 		}
