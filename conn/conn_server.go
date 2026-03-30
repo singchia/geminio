@@ -547,10 +547,11 @@ func (sc *ServerConn) resetHeartbeatTimeout() {
 }
 
 func (sc *ServerConn) waitHBTimeout(event *timer.Event) {
-	if event.Error == timer.ErrTimerForceClosed {
+	if event.Error == timer.ErrTimerForceClosed || event.Error == timer.ErrTimerNotStarted {
 		sc.log.Debugf("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
 			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
-	} else {
+		return
+	} else if event.Error != nil {
 		sc.log.Errorf("wait HEARTBEAT err: %s, clientID: %d, remote: %s, meta: %s",
 			event.Error, sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 	}
