@@ -396,7 +396,11 @@ func (sc *ServerConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 	// Reset heartbeat timeout when receiving any data packet
 	// Any packet indicates the connection is alive, so extend the heartbeat wait time
 	sc.resetHeartbeatTimeout()
-	sc.readOutCh <- pkt
+	select {
+	case sc.readOutCh <- pkt:
+	case <-sc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	return iodefine.IOSuccess
 }
 
@@ -409,7 +413,11 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 				pkt.ConnData.Error, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			return iodefine.IOErr
 		}
-		sc.writeOutCh <- pkt
+		select {
+		case sc.writeOutCh <- pkt:
+		case <-sc.ctx.Done():
+			return iodefine.IOClosed
+		}
 		// this situation shouldn't be seen as connected, so don't set onlined.
 		return iodefine.IOSuccess
 	}
@@ -419,7 +427,11 @@ func (sc *ServerConn) handleOutConnAckPacket(pkt *packet.ConnAckPacket) iodefine
 			err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta), sc.fsm.State())
 		return iodefine.IOErr
 	}
-	sc.writeOutCh <- pkt
+	select {
+	case sc.writeOutCh <- pkt:
+	case <-sc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	sc.log.Debugf("send conn ack succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 	sc.onlined = true

@@ -368,7 +368,11 @@ func (cc *ClientConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 	// Data packets: block to ensure delivery, no packet loss
 	// This ensures all packets are delivered to upper layer, even if it means slower processing
 	// The blocking will wait for upper layer to read packets and make room
-	cc.readOutCh <- pkt
+	select {
+	case cc.readOutCh <- pkt:
+	case <-cc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	return iodefine.IOSuccess
 }
 
@@ -385,7 +389,11 @@ func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet
 	}
 	// ConnPacket is critical, must be sent successfully, so we block here
 	// This ensures the connection packet is always sent, even if writeOutCh is full
-	cc.writeOutCh <- pkt
+	select {
+	case cc.writeOutCh <- pkt:
+	case <-cc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	cc.log.Debugf("send conn succeed, clientID: %d, PacketID: %d, packetType: %s",
 		cc.clientID, pkt.ID(), pkt.Type().String())
 	return iodefine.IOSuccess
@@ -401,9 +409,12 @@ func (cc *ClientConn) handleOutHeartbeatPacket(pkt *packet.HeartbeatPacket) iode
 			cc.clientID, pkt.ID(), pkt.Type().String())
 		return iodefine.IOSuccess
 	default:
-		// If priority channel is full, fallback to normal channel and block
-		// This ensures heartbeat packets are always sent, even if channels are full
-		cc.writeOutCh <- pkt
+		// If priority channel is full, fallback to normal channel with ctx.Done() protection
+		select {
+		case cc.writeOutCh <- pkt:
+		case <-cc.ctx.Done():
+			return iodefine.IOClosed
+		}
 		cc.log.Debugf("send heartbeat succeed (fallback), clientID: %d, PacketID: %d, packetType: %s",
 			cc.clientID, pkt.ID(), pkt.Type().String())
 		return iodefine.IOSuccess
