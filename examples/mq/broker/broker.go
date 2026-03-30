@@ -134,7 +134,7 @@ func (broker *Broker) addSyncer(topic string) {
 				// sync to all consumers
 				chs := broker.getConsumersWithMtx(topic)
 				if chs == nil {
-					log.Errorf("topic: %s consumer not found")
+					log.Errorf("topic: %s consumer not found", topic)
 					continue
 				}
 				for _, ch := range chs {

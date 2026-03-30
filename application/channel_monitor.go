@@ -73,22 +73,16 @@ func (sm *stream) startChannelMonitor(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			// Check if stream is still OK before logging
-			// If streamOK is false, the stream is closing/finished, so exit the monitor
-			// Read streamOK without lock to avoid deadlock with fini() which holds Lock()
-			// This is safe because:
-			// 1. streamOK is only set to false once in fini() (protected by Lock())
-			// 2. Reading without lock may see a slightly stale value, but that's acceptable
-			// 3. If we see false, we exit; if we see true but it's actually false, logChannelStats() will check again
-			streamOK := sm.streamOK
-			
-			if !streamOK {
-				// Stream is closing, exit the monitor goroutine
+		for {
+			select {
+			case <-sm.monitorStop:
 				return
+			case <-ticker.C:
+				if !sm.streamOK {
+					return
+				}
+				sm.logChannelStats()
 			}
-			
-			sm.logChannelStats()
 		}
 	}()
 }

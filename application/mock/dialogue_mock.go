@@ -501,6 +501,20 @@ func (mr *MockDialogueMockRecorder) Side() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Side", reflect.TypeOf((*MockDialogue)(nil).Side))
 }
 
+// Done mocks base method.
+func (m *MockDialogue) Done() <-chan struct{} {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Done")
+	ret0, _ := ret[0].(<-chan struct{})
+	return ret0
+}
+
+// Done indicates an expected call of Done.
+func (mr *MockDialogueMockRecorder) Done() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Done", reflect.TypeOf((*MockDialogue)(nil).Done))
+}
+
 // Write mocks base method.
 func (m *MockDialogue) Write(pkt packet.Packet) error {
 	m.ctrl.T.Helper()

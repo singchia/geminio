@@ -1,0 +1,248 @@
+name: Comprehensive Test Suite
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  # ========== Basic Tests ==========
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Unit Tests
+      run: go test -v -short ./...
+
+    - name: Run Tests with Race Detector
+      run: go test -race -short ./...
+
+  # ========== Benchmark Tests ==========
+  benchmark:
+    name: Benchmark Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Benchmark Tests
+      run: go test -bench=. -benchmem -benchtime=10s ./test/bench/...
+
+    - name: Run Memory Benchmarks
+      run: go test -bench=BenchmarkMemory -benchmem -benchtime=10s ./test/bench/...
+
+  # ========== E2E Tests ==========
+  e2e-tests:
+    name: E2E Integration Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.20', '1.21', '1.22']
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run E2E Tests
+      run: go test -v ./test/e2e/... -timeout=15m
+
+  # ========== Security Tests ==========
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Security Tests
+      run: go test -v ./test/security/... -timeout=15m
+
+    - name: Run Race Condition Tests
+      run: go test -race -v -run TestRace ./test/security/...
+
+  # ========== Fuzzing Tests ==========
+  fuzzing-tests:
+    name: Fuzzing Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run FuzzRPCData
+      run: go test -fuzz=FuzzRPCData -fuzztime=60s ./test/security/...
+
+    - name: Run FuzzMessageData
+      run: go test -fuzz=FuzzMessageData -fuzztime=60s ./test/security/...
+
+    - name: Run FuzzStreamData
+      run: go test -fuzz=FuzzStreamData -fuzztime=60s ./test/security/...
+
+  # ========== Code Coverage ==========
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Generate Coverage Report
+      run: go test -coverprofile=coverage.out ./...
+
+    - name: Display Coverage
+      run: go tool cover -func=coverage.out
+
+    - name: Upload Coverage Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: coverage.out
+
+  # ========== Multi-Platform Tests ==========
+  multi-platform:
+    name: Multi-Platform Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.20', '1.21']
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go ${{ matrix.go-version }}
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Tests
+      run: go test -v -short ./...
+
+    - name: Run E2E Tests
+      run: go test -v ./test/e2e/... -timeout=10m
+
+  # ========== Performance Regression ==========
+  performance-regression:
+    name: Performance Regression
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Performance Benchmarks
+      run: |
+        go test -bench=BenchmarkMessage -benchmem -count=5 ./test/bench/... > benchmark.txt
+        cat benchmark.txt
+
+    - name: Upload Benchmark Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark.txt
+
+  # ========== Chaos Tests (Linux Only) ==========
+  chaos-tests:
+    name: Chaos Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Install iptables
+      run: sudo apt-get update && sudo apt-get install -y iptables
+
+    - name: Download Dependencies
+      run: go mod download
+
+    - name: Run Chaos Tests
+      run: sudo go test -v ./test/chaos/...
+
+  # ========== Lint and Static Analysis ==========
+  lint:
+    name: Lint and Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Install staticcheck
+      run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+    - name: Run staticcheck
+      run: staticcheck ./...
+
+    - name: Install gosec
+      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+
+    - name: Run gosec
+      run: gosec -fmt sarif -out gosec.sarif ./... || true
+
+    - name: Upload gosec results
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-results
+        path: gosec.sarif

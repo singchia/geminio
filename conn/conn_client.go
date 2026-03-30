@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -109,6 +110,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 			fsm:          yafsm.NewFSM(),
 			side:         geminio.InitiatorSide,
 			connOK:       true,
+			monitorStop:  make(chan struct{}),
 			readInSize:   256,
 			writeOutSize: 256,
 			readOutSize:  256,
@@ -132,6 +134,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 	cc.writeInCh = make(chan packet.Packet, cc.writeInSize)
 	cc.heartbeatCh = make(chan packet.Packet, 10)      // priority channel for heartbeat packets (receive)
 	cc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
+	cc.ctx, cc.cancel = context.WithCancel(context.Background())
 	// timer
 	if !cc.tmrOutside {
 		cc.tmr = timer.NewTimer()
@@ -208,7 +211,7 @@ func (cc *ClientConn) initFSM() {
 
 func (cc *ClientConn) connect() error {
 	pkt := cc.pf.NewConnPacket(cc.clientID, true, cc.heartbeat, cc.meta)
-	cc.writeInCh <- pkt
+	cc.sendToWriteIn(pkt) //nolint:errcheck
 	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
 	event := <-sync.C()
 
@@ -332,13 +335,9 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 		cc.shub.Error(pkt.PacketID, errors.New(pkt.ConnData.Error))
 		// close the conn
 		retPkt := cc.pf.NewDisConnPacket()
-		// Use non-blocking send to avoid deadlock:
-		// handlePkt() is reading from writeInCh in the same goroutine,
-		// so if writeInCh is full, blocking here would cause deadlock
-		// Use a goroutine to send asynchronously to break the deadlock
-		go func() {
-			cc.writeInCh <- retPkt
-		}()
+		// Send from a goroutine because handlePkt() is the only consumer of writeInCh;
+		// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
+		go func() { cc.sendToWriteIn(retPkt) }() //nolint:errcheck
 		return iodefine.IOSuccess
 	}
 	cc.shub.Done(pkt.PacketID)
@@ -420,13 +419,10 @@ func (cc *ClientConn) sendHeartbeat(event *timer.Event) {
 	}
 	// Create packet before releasing lock to avoid race condition
 	pkt := cc.pf.NewHeartbeatPacket()
-	writeInCh := cc.writeInCh
 	cc.connMtx.RUnlock()
 
 	// HeartbeatPacket is critical, must be sent successfully, so we block here
-	// This ensures heartbeat packets are always sent, even if writeInCh is full
-	// The blocking will wait for handlePkt() to process packets and make room
-	writeInCh <- pkt
+	cc.sendToWriteIn(pkt) //nolint:errcheck
 	// Successfully sent heartbeat packet to writeInCh
 	// Note: The packet will be processed by handlePkt() and then sent to heartbeatWriteCh or writeOutCh
 	// "conn write heartbeat down" will be printed in writePkt() when the packet is actually written to network
@@ -451,11 +447,9 @@ func (cc *ClientConn) Close() {
 		pkt := cc.pf.NewDisConnPacket()
 		// Use non-blocking send to avoid deadlock:
 		// Close() may be called from handlePkt() goroutine (e.g., via handleInDisConnPacket -> Close()),
-		// so if writeInCh is full, blocking here would cause deadlock
-		// Use a goroutine to send asynchronously to break the deadlock
-		go func() {
-			cc.writeInCh <- pkt
-		}()
+		// Send from a goroutine because Close() may be called from handlePkt() goroutine;
+		// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
+		go func() { cc.sendToWriteIn(pkt) }() //nolint:errcheck
 	})
 }
 
@@ -472,16 +466,29 @@ func (cc *ClientConn) fini() {
 	}
 	// collect shub
 	cc.shub.Close()
-	cc.shub = nil
+	// Do NOT set cc.shub = nil: concurrent goroutines may still call shub methods.
 	// collect net.Conn
 	cc.netconn.Close()
 	cc.connMtx.Lock()
 	cc.connOK = false
-	close(cc.writeInCh)
+	cc.cancel()
+	close(cc.monitorStop)
+	// Do NOT close writeInCh: external senders guard on ctx.Done() and would panic
+	// on a send-to-closed-channel race. After cancel(), no new sends will succeed.
 	cc.connMtx.Unlock()
-	for pkt := range cc.writeInCh {
-		if cc.failedCh != nil && !packet.ConnLayer(pkt) {
-			cc.failedCh <- pkt
+	// Drain buffered packets that were never written.
+DRAINED_WRITE_CC:
+	for {
+		select {
+		case pkt, ok := <-cc.writeInCh:
+			if !ok {
+				break DRAINED_WRITE_CC
+			}
+			if cc.failedCh != nil && !packet.ConnLayer(pkt) {
+				cc.failedCh <- pkt
+			}
+		default:
+			break DRAINED_WRITE_CC
 		}
 	}
 	// the outside should care about channel status

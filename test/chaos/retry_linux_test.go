@@ -21,12 +21,13 @@ import (
 )
 
 func TestPacketDrop(t *testing.T) {
-	port := 12345
-	ln, err := server.Listen("tcp", "localhost:"+strconv.Itoa(port))
+	ln, err := server.Listen("tcp", "localhost:0")
 	if err != nil {
 		log.Errorf("net listen err: %s", err)
 		return
 	}
+	// 读取 OS 实际分配的端口，供 iptables 规则和 client dialer 使用
+	port := ln.Addr().(*net.TCPAddr).Port
 	count := int32(10)
 	index := int32(0)
 

@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -90,6 +91,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			netconn:      netconn,
 			side:         geminio.RecipientSide,
 			connOK:       true,
+			monitorStop:  make(chan struct{}),
 			readInSize:   32,
 			writeOutSize: 32,
 			readOutSize:  32,
@@ -111,6 +113,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	sc.writeInCh = make(chan packet.Packet, sc.writeInSize)
 	sc.heartbeatCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (receive)
 	sc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
+	sc.ctx, sc.cancel = context.WithCancel(context.Background())
 	// timer
 	if !sc.tmrOutside {
 		sc.tmr = timer.NewTimer()
@@ -322,7 +325,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 			sc.log.Warnf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
-			sc.writeInCh <- retPkt
+			go func() { sc.sendToWriteIn(retPkt) }() //nolint:errcheck
 			return iodefine.IOSuccess
 		}
 	} else {
@@ -337,14 +340,14 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 				err, sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 
 			retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, err)
-			sc.writeInCh <- retPkt
+			go func() { sc.sendToWriteIn(retPkt) }() //nolint:errcheck
 			return iodefine.IOSuccess
 		}
 	}
 	// the first packet received.
 	sc.shub.Ack(sc.getSyncID(), nil)
 	retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, nil)
-	sc.writeInCh <- retPkt
+	go func() { sc.sendToWriteIn(retPkt) }() //nolint:errcheck
 
 	// set the heartbeat
 	sc.heartbeat = pkt.Heartbeat
@@ -435,13 +438,9 @@ func (sc *ServerConn) Close() {
 			sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))
 
 		pkt := sc.pf.NewDisConnPacket()
-		// Use non-blocking send to avoid deadlock:
-		// Close() may be called from handlePkt() goroutine (e.g., via handleInDisConnPacket -> Close()),
-		// so if writeInCh is full, blocking here would cause deadlock
-		// Use a goroutine to send asynchronously to break the deadlock
-		go func() {
-			sc.writeInCh <- pkt
-		}()
+		// Send from a goroutine because Close() may be called from handlePkt() goroutine;
+		// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
+		go func() { sc.sendToWriteIn(pkt) }() //nolint:errcheck
 	})
 }
 
@@ -465,18 +464,30 @@ func (sc *ServerConn) fini() {
 
 	// collect shub
 	sc.shub.Close()
-	sc.shub = nil
+	// Do NOT set sc.shub = nil: concurrent goroutines may still call shub methods.
 	// collect net.Conn
 	sc.netconn.Close()
 	// lock protect conn status and input resource
 	sc.connMtx.Lock()
 	sc.connOK = false
-	close(sc.writeInCh)
+	sc.cancel()
+	close(sc.monitorStop)
+	// Do NOT close writeInCh: external senders guard on ctx.Done() and would panic
+	// on a send-to-closed-channel race. After cancel(), no new sends will succeed.
 	sc.connMtx.Unlock()
-	// writeInCh must be cared since buffer might still has data
-	for pkt := range sc.writeInCh {
-		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
-			sc.failedCh <- pkt
+	// Drain buffered packets that were never written.
+DRAINED_WRITE_SC:
+	for {
+		select {
+		case pkt, ok := <-sc.writeInCh:
+			if !ok {
+				break DRAINED_WRITE_SC
+			}
+			if sc.failedCh != nil && !packet.ConnLayer(pkt) {
+				sc.failedCh <- pkt
+			}
+		default:
+			break DRAINED_WRITE_SC
 		}
 	}
 	// the outside should care about channel status
@@ -511,6 +522,12 @@ func (sc *ServerConn) fini() {
 // resetHeartbeatTimeout resets the heartbeat timeout timer
 // This should be called whenever any packet is received, as any packet indicates the connection is alive
 func (sc *ServerConn) resetHeartbeatTimeout() {
+	sc.connMtx.RLock()
+	if !sc.connOK {
+		sc.connMtx.RUnlock()
+		return
+	}
+	sc.connMtx.RUnlock()
 	if sc.hbTick != nil {
 		sc.hbTick.Cancel()
 	}

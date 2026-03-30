@@ -74,12 +74,13 @@ func TestMessage(t *testing.T) {
 
 func TestServer(t *testing.T) {
 	network := "tcp"
-	address := "127.0.0.1:12345"
+	address := "127.0.0.1:0"
 	srv, err := server.Listen(network, address)
 	if err != nil {
 		t.Error(err)
 		return
 	}
+	address = srv.Addr().String() // 用 OS 实际分配的地址给 client 连
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 

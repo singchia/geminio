@@ -30,11 +30,12 @@ func (dg *dialogue) logChannelStats() {
 	readOutSize := dg.readOutSize
 	writeInSize := dg.writeInSize
 	dialogueID := dg.dialogueID
-	dialogueOK := dg.dialogueOK
 	clientID := dg.cn.ClientID()
 
-	if !dialogueOK {
+	select {
+	case <-dg.ctx.Done():
 		return
+	default:
 	}
 
 	// Calculate usage percentages
@@ -73,22 +74,13 @@ func (dg *dialogue) startChannelMonitor(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			// Check if dialogue is still OK before logging
-			// If dialogueOK is false, the dialogue is closing/finished, so exit the monitor
-			// Read dialogueOK without lock to avoid deadlock with fini() which holds Lock()
-			// This is safe because:
-			// 1. dialogueOK is only set to false once in fini() (protected by Lock())
-			// 2. Reading without lock may see a slightly stale value, but that's acceptable
-			// 3. If we see false, we exit; if we see true but it's actually false, logChannelStats() will check again
-			dialogueOK := dg.dialogueOK
-			
-			if !dialogueOK {
-				// Dialogue is closing, exit the monitor goroutine
+		for {
+			select {
+			case <-dg.monitorStop:
 				return
+			case <-ticker.C:
+				dg.logChannelStats()
 			}
-			
-			dg.logChannelStats()
 		}
 	}()
 }

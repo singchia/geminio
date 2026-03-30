@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -79,8 +80,11 @@ type baseConn struct {
 	// heartbeat
 	hbTick timer.Tick
 
-	connOK  bool
-	connMtx sync.RWMutex
+	connOK      bool
+	connMtx     sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	monitorStop chan struct{} // closed when conn shuts down to stop the channel-monitor goroutine
 }
 
 func (bc *baseConn) Read() (packet.Packet, error) {
@@ -115,8 +119,23 @@ func (bc *baseConn) Write(pkt packet.Packet) error {
 		bc.log.Warnf("writeInCh is >80%% full (%d/%d), clientID: %d, packetID: %d, packetType: %s",
 			writeInLen, writeInSize, clientID, pkt.ID(), pkt.Type().String())
 	}
-	writeInCh <- pkt
-	return nil
+	select {
+	case writeInCh <- pkt:
+		return nil
+	case <-bc.ctx.Done():
+		return io.EOF
+	}
+}
+
+// sendToWriteIn is the single entry point for all writes to writeInCh.
+// It selects on ctx.Done() so it never sends after fini() cancels the context.
+func (bc *baseConn) sendToWriteIn(pkt packet.Packet) error {
+	select {
+	case <-bc.ctx.Done():
+		return io.EOF
+	case bc.writeInCh <- pkt:
+		return nil
+	}
 }
 
 // common read/write/handle
@@ -129,7 +148,10 @@ func (bc *baseConn) writePkt() {
 
 	for {
 		select {
-		case pkt := <-heartbeatWriteCh:
+		case pkt, ok := <-heartbeatWriteCh:
+			if !ok {
+				return
+			}
 			// Priority processing for heartbeat packets to avoid being blocked by application layer messages
 			bc.log.Tracef("conn write heartbeat down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
 				bc.clientID, pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
@@ -139,10 +161,16 @@ func (bc *baseConn) writePkt() {
 			writeDuration := time.Since(writeStart)
 			if err != nil {
 				// write to net Conn error, we should close the layer
-				bc.log.Errorf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-					err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
-				bc.Close()
-				//return
+				if bc.ctx.Err() != nil {
+					bc.log.Debugf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
+						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+				} else {
+					bc.log.Errorf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
+						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+				}
+				bc.netconn.Close()
+				bc.cancel()
+				return
 			}
 			if writeDuration > 5*time.Second {
 				bc.log.Warnf("heartbeat write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
@@ -169,10 +197,16 @@ func (bc *baseConn) writePkt() {
 			writeDuration := time.Since(writeStart)
 			if err != nil {
 				// write to net Conn error, we should close the layer
-				bc.log.Errorf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-					err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
-				bc.Close()
-				//return
+				if bc.ctx.Err() != nil {
+					bc.log.Debugf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
+						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+				} else {
+					bc.log.Errorf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
+						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+				}
+				bc.netconn.Close()
+				bc.cancel()
+				return
 			}
 			if writeDuration > 5*time.Second {
 				bc.log.Warnf("data packet write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
@@ -183,42 +217,18 @@ func (bc *baseConn) writePkt() {
 }
 
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
-	// Log before encoding to track if encoding is slow
-	startTime := time.Now()
-	pktSize := pkt.Length()
-
-	// Set write deadline to prevent indefinite blocking (30 seconds timeout)
-	// This ensures that if network write blocks, we can detect and handle it
-	writeDeadline := time.Now().Add(30 * time.Second)
-	err := bc.netconn.SetWriteDeadline(writeDeadline)
+	err := packet.EncodeToWriter(pkt, bc.netconn)
 	if err != nil {
-		bc.log.Warnf("failed to set write deadline: %s, clientID: %d, packetID: %d",
-			err, bc.clientID, pkt.ID())
-		// Continue anyway, but log the warning
-	}
-
-	// Encode packet (may be slow for large packets)
-	encodeStart := time.Now()
-	err = packet.EncodeToWriter(pkt, bc.netconn)
-	encodeDuration := time.Since(encodeStart)
-	totalDuration := time.Since(startTime)
-
-	// Clear write deadline after write
-	bc.netconn.SetWriteDeadline(time.Time{})
-
-	if err != nil {
-		bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s, size: %d, encodeDuration: %v, totalDuration: %v",
-			err, bc.clientID, pkt.ID(), pkt.Type().String(), pktSize, encodeDuration, totalDuration)
+		if bc.ctx.Err() != nil {
+			bc.log.Debugf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
+				err, bc.clientID, pkt.ID(), pkt.Type().String())
+		} else {
+			bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
+				err, bc.clientID, pkt.ID(), pkt.Type().String())
+		}
 		if record && bc.failedCh != nil {
 			// only upper layer packet need to be notified
 			bc.failedCh <- pkt
-		}
-	} else {
-		// Log slow writes to help diagnose blocking issues
-		// If encodeDuration > 100ms, it means network write is blocking
-		if encodeDuration > 100*time.Millisecond {
-			bc.log.Warnf("slow packet write (network may be blocking), clientID: %d, packetID: %d, packetType: %s, size: %d, encodeDuration: %v, totalDuration: %v",
-				bc.clientID, pkt.ID(), pkt.Type().String(), pktSize, encodeDuration, totalDuration)
 		}
 	}
 	return err
@@ -276,13 +286,9 @@ func (bc *baseConn) handleInDisConnPacket(pkt *packet.DisConnPacket) iodefine.IO
 		return iodefine.IOErr
 	}
 	retPkt := bc.pf.NewDisConnAckPacket(pkt.PacketID, nil)
-	// Use non-blocking send to avoid deadlock:
-	// handlePkt() is reading from writeInCh in the same goroutine,
-	// so if writeInCh is full, blocking here would cause deadlock
-	// Use a goroutine to send asynchronously to break the deadlock
-	go func() {
-		bc.writeInCh <- retPkt
-	}()
+	// Send from a goroutine because handlePkt() is the only consumer of writeInCh;
+	// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
+	go func() { bc.sendToWriteIn(retPkt) }() //nolint:errcheck
 	// send our side close while receiving close packet
 	bc.Close()
 	return iodefine.IOSuccess
@@ -314,7 +320,11 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 	}
 	// DisConnPacket is critical (connection-related), must be sent successfully, so we block here
 	// This ensures the disconnection packet is always sent, even if writeOutCh is full
-	bc.writeOutCh <- pkt
+	select {
+	case bc.writeOutCh <- pkt:
+	case <-bc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	bc.log.Debugf("send dis conn down succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
@@ -365,7 +375,11 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	// Data packets: block to ensure delivery, no packet loss
 	// This ensures all packets are sent, even if it means slower processing
 	// The blocking will wait for writePkt() to process packets and make room
-	writeOutCh <- pkt
+	select {
+	case writeOutCh <- pkt:
+	case <-bc.ctx.Done():
+		return iodefine.IOClosed
+	}
 	bc.log.Tracef("send data succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess

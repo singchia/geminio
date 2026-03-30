@@ -193,9 +193,9 @@ ERR:
 func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue online, clientID: %d, add dialogueID: %d", dg.ClientID(), dg.DialogueID())
 	dm.mtx.Lock()
-	defer dm.mtx.Unlock()
 
 	if !dm.mgrOK {
+		dm.mtx.Unlock()
 		return ErrOperationOnClosedMultiplexer
 	}
 	// remove from the negotiating dialogues, and add to ready dialogues.
@@ -204,16 +204,19 @@ func (dm *dialogueMgr) DialogueOnline(dg delegate.DialogueDescriber) error {
 		delete(dm.negotiatingDialogues, dg.NegotiatingID())
 	}
 	dm.dialogues[dg.DialogueID()] = dg.(*dialogue)
-	if dm.dlgt != nil {
-		dm.dlgt.DialogueOnline(dg)
-	}
-	// notify outside that a dialogue is accepting
-	if dm.dialogueAcceptFn != nil {
-		dm.dialogueAcceptFn(dg.(Dialogue))
+	acceptFn := dm.dialogueAcceptFn
+	acceptCh := dm.dialogueAcceptCh
+	dlgt := dm.dlgt
+	dm.mtx.Unlock()
 
-	} else if dm.dialogueAcceptCh != nil {
-		// this must not be blocked, or else the whole system will stop
-		dm.dialogueAcceptCh <- dg.(*dialogue)
+	if dlgt != nil {
+		dlgt.DialogueOnline(dg)
+	}
+	// notify outside that a dialogue is accepting, lock-free to avoid blocking
+	if acceptFn != nil {
+		acceptFn(dg.(Dialogue))
+	} else if acceptCh != nil {
+		acceptCh <- dg.(*dialogue)
 	}
 	return nil
 }
@@ -224,25 +227,28 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 
 	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", clientID, dialogueID)
 	dm.mtx.Lock()
-	defer dm.mtx.Unlock()
 
 	_, ok := dm.dialogues[dialogueID]
 	if ok {
 		delete(dm.dialogues, dialogueID)
-		if dm.dlgt != nil {
-			dm.dlgt.DialogueOffline(dg)
-		}
-	} else {
-		dm.log.Warnf("dialogue offline, cliengID: %d, dialogueID: %d not found", clientID, dialogueID)
 	}
-	// notify outside that a dialogue is closed
-	if dm.dialogueClosedFn != nil {
-		dm.dialogueClosedFn(dg.(*dialogue))
+	closedFn := dm.dialogueClosedFn
+	closedCh := dm.dialogueClosedCh
+	dlgt := dm.dlgt
+	dm.mtx.Unlock()
 
-	} else if dm.dialogueClosedCh != nil {
-		// this must not be blocked, or else the whole system will stop
-		dm.dialogueClosedCh <- dg.(*dialogue)
-
+	if !ok {
+		dm.log.Warnf("dialogue offline, cliengID: %d, dialogueID: %d not found", clientID, dialogueID)
+		return ErrDialogueNotFound
+	}
+	if dlgt != nil {
+		dlgt.DialogueOffline(dg)
+	}
+	// notify outside that a dialogue is closed, lock-free to avoid blocking
+	if closedFn != nil {
+		closedFn(dg.(*dialogue))
+	} else if closedCh != nil {
+		closedCh <- dg.(*dialogue)
 	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound
@@ -387,19 +393,15 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		}
 		dm.mtx.Lock()
 		dm.negotiatingDialogues[negotiatingID] = dg
-		// SessionPacket is critical for dialogue negotiation, block to ensure delivery
-		// Use recover to handle panic if channel is closed (dialogue might be closing)
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					// Channel is closed, dialogue is being closed
-					dm.log.Debugf("dialogue readInCh is closed (SessionPacket), packet dropped: clientID: %d, negotiatingID: %d, packetID: %d",
-						dm.cn.ClientID(), negotiatingID, pkt.ID())
-				}
-			}()
-			dg.readInCh <- pkt
-		}()
+		readInCh := dg.readInCh
 		dm.mtx.Unlock()
+		select {
+		case <-dg.ctx.Done():
+			dm.log.Debugf("dialogue is closing, SessionPacket dropped: clientID: %d, negotiatingID: %d, packetID: %d",
+				dm.cn.ClientID(), negotiatingID, pkt.ID())
+			return
+		case readInCh <- pkt:
+		}
 
 	case *packet.SessionAckPacket:
 		dm.mtx.RLock()
@@ -411,19 +413,15 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			dm.mtx.RUnlock()
 			return
 		}
-		// SessionAckPacket is critical for dialogue negotiation, block to ensure delivery
-		// Use recover to handle panic if channel is closed (dialogue might be closing)
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					// Channel is closed, dialogue is being closed
-					dm.log.Debugf("dialogue readInCh is closed (SessionAckPacket), packet dropped: clientID: %d, negotiatingID: %d, packetID: %d",
-						dm.cn.ClientID(), realPkt.NegotiateID(), pkt.ID())
-				}
-			}()
-			dg.readInCh <- pkt
-		}()
+		readInCh := dg.readInCh
 		dm.mtx.RUnlock()
+		select {
+		case <-dg.ctx.Done():
+			dm.log.Debugf("dialogue is closing, SessionAckPacket dropped: clientID: %d, negotiatingID: %d, packetID: %d",
+				dm.cn.ClientID(), realPkt.NegotiateID(), pkt.ID())
+			return
+		case readInCh <- pkt:
+		}
 
 	default:
 		dgPkt, ok := pkt.(packet.SessionAbove)
@@ -447,36 +445,15 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		}
 		dm.log.Tracef("read to dialogue, clientID: %d, dialogueID: %d, packetID: %d, packetType %s",
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
-		// Check if dialogue is still valid before sending
-		// Check dialogueOK to avoid sending to a closing dialogue
-		dg.mtx.RLock()
-		dialogueOK := dg.dialogueOK
 		readInCh := dg.readInCh
-		dg.mtx.RUnlock()
 		dm.mtx.RUnlock()
-		
-		if !dialogueOK {
-			// Dialogue is closing, skip sending
+		select {
+		case <-dg.ctx.Done():
 			dm.log.Debugf("dialogue is closing, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 			return
+		case readInCh <- pkt:
 		}
-		
-		// Use recover to handle panic if channel is closed (race condition)
-		// This prevents crash when dialogue closes readInCh between our check and send
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					// Channel is closed, dialogue is being closed
-					dm.log.Debugf("dialogue readInCh is closed, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-						dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
-				}
-			}()
-			// Data packets: block to ensure delivery, no packet loss
-			// This ensures all packets are delivered to dialogue, even if it means slower processing
-			// The blocking will wait for dialogue to process packets and make room
-			readInCh <- pkt
-		}()
 	}
 }
 
