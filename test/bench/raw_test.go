@@ -24,10 +24,12 @@ func BenchmarkEnd(b *testing.B) {
 
 func BenchmarkStream(b *testing.B) {
 	log.SetLevel(log.LevelError)
-	ss, cs, err := test.GetEndStream()
+	sEnd, cEnd, ss, cs, err := test.GetEndStream()
 	if err != nil {
 		b.Fatal(err)
 	}
+	defer sEnd.Close()
+	defer cEnd.Close()
 	defer ss.Close()
 	defer cs.Close()
 
@@ -48,9 +50,12 @@ func bench(b *testing.B, rd io.Reader, wr io.Writer) {
 		defer wg.Done()
 		count := 0
 		for {
-			n, _ := rd.Read(buf2)
+			n, err := rd.Read(buf2)
 			count += n
-			if count == 128*1024*b.N {
+			if count >= 128*1024*b.N {
+				return
+			}
+			if err != nil {
 				return
 			}
 		}

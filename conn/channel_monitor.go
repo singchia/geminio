@@ -79,8 +79,13 @@ func (bc *baseConn) startChannelMonitor(interval time.Duration) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			bc.logChannelStats()
+		for {
+			select {
+			case <-bc.monitorStop:
+				return
+			case <-ticker.C:
+				bc.logChannelStats()
+			}
 		}
 	}()
 }

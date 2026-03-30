@@ -68,4 +68,6 @@ type Dialogue interface {
 	Meta() []byte
 	Side() geminio.Side
 	Peer() string
+	// Done returns a channel that is closed when the dialogue is closed.
+	Done() <-chan struct{}
 }

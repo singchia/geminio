@@ -208,7 +208,7 @@ func getConnPair() (Conn, Conn, error) {
 }
 
 func getTCPConnPair() (net.Conn, net.Conn, error) {
-	lst, errlisn := net.Listen("tcp", "localhost:12345")
+	lst, errlisn := net.Listen("tcp", "localhost:0")
 	if errlisn != nil {
 		return nil, nil, errlisn
 	}

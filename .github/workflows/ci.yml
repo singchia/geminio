@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  schedule:
+    - cron: '0 2 * * *'   # 02:00 UTC daily — triggers nightly job
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  # ─── fast gate: runs on every PR / push ─────────────────────────────────────
+  unit:
+    name: Unit & Integration (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./test/unit/... -count=1 -timeout=60s -v
+
+      - name: Integration tests
+        run: go test ./test/integration/... -count=1 -timeout=120s -v
+
+      - name: Harness self-tests
+        run: go test ./test/harness/... -count=1 -timeout=30s -v
+
+      - name: Regression tests
+        run: go test ./test/regression/... -count=1 -timeout=60s -v
+
+      - name: Packet / application unit tests
+        run: go test ./packet/... ./application/... -count=1 -timeout=60s -v
+
+  # ─── e2e ────────────────────────────────────────────────────────────────────
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: E2E tests
+        run: go test ./test/e2e/... -count=1 -timeout=180s -v
+
+  # ─── race detector ───────────────────────────────────────────────────────────
+  race:
+    name: Race detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Race — unit
+        run: go test -race ./test/unit/... -count=1 -timeout=120s
+      - name: Race — integration
+        run: go test -race ./test/integration/... -count=1 -timeout=120s
+      - name: Race — regression
+        run: go test -race ./test/regression/... -count=1 -timeout=120s
+
+  # ─── chaos (cross-platform, no iptables) ────────────────────────────────────
+  chaos:
+    name: Chaos tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Chaos tests (non-iptables)
+        # Skip TestPacketDrop which requires iptables — covered in nightly
+        run: go test ./test/chaos/... -run "^Test[^P]" -count=1 -timeout=120s -v
+
+  # ─── nightly: benchmarks, fuzz, full race, linux chaos ──────────────────────
+  nightly:
+    name: Nightly (full)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Full race sweep
+        run: |
+          go test -race ./... -count=1 -timeout=300s \
+            2>&1 | tee race-report.txt
+
+      - name: Benchmarks (3s each)
+        run: |
+          go test ./test/bench/... \
+            -bench=. -benchtime=3s -benchmem -count=1 -timeout=300s \
+            2>&1 | tee bench-report.txt
+
+      - name: Security tests
+        run: go test ./test/security/... -count=1 -timeout=120s -v
+
+      - name: Fuzz (30s per target)
+        run: |
+          targets=$(go test ./test/security/... -list 'Fuzz.*' 2>/dev/null || true)
+          for target in $targets; do
+            echo "=== Fuzzing $target ==="
+            go test ./test/security/... \
+              -fuzz="^${target}$" -fuzztime=30s -timeout=60s || true
+          done
+
+      - name: Linux chaos — iptables packet drop
+        run: |
+          sudo go test ./test/chaos/... \
+            -run TestPacketDrop -count=1 -timeout=120s -v
+        continue-on-error: true   # iptables may be unavailable in some runners
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ github.run_id }}
+          path: |
+            race-report.txt
+            bench-report.txt

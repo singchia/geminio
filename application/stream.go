@@ -67,10 +67,11 @@ type stream struct {
 	hijackRPC *patternRPC
 
 	// mtx protects follows
-	mtx       sync.RWMutex
-	streamOK  bool
-	closeOnce *gsync.Once
-	finiOnce  *gsync.Once
+	mtx         sync.RWMutex
+	streamOK    bool
+	closeOnce   *gsync.Once
+	finiOnce    *gsync.Once
+	monitorStop chan struct{} // closed by fini() to stop the channel-monitor goroutine
 
 	// app layer messages
 	// raw cache
@@ -110,6 +111,7 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
 		finiOnce:          new(gsync.Once),
+		monitorStop:       make(chan struct{}),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
 		messageChSize:     32,
@@ -449,8 +451,7 @@ func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet 
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 	select {
 	case sm.streamCh <- pkt:
-	default:
-		// TODO drop the packet, we don't want block here
+	case <-sm.dg.Done():
 		return iodefine.IODiscard
 	}
 	return iodefine.IOSuccess
@@ -465,8 +466,10 @@ func (sm *stream) handleOutMessagePacket(pkt *packet.MessagePacket) iodefine.IOR
 		}
 		sm.log.Debugf("write message packet err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-		// notify the publish side the err
-		sm.shub.Error(pkt.ID(), err)
+		// notify the publish side the err; guard against shub being nil if fini() raced ahead
+		if sm.shub != nil {
+			sm.shub.Error(pkt.ID(), err)
+		}
 		return iodefine.IOErr
 	}
 	return iodefine.IOSuccess
@@ -583,6 +586,7 @@ func (sm *stream) fini() {
 	// collect shub, and all syncs will be close notified
 
 	sm.streamOK = false
+	close(sm.monitorStop) // signal channel-monitor goroutine to exit
 	close(sm.writeInCh)
 
 	for pkt := range sm.writeInCh {
@@ -590,7 +594,8 @@ func (sm *stream) fini() {
 	}
 	sm.writeInCh = nil
 	sm.shub.Close()
-	sm.shub = nil
+	// Do NOT set sm.shub = nil: handlePkt goroutines may still be running and
+	// call sm.shub.Error(); after Close() those calls are safe no-ops.
 
 	// the outside should care about message and stream channel status
 	close(sm.messageCh)

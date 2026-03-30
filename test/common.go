@@ -9,10 +9,10 @@ import (
 	"github.com/singchia/geminio/server"
 )
 
-func GetEndStream() (geminio.Stream, geminio.Stream, error) {
+func GetEndStream() (geminio.End, geminio.End, geminio.Stream, geminio.Stream, error) {
 	sEnd, cEnd, err := GetEndPair()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	var ss geminio.Stream
@@ -25,21 +25,22 @@ func GetEndStream() (geminio.Stream, geminio.Stream, error) {
 
 	cs, err := cEnd.OpenStream()
 	if err != nil {
-		return nil, nil, err
+		sEnd.Close()
+		cEnd.Close()
+		return nil, nil, nil, nil, err
 	}
 
 	<-done
 	if sErr != nil {
-		return nil, nil, sErr
+		sEnd.Close()
+		cEnd.Close()
+		return nil, nil, nil, nil, sErr
 	}
-	return ss, cs, nil
+	return sEnd, cEnd, ss, cs, nil
 }
 
 func GetEndPair() (geminio.End, geminio.End, error) {
-	sConn, cConn, err := GetTCPConnectionPair(12345)
-	if err != nil {
-		return nil, nil, err
-	}
+	sConn, cConn := net.Pipe()
 
 	var sEnd geminio.End
 	var sErr error
@@ -63,7 +64,7 @@ func GetEndPair() (geminio.End, geminio.End, error) {
 }
 
 func GetTCPConnectionPair(port int) (net.Conn, net.Conn, error) {
-	lst, err := net.Listen("tcp", "localhost:"+strconv.Itoa(port))
+	lst, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
 	if err != nil {
 		return nil, nil, err
 	}
