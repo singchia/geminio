@@ -100,6 +100,7 @@ func TestRPCTimeout(t *testing.T) {
 
 func TestRPCConcurrent(t *testing.T) {
 	t.Parallel()
+	harness.LogSilence(t)
 	sEnd, cEnd := harness.NewEndPair(t)
 
 	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {

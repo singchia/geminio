@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -109,7 +110,7 @@ func (bc *baseConn) Write(pkt packet.Packet) error {
 	}
 	writeInCh := bc.writeInCh
 	writeInSize := bc.writeInSize
-	clientID := bc.clientID
+	clientID := bc.ClientID()
 	bc.connMtx.RUnlock()
 
 	// Channel operations don't need lock (len() and <- are thread-safe)
@@ -154,7 +155,7 @@ func (bc *baseConn) writePkt() {
 			}
 			// Priority processing for heartbeat packets to avoid being blocked by application layer messages
 			bc.log.Tracef("conn write heartbeat down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
-				bc.clientID, pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
+				bc.ClientID(), pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
 			record := !packet.ConnLayer(pkt)
 			writeStart := time.Now()
 			err = bc.dowritePkt(pkt, record)
@@ -163,10 +164,10 @@ func (bc *baseConn) writePkt() {
 				// write to net Conn error, we should close the layer
 				if bc.ctx.Err() != nil {
 					bc.log.Debugf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				} else {
 					bc.log.Errorf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				}
 				bc.netconn.Close()
 				bc.cancel()
@@ -174,11 +175,11 @@ func (bc *baseConn) writePkt() {
 			}
 			if writeDuration > 5*time.Second {
 				bc.log.Warnf("heartbeat write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
-					bc.clientID, pkt.ID(), writeDuration)
+					bc.ClientID(), pkt.ID(), writeDuration)
 			}
 		case pkt, ok := <-writeOutCh:
 			if !ok {
-				bc.log.Debugf("conn write done, clientID: %d", bc.clientID)
+				bc.log.Debugf("conn write done, clientID: %d", bc.ClientID())
 				return
 			}
 			packetCount++
@@ -186,11 +187,11 @@ func (bc *baseConn) writePkt() {
 			now := time.Now()
 			if now.Sub(lastLogTime) > 10*time.Second {
 				bc.log.Infof("writePkt() is running, clientID: %d, packets processed: %d, writeOutCh remaining: %d/%d",
-					bc.clientID, packetCount, len(writeOutCh), bc.writeOutSize)
+					bc.ClientID(), packetCount, len(writeOutCh), bc.writeOutSize)
 				lastLogTime = now
 			}
 			bc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
-				bc.clientID, pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
+				bc.ClientID(), pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
 			record := !packet.ConnLayer(pkt)
 			writeStart := time.Now()
 			err = bc.dowritePkt(pkt, record)
@@ -199,10 +200,10 @@ func (bc *baseConn) writePkt() {
 				// write to net Conn error, we should close the layer
 				if bc.ctx.Err() != nil {
 					bc.log.Debugf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				} else {
 					bc.log.Errorf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.clientID, pkt.ID(), pkt.Type().String(), writeDuration)
+						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				}
 				bc.netconn.Close()
 				bc.cancel()
@@ -210,7 +211,7 @@ func (bc *baseConn) writePkt() {
 			}
 			if writeDuration > 5*time.Second {
 				bc.log.Warnf("data packet write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
-					bc.clientID, pkt.ID(), writeDuration)
+					bc.ClientID(), pkt.ID(), writeDuration)
 			}
 		}
 	}
@@ -221,10 +222,10 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	if err != nil {
 		if bc.ctx.Err() != nil {
 			bc.log.Debugf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
-				err, bc.clientID, pkt.ID(), pkt.Type().String())
+				err, bc.ClientID(), pkt.ID(), pkt.Type().String())
 		} else {
 			bc.log.Errorf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
-				err, bc.clientID, pkt.ID(), pkt.Type().String())
+				err, bc.ClientID(), pkt.ID(), pkt.Type().String())
 		}
 		if record && bc.failedCh != nil {
 			// only upper layer packet need to be notified
@@ -241,22 +242,22 @@ func (bc *baseConn) readPkt() {
 		pkt, err := packet.DecodeFromReader(bc.netconn)
 		if err != nil {
 			if iodefine.ErrUseOfClosedNetwork(err) {
-				bc.log.Debugf("conn read down closed, clientID: %d", bc.clientID)
+				bc.log.Debugf("conn read down closed, clientID: %d", bc.ClientID())
 			} else {
 				bc.log.Debugf("conn read down err: %s, clientID: %d",
-					err, bc.clientID)
+					err, bc.ClientID())
 			}
 			goto FINI
 		}
 		// Check packet size to prevent OOM attacks from oversized packets
 		if pkt.Length() > DefaultMaxPacketSize {
 			bc.log.Debugf("packet too large, discarding: clientID: %d, packetID: %d, packetType: %s, size: %d, max: %d",
-				bc.clientID, pkt.ID(), pkt.Type().String(), pkt.Length(), DefaultMaxPacketSize)
+				bc.ClientID(), pkt.ID(), pkt.Type().String(), pkt.Length(), DefaultMaxPacketSize)
 			// Discard the oversized packet and continue reading
 			continue
 		}
 		bc.log.Tracef("read %s , clientID: %d, packetID: %d, packetType: %s",
-			pkt.Type().String(), bc.clientID, pkt.ID(), pkt.Type().String())
+			pkt.Type().String(), bc.ClientID(), pkt.ID(), pkt.Type().String())
 		// Route heartbeat packets to priority channel for fast processing
 		if pkt.Type() == packet.TypeHeartbeatPacket || pkt.Type() == packet.TypeHeartbeatAckPacket {
 			select {
@@ -277,12 +278,12 @@ FINI:
 // common in packet
 func (bc *baseConn) handleInDisConnPacket(pkt *packet.DisConnPacket) iodefine.IORet {
 	bc.log.Debugf("recv dis conn succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
+		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 
 	err := bc.fsm.EmitEvent(ET_CLOSERECV)
 	if err != nil {
 		bc.log.Errorf("emit ET_CLOSERECV err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-			err, bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
+			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
 	retPkt := bc.pf.NewDisConnAckPacket(pkt.PacketID, nil)
@@ -296,12 +297,12 @@ func (bc *baseConn) handleInDisConnPacket(pkt *packet.DisConnPacket) iodefine.IO
 
 func (bc *baseConn) handleInDisConnAckPacket(pkt *packet.DisConnAckPacket) iodefine.IORet {
 	bc.log.Debugf("read dis conn ack packet, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
+		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 
 	err := bc.fsm.EmitEvent(ET_CLOSEACK)
 	if err != nil {
 		bc.log.Errorf("emit in ET_CLOSEACK err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-			err, bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
+			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
 	if bc.fsm.State() == CLOSE_HALF {
@@ -315,7 +316,7 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 	err := bc.fsm.EmitEvent(ET_CLOSESENT)
 	if err != nil {
 		bc.log.Errorf("emit out ET_CLOSESENT err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s, state: %s",
-			err, bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
+			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
 	// DisConnPacket is critical (connection-related), must be sent successfully, so we block here
@@ -326,7 +327,7 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 		return iodefine.IOClosed
 	}
 	bc.log.Debugf("send dis conn down succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
+		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
 }
 
@@ -334,7 +335,7 @@ func (bc *baseConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iode
 	err := bc.fsm.EmitEvent(ET_CLOSEACK)
 	if err != nil {
 		bc.log.Errorf("emit out ET_CLOSEACK err: %s, clientID: %d, PacketID: %d, remote: %s, meta: %s, state: %s",
-			err, bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
+			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
 	// make sure this packet is flushed before writeOutCh closed
@@ -343,7 +344,7 @@ func (bc *baseConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iode
 		return iodefine.IOErr
 	}
 	bc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
-		bc.clientID, pkt.ID(), pkt.Type().String())
+		bc.ClientID(), pkt.ID(), pkt.Type().String())
 	if bc.fsm.State() == CLOSE_HALF {
 		return iodefine.IOSuccess
 	}
@@ -358,7 +359,7 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 		bc.connMtx.RUnlock()
 		// Connection is closed (e.g., after receiving dis conn), discard the packet
 		bc.log.Debugf("connection closed, data packet discarded: clientID: %d, packetID: %d, packetType: %s",
-			bc.clientID, pkt.ID(), pkt.Type().String())
+			bc.ClientID(), pkt.ID(), pkt.Type().String())
 		return iodefine.IODiscard
 	}
 	writeOutCh := bc.writeOutCh
@@ -369,7 +370,7 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	// Log warning if channel is already > 80% full
 	if writeOutLen*100/writeOutSize > 80 {
 		bc.log.Warnf("writeOutCh is >80%% full (%d/%d), clientID: %d, packetID: %d, packetType: %s",
-			writeOutLen, writeOutSize, bc.clientID, pkt.ID(), pkt.Type().String())
+			writeOutLen, writeOutSize, bc.ClientID(), pkt.ID(), pkt.Type().String())
 	}
 
 	// Data packets: block to ensure delivery, no packet loss
@@ -381,7 +382,7 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 		return iodefine.IOClosed
 	}
 	bc.log.Tracef("send data succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
-		bc.clientID, pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
+		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
 }
 
@@ -403,7 +404,7 @@ func (bc *baseConn) Meta() []byte {
 }
 
 func (bc *baseConn) ClientID() uint64 {
-	return bc.clientID
+	return atomic.LoadUint64(&bc.clientID)
 }
 
 func (bc *baseConn) Close() {

@@ -827,6 +827,21 @@ func TestStressMixedOperations(t *testing.T) {
 		}
 	}()
 
+	// Stream acceptor
+	go func() {
+		for {
+			s, err := sEnd.AcceptStream()
+			if err != nil {
+				return
+			}
+			go func(s geminio.Stream) {
+				defer s.Close()
+				buf := make([]byte, 64)
+				s.Read(buf)
+			}(s)
+		}
+	}()
+
 	// Run mixed operations
 	var wg sync.WaitGroup
 	numWorkers := 10

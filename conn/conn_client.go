@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -211,8 +212,8 @@ func (cc *ClientConn) initFSM() {
 
 func (cc *ClientConn) connect() error {
 	pkt := cc.pf.NewConnPacket(cc.clientID, true, cc.heartbeat, cc.meta)
-	cc.sendToWriteIn(pkt) //nolint:errcheck
 	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
+	cc.sendToWriteIn(pkt) //nolint:errcheck
 	event := <-sync.C()
 
 	if event.Error != nil {
@@ -329,7 +330,7 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 		cc.shub.Error(pkt.PacketID, err)
 		return iodefine.IOErr
 	}
-	cc.clientID = pkt.ClientID
+	atomic.StoreUint64(&cc.clientID, pkt.ClientID)
 
 	if pkt.ConnData.Error != "" {
 		cc.shub.Error(pkt.PacketID, errors.New(pkt.ConnData.Error))

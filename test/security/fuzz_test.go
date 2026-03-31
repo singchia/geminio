@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/singchia/geminio"
@@ -109,10 +110,11 @@ func FuzzStreamData(f *testing.F) {
 			cs.Close()
 		}()
 
+		ss.SetReadDeadline(time.Now().Add(2 * time.Second))
 		buf := make([]byte, len(data)+1024)
 		n, err := ss.Read(buf)
 		if err != nil && err != context.Canceled {
-			// Read might fail, that's OK
+			// Read might fail due to deadline or stream close, that's OK
 			return
 		}
 

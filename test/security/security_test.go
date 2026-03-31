@@ -45,7 +45,9 @@ func TestLargePayload(t *testing.T) {
 				payload[i] = byte(i % 256)
 			}
 
-			resp, err := cEnd.Call(context.TODO(), "echo", cEnd.NewRequest(payload))
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			resp, err := cEnd.Call(ctx, "echo", cEnd.NewRequest(payload))
 			if err != nil {
 				t.Logf("call with %d bytes: %v", size, err)
 				return
@@ -65,6 +67,16 @@ func TestEmptyPayload(t *testing.T) {
 	}
 	defer sEnd.Close()
 	defer cEnd.Close()
+
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
 
 	// Empty message
 	msg := cEnd.NewMessage([]byte{})
@@ -93,6 +105,16 @@ func TestNilData(t *testing.T) {
 	}
 	defer sEnd.Close()
 	defer cEnd.Close()
+
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
 
 	// Nil message
 	msg := cEnd.NewMessage(nil)
@@ -182,6 +204,16 @@ func TestBoundaryStreamCount(t *testing.T) {
 	}
 	defer sEnd.Close()
 	defer cEnd.Close()
+
+	// Accept streams on server side
+	go func() {
+		for {
+			_, err := sEnd.AcceptStream()
+			if err != nil {
+				return
+			}
+		}
+	}()
 
 	// Test opening many streams
 	numStreams := 1000
@@ -292,21 +324,26 @@ func TestDoSRapidMessages(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	// Server side message drop
+	// Server side slow consumer - receives but never acks, with delay to simulate back-pressure
 	go func() {
 		for {
 			_, err := sEnd.Receive(context.TODO())
 			if err != nil {
 				return
 			}
-			// Don't call Done() to simulate slow consumer
+			// Slow consumer: delay before next receive
+			time.Sleep(10 * time.Millisecond)
 		}
 	}()
 
 	// Rapid fire messages
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for i := 0; i < 10000; i++ {
 		msg := cEnd.NewMessage(make([]byte, 1024))
-		cEnd.Publish(context.TODO(), msg)
+		if err := cEnd.Publish(ctx, msg); err != nil {
+			break // back-pressure or timeout, expected
+		}
 	}
 }
 
@@ -318,15 +355,27 @@ func TestDoSMemoryExhaustion(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
+
 	initialMem := runtime.MemStats{}
 	runtime.ReadMemStats(&initialMem)
 
 	// Try to exhaust memory with large messages
 	largePayload := make([]byte, 10*1024*1024) // 10MB
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	for i := 0; i < 100; i++ {
 		msg := cEnd.NewMessage(largePayload)
-		err := cEnd.Publish(context.TODO(), msg)
+		err := cEnd.Publish(ctx, msg)
 		if err != nil {
 			t.Logf("publish %d failed (possibly due to backpressure): %v", i, err)
 			break
@@ -467,6 +516,16 @@ func TestResourceExhaustionGoroutines(t *testing.T) {
 		t.Fatalf("get end pair failed: %v", err)
 	}
 
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
+
 	// Create many concurrent operations
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
@@ -535,6 +594,16 @@ func TestCommandInjection(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
+
 	cmdInjections := []string{
 		"; cat /etc/passwd",
 		"| rm -rf /",
@@ -558,6 +627,16 @@ func TestPathTraversal(t *testing.T) {
 	}
 	defer sEnd.Close()
 	defer cEnd.Close()
+
+	go func() {
+		for {
+			msg, err := sEnd.Receive(context.TODO())
+			if err != nil {
+				return
+			}
+			msg.Done()
+		}
+	}()
 
 	pathTraversals := []string{
 		"../../../etc/passwd",

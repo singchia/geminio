@@ -74,3 +74,6 @@ atlassian-ide-plugin.xml
 com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
+coverage.html
+test_output.log
+test_run_latest.log

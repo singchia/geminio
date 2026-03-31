@@ -135,7 +135,7 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 	go sm.handlePkt()
 	go sm.readPkt()
 	// Start channel monitoring for debugging memory issues
-	sm.startChannelMonitor(30 * time.Second)
+	sm.startChannelMonitor(false, 30*time.Second)
 	return sm
 }
 
@@ -592,10 +592,9 @@ func (sm *stream) fini() {
 	for pkt := range sm.writeInCh {
 		sm.shub.Error(pkt.ID(), io.ErrClosedPipe)
 	}
-	sm.writeInCh = nil
 	sm.shub.Close()
-	// Do NOT set sm.shub = nil: handlePkt goroutines may still be running and
-	// call sm.shub.Error(); after Close() those calls are safe no-ops.
+	// Do NOT set sm.writeInCh or sm.shub to nil: handlePkt goroutines may still be
+	// running; after close/Close() those are safe no-ops.
 
 	// the outside should care about message and stream channel status
 	close(sm.messageCh)

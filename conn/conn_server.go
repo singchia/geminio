@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -92,10 +93,10 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 			side:         geminio.RecipientSide,
 			connOK:       true,
 			monitorStop:  make(chan struct{}),
-			readInSize:   32,
-			writeOutSize: 32,
-			readOutSize:  32,
-			writeInSize:  32,
+			readInSize:   256,
+			writeOutSize: 256,
+			readOutSize:  256,
+			writeInSize:  256,
 		},
 
 		closeOnce: new(sync.Once),
@@ -314,12 +315,15 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 
 	sc.meta = pkt.ConnData.Meta
 	if pkt.ClientIDAcquire() {
+		var newClientID uint64
 		if sc.dlgt != nil {
-			sc.clientID, err = sc.dlgt.GetClientID(pkt.ClientID, sc.meta)
+			newClientID, err = sc.dlgt.GetClientID(pkt.ClientID, sc.meta)
+			atomic.StoreUint64(&sc.clientID, newClientID)
 		}
-		if sc.clientID == 0 && err == nil {
+		if atomic.LoadUint64(&sc.clientID) == 0 && err == nil {
 			// if delegate returns 0 meaning use a ID by inner
-			sc.clientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
+			newClientID, err = sc.clientIDs.GetIDByMeta(sc.meta)
+			atomic.StoreUint64(&sc.clientID, newClientID)
 		}
 		if err != nil {
 			sc.log.Warnf("get ID err: %s, clientID: %d, packetID: %d, remote: %s, meta: %s",
@@ -330,7 +334,7 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 		}
 	} else {
 		// TODO server must use this clientID, we should check if the clientID legal
-		sc.clientID = pkt.ClientID
+		atomic.StoreUint64(&sc.clientID, pkt.ClientID)
 	}
 
 	if sc.dlgt != nil {
