@@ -77,3 +77,7 @@ crashlytics-build.properties
 coverage.html
 test_output.log
 test_run_latest.log
+HEARTBEAT_OPTIMIZATION.md
+多路复用原理.md
+TEST_PLAN.md
+BUG_TRACKING.md
