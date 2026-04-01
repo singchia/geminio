@@ -67,11 +67,12 @@ type stream struct {
 	hijackRPC *patternRPC
 
 	// mtx protects follows
-	mtx         sync.RWMutex
-	streamOK    bool
-	closeOnce   *gsync.Once
-	finiOnce    *gsync.Once
-	monitorStop chan struct{} // closed by fini() to stop the channel-monitor goroutine
+	mtx          sync.RWMutex
+	streamOK     bool
+	closeOnce    *gsync.Once
+	finiOnce     *gsync.Once
+	monitorStop  chan struct{} // closed by fini() to stop the channel-monitor goroutine
+	closeWriteCh chan struct{} // closed by Close() to signal handlePkt to drain then call dg.Close()
 
 	// app layer messages
 	// raw cache
@@ -112,6 +113,7 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		closeOnce:         new(gsync.Once),
 		finiOnce:          new(gsync.Once),
 		monitorStop:       make(chan struct{}),
+		closeWriteCh:      make(chan struct{}),
 		dlReadChList:      list.New(),
 		dlWriteChList:     list.New(),
 		messageChSize:     32,
@@ -170,6 +172,7 @@ func (sm *stream) Side() geminio.Side {
 // main handle logic
 func (sm *stream) handlePkt() {
 	writeInCh := sm.writeInCh
+	closeWriteCh := sm.closeWriteCh
 
 	for { //nolint:all // need select to handle channel close and IOErr
 		select {
@@ -188,6 +191,38 @@ func (sm *stream) handlePkt() {
 				sm.shub.Error(pkt.ID(), io.ErrShortBuffer)
 			case iodefine.IOErr:
 				goto FINI
+			}
+		case <-closeWriteCh:
+			// Close() was called: drain any remaining data packets already enqueued
+			// in writeInCh before forwarding the dismiss to the dialogue layer.
+			// This guarantees that all StreamPackets reach the peer before DismissPacket.
+			closeWriteCh = nil // disable this case; don't select on a nil channel
+		DRAIN:
+			for {
+				select {
+				case pkt, ok := <-writeInCh:
+					if !ok {
+						goto FINI
+					}
+					sm.log.Tracef("stream drain write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+						sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+					ret := sm.handleOut(pkt)
+					switch ret {
+					case iodefine.IOSuccess:
+						continue DRAIN
+					case iodefine.IODiscard:
+						sm.shub.Error(pkt.ID(), io.ErrShortBuffer)
+					case iodefine.IOErr:
+						goto FINI
+					}
+				default:
+					// No more data packets buffered; now safe to send the dismiss.
+					// dg.Close() is asynchronous; we do NOT goto FINI here because
+					// fini() will be triggered by readPkt() when the peer completes
+					// the 4-way dismiss handshake and readOutCh is closed.
+					sm.dg.Close()
+					break DRAIN
+				}
 			}
 		}
 	}
@@ -570,8 +605,11 @@ func (sm *stream) Close() error {
 
 		sm.log.Debugf("stream async close, clientID: %d, dialogueID: %d",
 			sm.cn.ClientID(), sm.dg.DialogueID())
-		// diglogue Close will leads to fini and then close the readInCh
-		sm.dg.Close()
+		// Signal handlePkt to drain writeInCh then call dg.Close().
+		// This ensures all enqueued StreamPackets are forwarded before the
+		// DismissPacket is injected into the dialogue layer, preventing the
+		// Write-then-Close race where data arrives after dismiss on the peer side.
+		close(sm.closeWriteCh)
 	})
 	return nil
 }
@@ -600,11 +638,10 @@ func (sm *stream) fini() {
 	close(sm.messageCh)
 	close(sm.streamCh)
 
-	// collect timer
-	if sm.tmrOwner == sm {
-		sm.tmr.Close()
-	}
-	sm.tmr = nil
+	// Timer lifecycle is owned exclusively by End, not by individual streams.
+	// All streams share the same *opts pointer, so writing sm.tmr = nil here
+	// would race with other concurrent stream.fini() calls and with end.fini().
+	// End.fini() handles timer cleanup; streams must not touch opts.tmr.
 
 	if sm.dg.DialogueID() == 1 {
 		// the master stream

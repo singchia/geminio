@@ -40,6 +40,9 @@ const (
 type dialogue struct {
 	// options for timer, packet factory, log, delegate and meta
 	*opts
+	// log and pf are independent from opts to avoid data races when updated via options
+	log log.Logger
+	pf  packet.PacketFactory
 	// delegate
 	dlgt Delegate
 	// meta
@@ -171,13 +174,20 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	dg.writeInCh = make(chan packet.Packet, dg.writeInSize)
 
 	dg.shub = synchub.NewSyncHub(synchub.OptionTimer(dg.tmr))
-	// packet factory
-	if dg.pf == nil {
-		dg.pf = packet.NewPacketFactory(id.NewIDCounter(id.Even))
+
+	// Use independent log and pf to avoid data race with shared opts
+	if dg.log == nil {
+		dg.log = dg.opts.log
 	}
-	// log
 	if dg.log == nil {
 		dg.log = log.DefaultLog
+	}
+
+	if dg.pf == nil {
+		dg.pf = dg.opts.pf
+	}
+	if dg.pf == nil {
+		dg.pf = packet.NewPacketFactory(id.NewIDCounter(id.Even))
 	}
 
 	// rolling up

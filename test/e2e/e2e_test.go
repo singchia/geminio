@@ -559,8 +559,11 @@ func TestStreamMultiple(t *testing.T) {
 		client geminio.Stream
 	}, numStreams)
 
-	// Accept streams in background
+	// Accept streams in background; use WaitGroup for proper synchronization.
+	var acceptWg sync.WaitGroup
+	acceptWg.Add(1)
 	go func() {
+		defer acceptWg.Done()
 		for i := 0; i < numStreams; i++ {
 			s, err := sEnd.AcceptStream()
 			if err != nil {
@@ -580,8 +583,8 @@ func TestStreamMultiple(t *testing.T) {
 		streams[i].client = s
 	}
 
-	// Wait for all streams to be accepted
-	time.Sleep(100 * time.Millisecond)
+	// Wait for all streams to be accepted (replaces unreliable time.Sleep).
+	acceptWg.Wait()
 
 	// Test each stream
 	for i := 0; i < numStreams; i++ {

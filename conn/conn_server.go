@@ -112,7 +112,7 @@ func NewServerConn(netconn net.Conn, opts ...ServerConnOption) (*ServerConn, err
 	sc.writeOutCh = make(chan packet.Packet, sc.writeOutSize)
 	sc.readOutCh = make(chan packet.Packet, sc.readOutSize)
 	sc.writeInCh = make(chan packet.Packet, sc.writeInSize)
-	sc.heartbeatCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (receive)
+	sc.heartbeatCh = make(chan packet.Packet, 10)      // priority channel for heartbeat packets (receive)
 	sc.heartbeatWriteCh = make(chan packet.Packet, 10) // priority channel for heartbeat packets (send)
 	sc.ctx, sc.cancel = context.WithCancel(context.Background())
 	// timer

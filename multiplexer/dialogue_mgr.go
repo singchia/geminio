@@ -349,9 +349,11 @@ func (dm *dialogueMgr) GetDialogue(clientID, dialogueID uint64) (Dialogue, error
 	if dm.cn.ClientID() != clientID {
 		return nil, errors.New("unfound clientID")
 	}
+	dm.mtx.RLock()
+	defer dm.mtx.RUnlock()
 	dialogue, ok := dm.dialogues[dialogueID]
 	if !ok {
-		return nil, errors.New("unfound dialgoueID")
+		return nil, ErrDialogueNotFound
 	}
 	return dialogue, nil
 }
