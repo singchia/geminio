@@ -1,9 +1,10 @@
 <div align="center">
 
-<img src="./docs/geminio.png" width="200">
+<img src="./docs/geminio.png" width="180">
 
+# Geminio
 
-> 强大的 Go 应用层网络编程库
+**一个连接，搞定双向 RPC、带确认的消息、流多路复用——全部藏在一个 `net.Conn` 后面。**
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
 [![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
@@ -16,509 +17,126 @@
 
 ---
 
-## 📖 介绍
+## 为什么是 Geminio?
 
-**Geminio** 是一个功能全面的 Go 应用层网络编程库，命名取自《哈利波特》中的[复制咒语](https://harrypotter.fandom.com/wiki/Doubling_Charm)（Geminio）。它提供了统一的接口来构建网络应用，支持 RPC、双向 RPC、消息传递、多会话管理、连接多路复用和原始连接处理等功能。
+你要写的可能是一个 IM 服务、消息队列、API 网关、内网穿透隧道，或者 service mesh 的 sidecar。要把它做对，你会需要：**双向 RPC**、**带 ack 的可靠消息**、**一条 TCP 连接上多路逻辑流**、**客户端自动重连**，而且整套东西必须能无缝融入 Go 的 `net.Conn` / `net.Listener` 生态。
 
-Geminio 通过抽象底层网络编程的复杂性来简化网络开发，让开发者能够专注于业务逻辑而非连接管理。
+今天的主流做法是：RPC 用 gRPC，多路复用用 yamux/smux，消息用 NATS 或自研协议，再写一堆胶水代码把它们的生命周期捏到一起。**Geminio 把这些能力统一在一个接口下面。**
 
-这个库的诞生是因为市面上缺少如双向 RPC、消息收发确认、裸连接管理、多会话和多路复用等综合能力的库，而我们在开发消息队列、即时通讯、接入层网关、内网穿透、代理等应用软件或中间件时都严重依赖这些抽象，故此开发了这个网络程序库，以能够让上层软件开发十分轻松。
+```
+ ┌──────────────── Geminio End ────────────────┐
+ │                                              │
+ │   RPC（双向）         ───┐                   │
+ │                           │                  │
+ │   消息（带 ack）      ────┼── 一条连接 ──────┼──► 对端
+ │                           │                  │
+ │   流（net.Conn 兼容）  ───┘    自动重连       │
+ │                                              │
+ └──────────────────────────────────────────────┘
+```
 
-## ✨ 特性
+## Geminio 与常见替代品
 
-- 🔄 **RPC & 双向 RPC** - 完整支持远程过程调用，具备双向调用能力
-- 📨 **消息传递** - 可靠的消息传递，提供确认保证
-- 🔀 **连接多路复用** - 在单个物理连接上建立多个逻辑连接
-- 🆔 **连接标识** - 唯一的 ClientID 和 StreamID 用于连接管理
-- 🔌 **原生兼容** - 与 Go 的 `net.Conn` 和 `net.Listener` 无缝集成
-- 🔁 **高可用性** - 内置客户端自动重连机制
-- ⚡ **高性能** - 针对低延迟和高吞吐量优化
-- 🛡️ **生产就绪** - 包含压力测试、混沌测试和性能分析的全面测试
-- 📦 **零依赖** - 轻量级，最小化外部依赖
+|                                       | gRPC              | yamux / smux | NATS | **Geminio** |
+| ------------------------------------- |:-----------------:|:------------:|:----:|:-----------:|
+| 请求/响应 RPC                         | ✅                | —            | —    | ✅          |
+| **服务端反向调用客户端方法**           | ⚠️ 仅 streaming    | —            | —    | ✅          |
+| 消息 publish + ack                    | —                 | —            | ✅   | ✅          |
+| 流多路复用                            | ✅（HTTP/2）      | ✅           | —    | ✅          |
+| 原生 `net.Conn` / `net.Listener` 兼容 | —                 | ✅           | —    | ✅          |
+| 客户端自动重连                        | —                 | —            | ✅   | ✅          |
+| 单二进制、无 broker                   | ✅                | ✅           | —    | ✅          |
 
-## 🚀 快速开始
+> 这里"服务端反向调用"指的是服务端可以 `Call("method", ...)` 去触发客户端注册的处理器——不是"在已打开的流里推消息"。这是多数"RPC 库"不提供的能力。
 
-### 安装
+## 特性
+
+- 🔄 **双向 RPC**——任一端都可以注册方法并调用对端方法。
+- 📨 **带 ack 的消息**——`Publish` / `Receive` 可确认收发；支持同步和异步。
+- 🔀 **流多路复用**——一条连接上开任意多条逻辑流。
+- 🔌 **`net.Conn` / `net.Listener` 兼容**——流可以直接塞进任何走 Go net 接口的代码。
+- 🆔 **稳定的对端和流标识**——`ClientID`、`StreamID` 让路由、鉴权、追踪简单自然。
+- 🔁 **自动重连**——客户端在网络抖动后自行恢复。
+- ⚡ **~1.3 GB/s** 的流吞吐（2016 年双核笔记本 CPU 实测，见 [基准测试](#基准测试)）。
+- 🧪 **稳定可靠**——覆盖单测、集成、端到端、压力、混沌和回归测试。
+
+## 60 秒看个 demo
 
 ```bash
 go get github.com/singchia/geminio
 ```
 
-### 基础示例
-
-**服务端：**
+**服务端**
 
 ```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio/server"
-)
-
-func main() {
-    ln, err := server.Listen("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    for {
-        end, err := ln.AcceptEnd()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        go func() {
-            msg, err := end.Receive(context.TODO())
-            if err != nil {
-                return
-            }
-            log.Printf("收到消息: %s", string(msg.Data()))
-            msg.Done()
-        }()
-    }
+ln, _ := server.Listen("tcp", "127.0.0.1:8080")
+for {
+    end, _ := ln.AcceptEnd()
+    end.Register(context.TODO(), "echo", func(_ context.Context, req geminio.Request, rsp geminio.Response) {
+        rsp.SetData(req.Data())
+    })
 }
 ```
 
-**客户端：**
+**客户端**
 
 ```go
-package main
+opt := client.NewEndOptions()
+opt.SetWaitRemoteRPCs("echo")
 
-import (
-    "context"
-    "log"
+end, _ := client.NewEnd("tcp", "127.0.0.1:8080", opt)
+defer end.Close()
 
-    "github.com/singchia/geminio/client"
-)
-
-func main() {
-    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer end.Close()
-
-    msg := end.NewMessage([]byte("Hello, Geminio!"))
-    if err := end.Publish(context.TODO(), msg); err != nil {
-        log.Fatal(err)
-    }
-}
+rsp, _ := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
+fmt.Println(string(rsp.Data())) // => hello
 ```
 
-## 📚 文档
+没有 proto 文件，没有代码生成，没有 broker。完整用法见 [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)。
 
-### 架构
+## 可以用它搭什么
 
-Geminio 采用分层架构设计：
+| 场景 | Geminio 带来的 | 示例 |
+| --- | --- | --- |
+| **内网穿透 / 反向隧道** | 一条向外连接承载双向控制 + 多条数据流 | [`examples/traversal`](./examples/traversal) |
+| **聊天室 / IM** | 带 ack 的消息、客户端标识、自动重连 | [`examples/chatroom`](./examples/chatroom) |
+| **消息队列** | 主题、ack、异步发布 | [`examples/mq`](./examples/mq) |
+| **TCP 中继 / 代理** | 控制面上跑 `net.Conn` 兼容的数据流 | [`examples/relay`](./examples/relay) |
+| **API 网关 / sidecar** | 双向 RPC + 多路复用 + 客户端身份 | 直接基于 `End` 构建 |
 
-<img src="./docs/biz-arch.png" width="100%">
+## 架构
 
-### 核心接口
+<p align="center"><img src="./docs/design.png" width="80%"></p>
 
-本库的所有抽象基本都在 `geminio.go` 里，从 End 开始结合上面架构图即可理解本库的设计：
+三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Geminio 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`多路复用原理.md`](./多路复用原理.md)。
 
-```go
-// RPC 接口
-type RPCer interface {
-    NewRequest(data []byte, opts ...*options.NewRequestOptions) Request
-    Call(ctx context.Context, method string, req Request, opts ...*options.CallOptions) (Response, error)
-    CallAsync(ctx context.Context, method string, req Request, ch chan *Call, opts ...*options.CallOptions) (*Call, error)
-    Register(ctx context.Context, method string, rpc RPC) error
-}
+## 基准测试
 
-// 消息接口
-type Messager interface {
-    NewMessage(data []byte, opts ...*options.NewMessageOptions) Message
-    Publish(ctx context.Context, msg Message, opts ...*options.PublishOptions) error
-    PublishAsync(ctx context.Context, msg Message, ch chan *Publish, opts ...*options.PublishOptions) (*Publish, error)
-    Receive(ctx context.Context) (Message, error)
-}
-
-// 流接口（结合了 RPC、消息传递和原始连接）
-type Stream interface {
-    RawRPCMessager  // RPC + 消息传递 + net.Conn
-    StreamID() uint64
-    ClientID() uint64
-    Meta() []byte
-}
-
-// 多路复用器，用于管理多个流
-type Multiplexer interface {
-    OpenStream(opts ...*options.OpenStreamOptions) (Stream, error)
-    AcceptStream() (Stream, error)
-    ListStreams() []Stream
-}
-
-// End 是主入口点
-type End interface {
-    Stream      // End 也是默认流（streamID = 1）
-    Multiplexer // End 可以管理多个流
-    Close()
-}
-```
-
-## 💡 使用示例
-
-### 消息发布
-
-**服务端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio/server"
-)
-
-func main() {
-    ln, err := server.Listen("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    for {
-        end, err := ln.AcceptEnd()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        go func() {
-            msg, err := end.Receive(context.TODO())
-            if err != nil {
-                return
-            }
-            log.Printf("收到消息: %s", string(msg.Data()))
-            msg.Done()
-        }()
-    }
-}
-```
-
-**客户端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio/client"
-)
-
-func main() {
-    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer end.Close()
-
-    msg := end.NewMessage([]byte("hello"))
-    if err := end.Publish(context.TODO(), msg); err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-### RPC
-
-**服务端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio"
-    "github.com/singchia/geminio/server"
-)
-
-func main() {
-    ln, err := server.Listen("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    for {
-        end, err := ln.AcceptEnd()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        go func() {
-            err := end.Register(context.TODO(), "echo", echo)
-            if err != nil {
-                log.Fatal(err)
-            }
-        }()
-    }
-}
-
-func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
-    rsp.SetData(req.Data())
-    log.Printf("Echo: %s", string(req.Data()))
-}
-```
-
-**客户端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio/client"
-)
-
-func main() {
-    opt := client.NewEndOptions()
-    opt.SetWaitRemoteRPCs("echo")
-    
-    end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer end.Close()
-
-    rsp, err := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    log.Printf("响应: %s", string(rsp.Data()))
-}
-```
-
-### 双向 RPC
-
-**服务端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio"
-    "github.com/singchia/geminio/server"
-)
-
-func main() {
-    opt := server.NewEndOptions()
-    opt.SetWaitRemoteRPCs("client-echo")
-    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"server-echo", echo})
-
-    ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    for {
-        end, err := ln.AcceptEnd()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        go func() {
-            rsp, err := end.Call(context.TODO(), "client-echo", end.NewRequest([]byte("foo")))
-            if err != nil {
-                log.Fatal(err)
-            }
-            log.Printf("客户端 echo: %s", string(rsp.Data()))
-        }()
-    }
-}
-
-func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
-    rsp.SetData(req.Data())
-    log.Printf("服务端 echo: %s", string(req.Data()))
-}
-```
-
-**客户端：**
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-
-    "github.com/singchia/geminio"
-    "github.com/singchia/geminio/client"
-)
-
-func main() {
-    opt := client.NewEndOptions()
-    opt.SetWaitRemoteRPCs("server-echo")
-    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"client-echo", echo})
-
-    end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer end.Close()
-
-    rsp, err := end.Call(context.TODO(), "server-echo", end.NewRequest([]byte("bar")))
-    if err != nil {
-        log.Fatal(err)
-    }
-    
-    log.Printf("服务端 echo: %s", string(rsp.Data()))
-}
-
-func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
-    rsp.SetData(req.Data())
-    log.Printf("客户端 echo: %s", string(req.Data()))
-}
-```
-
-### 多路复用
-
-**服务端：**
-
-```go
-package main
-
-import (
-    "log"
-
-    "github.com/singchia/geminio/server"
-)
-
-func main() {
-    ln, err := server.Listen("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    for {
-        end, err := ln.AcceptEnd()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        // 打开流 #1
-        sm1, err := end.OpenStream()
-        if err != nil {
-            log.Fatal(err)
-        }
-        sm1.Write([]byte("hello#1"))
-        sm1.Close()
-
-        // 打开流 #2
-        sm2, err := end.OpenStream()
-        if err != nil {
-            log.Fatal(err)
-        }
-        sm2.Write([]byte("hello#2"))
-        sm2.Close()
-    }
-}
-```
-
-**客户端：**
-
-```go
-package main
-
-import (
-    "net"
-    "log"
-
-    "github.com/singchia/geminio/client"
-)
-
-func main() {
-    end, err := client.NewEnd("tcp", "127.0.0.1:8080")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer end.Close()
-
-    // End 可以作为 net.Listener 使用
-    ln := net.Listener(end)
-    for {
-        conn, err := ln.Accept()
-        if err != nil {
-            log.Fatal(err)
-        }
-        
-        go func(conn net.Conn) {
-            buf := make([]byte, 128)
-            n, err := conn.Read(buf)
-            if err != nil {
-                return
-            }
-            log.Printf("读取: %s", string(buf[:n]))
-        }(conn)
-    }
-}
-```
-
-## 📦 更多示例
-
-查看 [examples](./examples) 目录获取更多完整示例：
-
-- **[消息传递](./examples/messager)** - 带确认的消息发布和接收
-- **[消息队列](./examples/mq)** - 简单的消息队列实现
-- **[聊天室](./examples/chatroom)** - 实时聊天室示例
-- **[中继器](./examples/relay)** - 网络中继代理
-- **[内网穿透](./examples/traversal)** - NAT 穿透示例
-
-## ⚡ 性能
-
-基准测试结果（Intel Core i5-6267U @ 2.90GHz）：
+Intel Core i5-6267U @ 2.90 GHz（2016 年双核笔记本 CPU）：
 
 ```
-goos: darwin
-goarch: amd64
-pkg: github.com/singchia/geminio/test/bench
-cpu: Intel(R) Core(TM) i5-6267U CPU @ 2.90GHz
-
-BenchmarkMessage-4   	   10117	    112584 ns/op	1164.21 MB/s	    5764 B/op	     181 allocs/op
-BenchmarkEnd-4       	   11644	     98586 ns/op	1329.52 MB/s	  550534 B/op	      73 allocs/op
-BenchmarkStream-4    	   12301	     96955 ns/op	1351.88 MB/s	  550605 B/op	      82 allocs/op
-BenchmarkRPC-4       	    6960	    165384 ns/op	 792.53 MB/s	   38381 B/op	     187 allocs/op
+BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
+BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
+BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
+BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
 ```
 
-## 🏗️ 设计
+流吞吐约 1.3 GB/s，RPC 端到端往返约 790 MB/s——这还是十年前的笔记本 CPU。在你自己机器上跑 `make bench` 看看现代硬件的表现。
 
-Geminio 采用分层架构实现：
+## 文档
 
-<p align="center">
-<img src="./docs/design.png" width="80%">
-</p>
+- **使用手册** —— [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)（[English](./docs/USAGE.md)）
+- **API 参考** —— [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
+- **可跑示例** —— [`examples/`](./examples)
+- **设计原理** —— [`多路复用原理.md`](./多路复用原理.md)
+- **Roadmap** —— [`ROADMAP.md`](./ROADMAP.md)
 
-## 🤝 参与开发
+## 参与开发
 
-欢迎贡献！请随时提交 Pull Request。
+欢迎 PR 和 Issue，请看 [CONTRIBUTING.md](./CONTRIBUTING.md)。简单来说：一次 PR 只做一件事，代码带测试，提交前请跑 `make test`。
 
-### 开发指南
+## 许可证
 
-- 保持一致的代码风格
-- 每次提交一个功能
-- 提交的代码都携带单元测试
-- 根据需要更新文档
-
-如果发现任何 Bug 或希望提交功能请求，请在 GitHub 上提交 Issue。
-
-## 📄 许可证
-
-版权所有 © Austin Zhai, 2023-2030
-
-基于 [Apache License 2.0](./LICENSE) 许可
+Apache 2.0 —— © Austin Zhai, 2023–2030。
 
 ---
 
