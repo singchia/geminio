@@ -1,3 +1,5 @@
+[English](./ROADMAP.md) | [简体中文](./ROADMAP_cn.md)
+
 ## Planned features
 
 ### 0.99.x

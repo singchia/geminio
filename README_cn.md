@@ -104,7 +104,7 @@ fmt.Println(string(rsp.Data())) // => hello
 
 <p align="center"><img src="./docs/design.png" width="80%"></p>
 
-三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Geminio 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`多路复用原理.md`](./多路复用原理.md)。
+三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Geminio 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)。
 
 ## 基准测试
 
@@ -124,8 +124,8 @@ BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
 - **使用手册** —— [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)（[English](./docs/USAGE.md)）
 - **API 参考** —— [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **可跑示例** —— [`examples/`](./examples)
-- **设计原理** —— [`多路复用原理.md`](./多路复用原理.md)
-- **Roadmap** —— [`ROADMAP.md`](./ROADMAP.md)
+- **设计原理** —— [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)（[English](./docs/MULTIPLEXING.md)）
+- **Roadmap** —— [`ROADMAP_cn.md`](./ROADMAP_cn.md)（[English](./ROADMAP.md)）
 
 ## 参与开发
 

@@ -104,7 +104,7 @@ No proto files. No code generation. No broker. Full examples in [`docs/USAGE.md`
 
 <p align="center"><img src="./docs/design.png" width="80%"></p>
 
-Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / Dialogue** (logical streams, routing, write scheduling), and **Application** (RPC and messaging semantics) — let Geminio ship one unified `End` while keeping each concern isolated and testable. Deep dive in [`多路复用原理.md`](./多路复用原理.md).
+Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / Dialogue** (logical streams, routing, write scheduling), and **Application** (RPC and messaging semantics) — let Geminio ship one unified `End` while keeping each concern isolated and testable. Deep dive in [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md).
 
 ## Benchmarks
 
@@ -121,11 +121,11 @@ BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
 
 ## Documentation
 
-- **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md) ([中文](./docs/USAGE_cn.md))
+- **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md) ([简体中文](./docs/USAGE_cn.md))
 - **API reference** — [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **Runnable examples** — [`examples/`](./examples)
-- **Design deep dive** — [`多路复用原理.md`](./多路复用原理.md)
-- **Roadmap** — [`ROADMAP.md`](./ROADMAP.md)
+- **Design deep dive** — [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md) ([简体中文](./docs/MULTIPLEXING_cn.md))
+- **Roadmap** — [`ROADMAP.md`](./ROADMAP.md) ([简体中文](./ROADMAP_cn.md))
 
 ## Contributing
 
