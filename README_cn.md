@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
-[English](./README.md) | [简体中文](./README_cn.md)
+[English](./README.md) | [简体中文](./README_cn.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md)
 
 </div>
 
@@ -100,7 +100,7 @@ for {
 
 ## 架构
 
-<p align="center"><img src="./docs/design.png" width="80%"></p>
+<p align="center"><img src="./docs/design.png" width="65%"></p>
 
 三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Geminio 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)。
 
@@ -119,11 +119,11 @@ BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
 
 ## 文档
 
-- **使用手册** —— [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)（[English](./docs/USAGE.md)）
+- **使用手册** —— [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)
 - **API 参考** —— [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **可跑示例** —— [`examples/`](./examples)
-- **设计原理** —— [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)（[English](./docs/MULTIPLEXING.md)）
-- **Roadmap** —— [`ROADMAP_cn.md`](./ROADMAP_cn.md)（[English](./ROADMAP.md)）
+- **设计原理** —— [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)
+- **Roadmap** —— [`ROADMAP_cn.md`](./ROADMAP_cn.md)
 
 ## 参与开发
 

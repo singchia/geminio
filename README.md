@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
-[English](./README.md) | [简体中文](./README_cn.md)
+[English](./README.md) | [简体中文](./README_cn.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md)
 
 </div>
 
@@ -100,7 +100,7 @@ The server initiates. The client listens on its own dial-out connection. `io.Cop
 
 ## Architecture
 
-<p align="center"><img src="./docs/design.png" width="80%"></p>
+<p align="center"><img src="./docs/design.png" width="65%"></p>
 
 Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / Dialogue** (logical streams, routing, write scheduling), and **Application** (RPC and messaging semantics) — let Geminio ship one unified `End` while keeping each concern isolated and testable. Deep dive in [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md).
 
@@ -119,11 +119,11 @@ BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
 
 ## Documentation
 
-- **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md) ([简体中文](./docs/USAGE_cn.md))
+- **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md)
 - **API reference** — [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **Runnable examples** — [`examples/`](./examples)
-- **Design deep dive** — [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md) ([简体中文](./docs/MULTIPLEXING_cn.md))
-- **Roadmap** — [`ROADMAP.md`](./ROADMAP.md) ([简体中文](./ROADMAP_cn.md))
+- **Design deep dive** — [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md)
+- **Roadmap** — [`ROADMAP.md`](./ROADMAP.md)
 
 ## Contributing
 
