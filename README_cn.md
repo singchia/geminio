@@ -21,16 +21,7 @@
 
 今天的主流做法是：RPC 用 gRPC，多路复用用 yamux/smux，消息用 NATS 或自研协议，再写一堆胶水代码把它们的生命周期捏到一起。**Geminio 把这些能力统一在一个接口下面。**
 
-```mermaid
-flowchart LR
-    subgraph End["Geminio End"]
-      direction TB
-      RPC["双向 RPC"]
-      MSG["带 ack 的消息"]
-      RAW["多路复用流 · net.Conn"]
-    end
-    End <==>|"一条 TCP 连接<br/>自动重连"| Peer(("对端"))
-```
+<p align="center"><img src="./docs/overview.png" width="85%"></p>
 
 ## Geminio 与常见替代品
 

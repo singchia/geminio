@@ -21,16 +21,7 @@ You're building an IM server, a message queue, an API gateway, a reverse tunnel 
 
 The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom protocol for messaging, and a tangle of glue to keep their lifecycles in sync. **Geminio offers the whole bundle behind one interface.**
 
-```mermaid
-flowchart LR
-    subgraph End["Geminio End"]
-      direction TB
-      RPC["Bidirectional RPC"]
-      MSG["Acked Messaging"]
-      RAW["Multiplexed Streams · net.Conn"]
-    end
-    End <==>|"single TCP connection<br/>auto-reconnect"| Peer(("Peer"))
-```
+<p align="center"><img src="./docs/overview.png" width="85%"></p>
 
 ## Geminio vs. the usual suspects
 
