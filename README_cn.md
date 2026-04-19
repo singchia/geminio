@@ -48,38 +48,45 @@
 - ⚡ **~1.3 GB/s** 的流吞吐（2016 年双核笔记本 CPU 实测，见 [基准测试](#基准测试)）。
 - 🧪 **稳定可靠**——覆盖单测、集成、端到端、压力、混沌和回归测试。
 
-## 60 秒看个 demo
+## 60 秒 demo：服务端往客户端推文件
 
 ```bash
 go get github.com/singchia/geminio
 ```
 
-**服务端**
+Geminio 里每条 stream 都是一个 `net.Conn`，每个 `End` 都是一个 `net.Listener`。于是"服务端主动推文件给客户端"这件事，一行 `io.Copy` 就够了——不用封帧、不用编解码、不用 broker。
+
+**服务端** —— 接入客户端后，反向打开一条流把文件 copy 进去。
 
 ```go
 ln, _ := server.Listen("tcp", "127.0.0.1:8080")
 for {
     end, _ := ln.AcceptEnd()
-    end.Register(context.TODO(), "echo", func(_ context.Context, req geminio.Request, rsp geminio.Response) {
-        rsp.SetData(req.Data())
-    })
+    go func() {
+        stream, _ := end.OpenStream()
+        defer stream.Close()
+        f, _ := os.Open("payload.bin")
+        defer f.Close()
+        io.Copy(stream, f)
+    }()
 }
 ```
 
-**客户端**
+**客户端** —— 把 `End` 当 `net.Listener` 用，收到的每条流直接落盘。
 
 ```go
-opt := client.NewEndOptions()
-opt.SetWaitRemoteRPCs("echo")
-
-end, _ := client.NewEnd("tcp", "127.0.0.1:8080", opt)
+end, _ := client.NewEnd("tcp", "127.0.0.1:8080")
 defer end.Close()
-
-rsp, _ := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
-fmt.Println(string(rsp.Data())) // => hello
+for {
+    conn, _ := end.Accept()
+    f, _ := os.Create("received.bin")
+    io.Copy(f, conn)
+    f.Close()
+    conn.Close()
+}
 ```
 
-没有 proto 文件，没有代码生成，没有 broker。完整用法见 [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)。
+服务端主动发起，客户端在自己拨出的连接上监听。剩下的交给 `io.Copy`，因为流就是 `net.Conn`。RPC、双向 RPC、带 ack 的消息、多路复用的更多玩法——完整可运行示例都在 [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)。
 
 ## 可以用它搭什么
 

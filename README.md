@@ -48,38 +48,45 @@ The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom
 - ⚡ **~1.3 GB/s** stream throughput on a 2016 laptop CPU (see [Benchmarks](#benchmarks)).
 - 🧪 **Hardened** — unit, integration, e2e, stress, chaos, and regression test suites.
 
-## 60-second demo
+## 60-second demo: push a file from server to client
 
 ```bash
 go get github.com/singchia/geminio
 ```
 
-**Server**
+Every Geminio stream is a `net.Conn`, and every `End` is a `net.Listener`. So a server-initiated file transfer is just `io.Copy` — no framing, no codec, no broker.
+
+**Server** — accept clients, open a stream back, copy the file in.
 
 ```go
 ln, _ := server.Listen("tcp", "127.0.0.1:8080")
 for {
     end, _ := ln.AcceptEnd()
-    end.Register(context.TODO(), "echo", func(_ context.Context, req geminio.Request, rsp geminio.Response) {
-        rsp.SetData(req.Data())
-    })
+    go func() {
+        stream, _ := end.OpenStream()
+        defer stream.Close()
+        f, _ := os.Open("payload.bin")
+        defer f.Close()
+        io.Copy(stream, f)
+    }()
 }
 ```
 
-**Client**
+**Client** — treat the `End` as a `net.Listener`, save each incoming stream.
 
 ```go
-opt := client.NewEndOptions()
-opt.SetWaitRemoteRPCs("echo")
-
-end, _ := client.NewEnd("tcp", "127.0.0.1:8080", opt)
+end, _ := client.NewEnd("tcp", "127.0.0.1:8080")
 defer end.Close()
-
-rsp, _ := end.Call(context.TODO(), "echo", end.NewRequest([]byte("hello")))
-fmt.Println(string(rsp.Data())) // => hello
+for {
+    conn, _ := end.Accept()
+    f, _ := os.Create("received.bin")
+    io.Copy(f, conn)
+    f.Close()
+    conn.Close()
+}
 ```
 
-No proto files. No code generation. No broker. Full examples in [`docs/USAGE.md`](./docs/USAGE.md).
+The server initiates. The client listens on its own dial-out connection. `io.Copy` does the rest because the stream speaks `net.Conn`. Full runnable examples — RPC, bidirectional RPC, acked messaging, more multiplexing — in [`docs/USAGE.md`](./docs/USAGE.md).
 
 ## What you can build
 
