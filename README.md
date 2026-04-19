@@ -2,8 +2,6 @@
 
 <img src="./docs/geminio.png" width="180">
 
-# Geminio
-
 **One connection. Bidirectional RPC, acked messaging, and stream multiplexing — behind a single `net.Conn`.**
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
@@ -23,16 +21,15 @@ You're building an IM server, a message queue, an API gateway, a reverse tunnel 
 
 The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom protocol for messaging, and a tangle of glue to keep their lifecycles in sync. **Geminio offers the whole bundle behind one interface.**
 
-```
- ┌──────────────── Geminio End ────────────────┐
- │                                              │
- │   RPC (bidirectional)  ───┐                  │
- │                            │                 │
- │   Messaging (acked)    ────┼── 1 connection ─┼──► peer
- │                            │                 │
- │   Streams (net.Conn)   ───┘    auto-reconnect│
- │                                              │
- └──────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph End["Geminio End"]
+      direction TB
+      RPC["Bidirectional RPC"]
+      MSG["Acked Messaging"]
+      RAW["Multiplexed Streams · net.Conn"]
+    end
+    End <==>|"single TCP connection<br/>auto-reconnect"| Peer(("Peer"))
 ```
 
 ## Geminio vs. the usual suspects
