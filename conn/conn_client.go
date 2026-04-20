@@ -24,9 +24,7 @@ type ClientConn struct {
 	*baseConn
 	dlgt ClientConnDelegate
 
-	finiOnce    *sync.Once
-	closeOnce   *sync.Once
-	offlineOnce *sync.Once
+	closeOnce *sync.Once
 }
 
 type ClientConnOption func(*ClientConn) error

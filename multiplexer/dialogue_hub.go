@@ -311,48 +311,4 @@ func (dh *dialogueHub) Close() {
 	wg.Wait()
 	close(dh.closeCh)
 	dh.log.Debugf("dialogue hubor closed")
-	return
-}
-
-func (dh *dialogueHub) fini() {
-	dh.log.Debugf("dialogue habor finishing")
-
-	dh.mtx.Lock()
-	defer dh.mtx.Unlock()
-
-	// collect conn status
-	dh.hubOK = false
-	for key := range dh.conns {
-		delete(dh.conns, key)
-	}
-	// collect all dialogues
-	for id, dg := range dh.dialogues {
-		// cause the dialogue io err
-		close(dg.readInCh)
-		delete(dh.dialogues, id)
-	}
-	for id, dg := range dh.negotiatingDialogues {
-		// cause the dialogue io err
-		close(dg.readInCh)
-		delete(dh.dialogues, id)
-	}
-
-	// collect timer
-	if dh.tmrOwner == dh {
-		dh.tmr.Close()
-	}
-	dh.tmr = nil
-	// collect id
-	dh.dialogueIDs.Close()
-	dh.dialogueIDs = nil
-	// collect channels
-	if !dh.dialogueAcceptChOutside && dh.dialogueAcceptCh != nil {
-		close(dh.dialogueAcceptCh)
-	}
-	if !dh.dialogueClosedChOutside && dh.dialogueClosedCh != nil {
-		close(dh.dialogueClosedCh)
-	}
-	dh.dialogueAcceptCh, dh.dialogueClosedCh = nil, nil
-
-	dh.log.Debugf("dialogue manager finished")
 }

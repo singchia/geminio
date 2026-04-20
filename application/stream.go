@@ -231,28 +231,20 @@ FINI:
 }
 
 func (sm *stream) readPkt() {
-	readInCh := sm.dg.ReadC()
-	for { //nolint:all // need select to handle channel close and IOErr
-		select {
-		case pkt, ok := <-readInCh:
-			if !ok {
-				goto FINI
-			}
-			sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+loop:
+	for pkt := range sm.dg.ReadC() {
+		sm.log.Tracef("stream read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+		switch sm.handleIn(pkt) {
+		case iodefine.IOSuccess:
+			continue
+		case iodefine.IODiscard:
+			sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-			ret := sm.handleIn(pkt)
-			switch ret {
-			case iodefine.IOSuccess:
-				continue
-			case iodefine.IODiscard:
-				sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-					sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-			case iodefine.IOErr:
-				goto FINI
-			}
+		case iodefine.IOErr:
+			break loop
 		}
 	}
-FINI:
 	sm.finiOnce.Do(sm.fini)
 }
 
@@ -300,17 +292,10 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 func (sm *stream) handleInMessagePacket(pkt *packet.MessagePacket) iodefine.IORet {
 	sm.log.Tracef("read message packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
-	// we don't want block here, and also we don't want discard immediately.
-	select { //nolint:all // select allows future non-blocking optimization
-	case sm.messageCh <- pkt:
-		/*
-			// TODO optimize it
-				default:
-					pkt := sm.pf.NewMessageAckPacketWithSessionID(sm.dg.DialogueID(), pkt.ID(), iodefine.ErrIOBufferFull)
-					sm.dg.WriteWait(pkt)
-					return iodefine.IODiscard
-		*/
-	}
+	// we don't want to block here, and we don't want to discard immediately.
+	// TODO optimize: add a default branch that emits a MessageAckPacket with
+	// ErrIOBufferFull and returns IODiscard when messageCh is full.
+	sm.messageCh <- pkt
 	return iodefine.IOSuccess
 }
 

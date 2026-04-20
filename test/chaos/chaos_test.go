@@ -8,7 +8,6 @@ package chaos
 
 import (
 	"context"
-	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -24,60 +23,6 @@ import (
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
-
-// breakableConn wraps a net.Conn and allows the test to cut the connection
-// at any moment.
-type breakableConn struct {
-	net.Conn
-	broken int32 // atomic
-}
-
-func (c *breakableConn) Read(b []byte) (int, error) {
-	if atomic.LoadInt32(&c.broken) == 1 {
-		return 0, io.EOF
-	}
-	return c.Conn.Read(b)
-}
-
-func (c *breakableConn) Write(b []byte) (int, error) {
-	if atomic.LoadInt32(&c.broken) == 1 {
-		return 0, io.ErrClosedPipe
-	}
-	return c.Conn.Write(b)
-}
-
-func (c *breakableConn) break_() {
-	atomic.StoreInt32(&c.broken, 1)
-	c.Conn.Close()
-}
-
-// rawConnPair returns a connected pair of plain net.Conn without going through
-// the geminio handshake. Useful for building controlled bad-actor connections.
-func rawConnPair(t *testing.T) (net.Conn, net.Conn) {
-	t.Helper()
-	lst, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("Listen: %v", err)
-	}
-	t.Cleanup(func() { lst.Close() })
-
-	ch := make(chan net.Conn, 1)
-	go func() {
-		c, err := lst.Accept()
-		if err != nil {
-			return
-		}
-		ch <- c
-	}()
-
-	client, err := net.Dial("tcp", lst.Addr().String())
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
-	}
-	server := <-ch
-	t.Cleanup(func() { client.Close(); server.Close() })
-	return server, client
-}
 
 // ─────────────────────────────────────────────
 // Abrupt disconnect

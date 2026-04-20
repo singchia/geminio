@@ -15,10 +15,13 @@ var (
 
 func Decode(data []byte) (Packet, uint32, error) {
 	pktHdr := &PacketHeader{}
-	n, err := pktHdr.Decode(data)
-	if err != nil {
+	if _, err := pktHdr.Decode(data); err != nil {
 		return nil, 0, err
 	}
+	var (
+		n   uint32
+		err error
+	)
 
 	if uint32(len(data)-14) < pktHdr.PacketLen {
 		return pktHdr, 14, ErrExpectingData

@@ -53,9 +53,6 @@ type connOpts struct {
 	meta        []byte
 	pf          packet.PacketFactory
 	log         log.Logger
-	// options for future usage
-	retain bool
-	clear  bool
 }
 
 type baseConn struct {
@@ -197,8 +194,11 @@ func (bc *baseConn) writePkt() {
 			err = bc.dowritePkt(pkt, record)
 			writeDuration := time.Since(writeStart)
 			if err != nil {
-				// write to net Conn error, we should close the layer
-				if bc.ctx.Err() != nil {
+				// write to net Conn error, we should close the layer.
+				// Teardown-path write failures (ctx canceled or the net.Conn
+				// already gone) are expected — log at Debug. Anything else
+				// is a genuine IO problem and stays at Error.
+				if bc.ctx.Err() != nil || iodefine.IsConnGone(err) {
 					bc.log.Debugf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
 						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				} else {
@@ -220,7 +220,11 @@ func (bc *baseConn) writePkt() {
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, bc.netconn)
 	if err != nil {
-		if bc.ctx.Err() != nil {
+		// Expected during teardown: our own ctx canceled, or the underlying
+		// net.Conn was closed by the peer while we were flushing a trailing
+		// packet (typically a DismissAck). Log at Debug so ordinary close
+		// paths do not spam ERROR.
+		if bc.ctx.Err() != nil || iodefine.IsConnGone(err) {
 			bc.log.Debugf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
 				err, bc.ClientID(), pkt.ID(), pkt.Type().String())
 		} else {

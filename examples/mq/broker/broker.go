@@ -251,20 +251,14 @@ func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp gemini
 		ch := broker.addConsumer(claim.Topic, clientID)
 		// consumer msg to end
 		go func() {
-			for {
-				select {
-				case msg, ok := <-ch:
-					if !ok {
-						return
-					}
-					log.Tracef("msg: %s from consumer: %d", msg, clientID)
-					broker.mtx.RLock()
-					client, ok := broker.clients[clientID]
-					if ok {
-						client.end.Publish(context.TODO(), client.end.NewMessage([]byte(msg)))
-					}
-					broker.mtx.RUnlock()
+			for msg := range ch {
+				log.Tracef("msg: %s from consumer: %d", msg, clientID)
+				broker.mtx.RLock()
+				client, ok := broker.clients[clientID]
+				if ok {
+					client.end.Publish(context.TODO(), client.end.NewMessage([]byte(msg)))
 				}
+				broker.mtx.RUnlock()
 			}
 		}()
 		broker.mtx.Unlock()

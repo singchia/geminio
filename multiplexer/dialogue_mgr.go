@@ -28,8 +28,6 @@ type opts struct {
 
 type multiplexerOpts struct {
 	*opts
-	// global client ID factory, set nil at client side
-	dialogueIDs id.IDFactory
 	// for outside usage
 	dialogueAcceptCh        chan *dialogue
 	dialogueAcceptChOutside bool
@@ -252,13 +250,6 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 	}
 	// unsucceed dialogue
 	return ErrDialogueNotFound
-}
-
-func (dm *dialogueMgr) getID() uint64 {
-	if dm.cn.Side() == geminio.InitiatorSide {
-		return packet.SessionIDNull
-	}
-	return dm.dialogueIDs.GetID()
 }
 
 // OpenDialogue blocks until succeed or failed
@@ -488,7 +479,6 @@ func (dm *dialogueMgr) Close() {
 	wg.Wait()
 	close(dm.closeCh)
 	dm.log.Debugf("dialogue manager closed, clientID: %d", dm.cn.ClientID())
-	return
 }
 
 func (dm *dialogueMgr) fini() {

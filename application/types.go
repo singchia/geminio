@@ -130,7 +130,6 @@ func (rsp *response) SetStreamID(streamID uint64) {
 }
 
 type message struct {
-	err    error
 	data   []byte
 	custom []byte
 	// ids

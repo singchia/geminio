@@ -428,12 +428,15 @@ func TestRPCTimeout(t *testing.T) {
 
 	method := "slow-method"
 	sEnd.Register(context.TODO(), method, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
-		// Simulate slow processing
+		// Simulate slow processing.
 		select {
 		case <-time.After(5 * time.Second):
 			resp.SetData([]byte("slow result"))
 		case <-ctx.Done():
-			// Context cancelled
+			// Must propagate the cancellation as an error on resp, otherwise
+			// the server ships an empty successful response and the client
+			// Call returns nil err even though it was supposed to time out.
+			resp.SetError(ctx.Err())
 		}
 	})
 

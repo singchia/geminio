@@ -79,9 +79,13 @@ func TestPacketDrop(t *testing.T) {
 			err := end.Publish(context.TODO(), end.NewMessage([]byte("retry test")))
 			if err != nil {
 				time.Sleep(time.Second)
-				// continue publish until success
+				// keep retrying the same iteration until delivery lands
 				continue
 			}
+			// success — break the retry loop so the outer loop advances to the
+			// next iteration. Without this break the test spins forever once
+			// the iptables drop rule is lifted and publishes start succeeding.
+			break
 		}
 	}
 	wg.Wait()
