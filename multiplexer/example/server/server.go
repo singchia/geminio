@@ -28,7 +28,7 @@ var (
 )
 
 func forceFree() {
-	for _ = range time.Tick(30 * time.Second) {
+	for range time.Tick(30 * time.Second) {
 		debug.FreeOSMemory()
 	}
 }

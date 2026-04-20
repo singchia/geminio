@@ -30,11 +30,6 @@ func (eo *EndOptions) SetTimer(timer timer.Timer) {
 	eo.TimerOwner = nil
 }
 
-func (eo *EndOptions) setTimer(timer timer.Timer, owner interface{}) {
-	eo.Timer = timer
-	eo.TimerOwner = owner
-}
-
 func (eo *EndOptions) SetPacketFactory(packetFactory packet.PacketFactory) {
 	eo.PacketFactory = packetFactory
 }

@@ -53,7 +53,7 @@ func (ln *listener) AcceptEnd() (geminio.End, error) {
 		end, err := NewEndWithConn(netconn, ln.opts...)
 		ln.ch <- &ret{end, err}
 	}()
-	ret, _ := <-ln.ch
+	ret := <-ln.ch
 	return ret.end, ret.err
 }
 

@@ -182,9 +182,6 @@ func Test_stream_Read(t *testing.T) {
 	ctl := gomock.NewController(t)
 	defer ctl.Finish()
 
-	type args struct {
-		t time.Time
-	}
 	tests := []struct {
 		name       string
 		waitSecond int
@@ -255,9 +252,6 @@ func Test_stream_Write(t *testing.T) {
 	ctl := gomock.NewController(t)
 	defer ctl.Finish()
 
-	type args struct {
-		t time.Time
-	}
 	tests := []struct {
 		name       string
 		waitSecond int

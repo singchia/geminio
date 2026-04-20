@@ -8,17 +8,8 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/jumboframes/armorigo/synchub"
 	"github.com/singchia/geminio/examples/messager/share"
-	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/geminio/server"
-	"github.com/singchia/go-timer/v2"
-)
-
-var (
-	tmr       timer.Timer
-	syncHub   *synchub.SyncHub
-	idCounter *id.IDCounter
 )
 
 func main() {

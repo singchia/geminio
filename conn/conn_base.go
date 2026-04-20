@@ -53,9 +53,6 @@ type connOpts struct {
 	meta        []byte
 	pf          packet.PacketFactory
 	log         log.Logger
-	// options for future usage
-	retain bool
-	clear  bool
 }
 
 type baseConn struct {

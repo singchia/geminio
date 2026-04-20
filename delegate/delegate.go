@@ -99,7 +99,7 @@ func (dlgt *UnimplementedDelegate) DialogueOnline(DialogueDescriber) error { ret
 
 func (dlgt *UnimplementedDelegate) DialogueOffline(DialogueDescriber) error { return nil }
 
-func (dlgt *UnimplementedDelegate) EndReOnline(ClientDescriber) { return }
+func (dlgt *UnimplementedDelegate) EndReOnline(ClientDescriber) {}
 
 func (dlgt *UnimplementedDelegate) RemoteRegistration(method string, clientID uint64, streamID uint64) {
 }

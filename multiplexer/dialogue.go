@@ -323,8 +323,7 @@ func (dg *dialogue) open() error {
 	dg.log.Debugf("dialogue is opening, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
-	var pkt *packet.SessionPacket
-	pkt = dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta, dg.peer)
+	pkt := dg.pf.NewSessionPacket(dg.negotiatingID, dg.dialogueIDPeersCall, dg.meta, dg.peer)
 	// sync must set before the packet send down, in case of the ack coming first
 	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 
@@ -343,28 +342,18 @@ func (dg *dialogue) open() error {
 
 // we may or not separate the goroutine because the underlay is still a channel
 func (dg *dialogue) writePkt() {
-	writeOutCh := dg.writeOutCh
-	err := error(nil)
-
-	for {
-		select {
-		case pkt, ok := <-writeOutCh:
-			if !ok {
-				dg.log.Debugf("dialogue write done, clientID: %d, dialogueID: %d",
-					dg.cn.ClientID(), dg.dialogueID)
-				return
-			}
-			dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-			err = dg.dowritePkt(pkt, true)
-			if err != nil {
-				dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-					err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
-				dg.closeIO()
-				return
-			}
+	for pkt := range dg.writeOutCh {
+		dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+		if err := dg.dowritePkt(pkt, true); err != nil {
+			dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+			dg.closeIO()
+			return
 		}
 	}
+	dg.log.Debugf("dialogue write done, clientID: %d, dialogueID: %d",
+		dg.cn.ClientID(), dg.dialogueID)
 }
 
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
@@ -770,7 +759,6 @@ func (dg *dialogue) CloseWait() {
 		}
 		dg.log.Debugf("dialogue closed, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
-		return
 	})
 }
 
