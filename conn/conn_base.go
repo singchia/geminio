@@ -194,8 +194,11 @@ func (bc *baseConn) writePkt() {
 			err = bc.dowritePkt(pkt, record)
 			writeDuration := time.Since(writeStart)
 			if err != nil {
-				// write to net Conn error, we should close the layer
-				if bc.ctx.Err() != nil {
+				// write to net Conn error, we should close the layer.
+				// Teardown-path write failures (ctx canceled or the net.Conn
+				// already gone) are expected — log at Debug. Anything else
+				// is a genuine IO problem and stays at Error.
+				if bc.ctx.Err() != nil || iodefine.IsConnGone(err) {
 					bc.log.Debugf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
 						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
 				} else {
