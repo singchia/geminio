@@ -199,13 +199,13 @@ func main() {
 			sns.Store(snID, sn)
 			handleInput(sn)
 			// handle multiplexer
-			handleAcceptClosedDialogue(sm, sns)
+			handleAcceptClosedDialogue(sm, &sns)
 		}
 	}
 	time.Sleep(time.Second)
 }
 
-func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns sync.Map) {
+func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns *sync.Map) {
 	go func() {
 		for {
 			sn, err := sm.AcceptDialogue()

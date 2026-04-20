@@ -13,7 +13,7 @@ func main() {
 	// the option means all End from server will wait for the rpc registration
 	opt.SetWaitRemoteRPCs("server-echo")
 	// pre-register client side method
-	opt.SetRegisterLocalRPCs(&geminio.MethodRPC{"client-echo", echo})
+	opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "client-echo", RPC: echo})
 
 	end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
 	if err != nil {

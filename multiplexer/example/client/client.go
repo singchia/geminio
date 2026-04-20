@@ -50,7 +50,7 @@ func main() {
 		return
 	}
 
-	sns := sync.Map{}
+	sns := &sync.Map{}
 	dialogues := sm.ListDialogues()
 	sns.Store("1", dialogues[0])
 	// handle multiplexer
@@ -134,7 +134,7 @@ END:
 	time.Sleep(time.Second)
 }
 
-func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns sync.Map) {
+func handleAcceptClosedDialogue(sm multiplexer.Multiplexer, sns *sync.Map) {
 	go func() {
 		for {
 			sn, err := sm.AcceptDialogue()
