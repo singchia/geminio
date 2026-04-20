@@ -536,22 +536,39 @@ func (dg *dialogue) handleInDismissPacket(pkt *packet.DismissPacket) iodefine.IO
 	}
 	retPkt := dg.pf.NewDismissAckPacket(pkt.ID(),
 		pkt.SessionID(), nil)
-	// Send from a goroutine because handlePkt() is the only consumer of writeInCh;
-	// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
-	go func() { dg.sendToWriteIn(retPkt) }() //nolint:errcheck
 
 	// If we were already in DISMISS_HALF (i.e. we had already sent our own DismissPacket
-	// and received the peer's DismissAck), then receiving the peer's DismissPacket now
-	// completes the simultaneous-close handshake. Signal closewait and close the dialogue.
+	// and received the peer's DismissAck), receiving the peer's DismissPacket now
+	// completes the simultaneous-close handshake. handlePkt is about to return
+	// IOClosed → FINI → fini() → ctx.cancel(), so writeInCh will no longer be
+	// drained. Sending the final DismissAck through writeInCh here races against
+	// that cancel and the packet is lost, leaving the peer's closewait to time
+	// out at 30s. Bypass writeInCh and flush the DismissAck directly to
+	// writeOutCh (owned by writePkt, a separate goroutine); any still-buffered
+	// writes drain before fini() closes the channel, so the peer sees the ack
+	// and exits closewait immediately.
 	if prevState == DISMISS_HALF {
 		dg.log.Debugf("simultaneous dismiss complete, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
+		if err := dg.sendToWriteOut(retPkt); err != nil {
+			dg.log.Debugf("send final dismiss ack failed (ctx likely canceled): %s, clientID: %d, dialogueID: %d",
+				err, dg.cn.ClientID(), dg.dialogueID)
+		}
 		if dg.closewait != nil {
 			dg.closewait.Done()
 		}
 		return iodefine.IOClosed
 	}
-	// send out side dismiss while receiving dismiss packet
+
+	// First-received dismiss (Case A): route the ack through writeInCh so
+	// handleOutDismissAckPacket runs the FSM transition (DISMISS_RECV →
+	// DISMISS_HALF) synchronously with the write; handlePkt keeps looping and
+	// will process our own DismissPacket when go dg.Close() below queues it.
+	//
+	// Send from a goroutine because handlePkt() is the only consumer of
+	// writeInCh; a blocking send from inside the handler deadlocks.
+	// sendToWriteIn selects on ctx.Done() for safety.
+	go func() { dg.sendToWriteIn(retPkt) }() //nolint:errcheck
 	go dg.Close()
 	return iodefine.IOSuccess
 }
