@@ -2,6 +2,8 @@ package iodefine
 
 import (
 	"errors"
+	"io"
+	"net"
 	"strings"
 )
 
@@ -36,4 +38,21 @@ var (
 
 func ErrUseOfClosedNetwork(err error) bool {
 	return strings.Contains(err.Error(), "use of closed network connection")
+}
+
+// IsConnGone reports whether err indicates the underlying connection is
+// no longer usable — closed locally, closed by the peer, or broken pipe.
+// Write failures during normal teardown (e.g. flushing the final
+// DismissAck right as the peer hangs up) surface as these and should
+// be logged at Debug rather than Error.
+func IsConnGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	s := err.Error()
+	return strings.Contains(s, "use of closed network connection") ||
+		strings.Contains(s, "io: read/write on closed pipe")
 }

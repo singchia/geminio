@@ -217,7 +217,11 @@ func (bc *baseConn) writePkt() {
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, bc.netconn)
 	if err != nil {
-		if bc.ctx.Err() != nil {
+		// Expected during teardown: our own ctx canceled, or the underlying
+		// net.Conn was closed by the peer while we were flushing a trailing
+		// packet (typically a DismissAck). Log at Debug so ordinary close
+		// paths do not spam ERROR.
+		if bc.ctx.Err() != nil || iodefine.IsConnGone(err) {
 			bc.log.Debugf("conn write down err: %s, clientID: %d, packetID: %d, packetType: %s",
 				err, bc.ClientID(), pkt.ID(), pkt.Type().String())
 		} else {

@@ -345,9 +345,8 @@ func (dg *dialogue) writePkt() {
 	for pkt := range dg.writeOutCh {
 		dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+		// dowritePkt already logs the error at the appropriate level.
 		if err := dg.dowritePkt(pkt, true); err != nil {
-			dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			dg.closeIO()
 			return
 		}
@@ -359,8 +358,19 @@ func (dg *dialogue) writePkt() {
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 	err := dg.cn.Write(pkt)
 	if err != nil {
-		dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-			err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+		// A write failure after the dialogue context has been canceled —
+		// or a plain "conn gone" error from the layer below (EOF, closed
+		// pipe, use of closed network connection) — is part of normal
+		// teardown, typically flushing the final DismissAck right as the
+		// peer hangs up. Log at Debug so ordinary close does not produce
+		// ERROR-level noise.
+		if dg.ctx.Err() != nil || iodefine.IsConnGone(err) {
+			dg.log.Debugf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+		} else {
+			dg.log.Errorf("dialogue write down err: %s, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
+				err, dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+		}
 		if record && dg.failedCh != nil {
 			// only upper layer packet need to be notified
 			dg.failedCh <- pkt
