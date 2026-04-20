@@ -15,14 +15,19 @@ const (
 )
 
 // geminio.Raw
+//
+// Read follows net.Conn semantics: bytes already in flight must reach the
+// caller even after the stream is closed. Specifically:
+//   - the per-stream cache holds the tail of the last packet pulled off
+//     streamCh; fini() does not zero it.
+//   - streamCh may still hold buffered packets when fini() closes it; Go's
+//     channel semantics drain a closed, buffered channel before yielding
+//     the zero-value + !ok signal that we map to io.EOF.
+//
+// We therefore drain cache first, then read streamCh (blocking, with
+// deadline). We do NOT early-return on streamOK=false, because that
+// races with fini() and would silently drop any bytes already delivered.
 func (sm *stream) Read(b []byte) (int, error) {
-	sm.mtx.RLock()
-	if !sm.streamOK {
-		sm.mtx.RUnlock()
-		return 0, io.EOF
-	}
-	sm.mtx.RUnlock()
-
 	sm.cacheMtx.Lock()
 	if len(sm.cache) != 0 {
 		n := copy(b, sm.cache)

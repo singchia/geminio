@@ -484,12 +484,22 @@ func (sm *stream) handleInRegisterAckPacket(pkt *packet.RegisterAckPacket) iodef
 func (sm *stream) handleInStreamPacket(pkt *packet.StreamPacket) iodefine.IORet {
 	sm.log.Tracef("read stream packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 		sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
+	// Try a non-blocking send first. Once the dialogue's ctx is canceled (fini
+	// running after dismiss handshake) BOTH cases of the blocking select below
+	// are ready and Go picks one at random — which silently drops the packet
+	// half the time even though streamCh has room. The non-blocking attempt
+	// guarantees delivery whenever room exists, regardless of ctx state.
 	select {
 	case sm.streamCh <- pkt:
+		return iodefine.IOSuccess
+	default:
+	}
+	select {
+	case sm.streamCh <- pkt:
+		return iodefine.IOSuccess
 	case <-sm.dg.Done():
 		return iodefine.IODiscard
 	}
-	return iodefine.IOSuccess
 }
 
 // output packet
