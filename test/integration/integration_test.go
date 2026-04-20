@@ -221,7 +221,17 @@ func TestMultipleClientsOneServer(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			payload := fmt.Sprintf("client-%d", id)
-			cEnd := mustNewEnd(t, ln.Addr().String())
+			// Wait until the server has registered "echo" on this connection.
+			// Without this, the client may Call before the registration packet
+			// has been processed and the peer replies with "no such rpc".
+			opts := client.NewEndOptions()
+			opts.SetWaitRemoteRPCs("echo")
+			cEnd, err := client.NewEnd("tcp", ln.Addr().String(), opts)
+			if err != nil {
+				errs <- fmt.Errorf("client %d dial: %v", id, err)
+				return
+			}
+			t.Cleanup(func() { cEnd.Close() })
 			resp, err := cEnd.Call(context.Background(), "echo", cEnd.NewRequest([]byte(payload)))
 			if err != nil {
 				errs <- fmt.Errorf("client %d call: %v", id, err)
