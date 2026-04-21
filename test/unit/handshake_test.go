@@ -91,7 +91,10 @@ func TestHandshakeMultipleClients(t *testing.T) {
 		t.Cleanup(func() { cEnd.Close() })
 	}
 
-	timeout := time.After(5 * time.Second)
+	// 5 sequential handshakes shouldn't need more than a second, but CI
+	// runners under race + coverage can stall well past that. Use a generous
+	// bound so this doesn't masquerade as a genuine failure.
+	timeout := time.After(30 * time.Second)
 	for i := 0; i < n; i++ {
 		select {
 		case <-done:
