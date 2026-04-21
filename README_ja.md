@@ -109,13 +109,13 @@ for {
 Apple M4（2024 年のラップトップクラス CPU）：
 
 ```
-BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
-BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
-BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
-BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-ストリームと End で約 5 GB/s、エンドツーエンドの RPC ラウンドトリップで約 3 GB/s、短メッセージで約 8.9 GB/s。同じスイートを 2016 年の Intel Core i5-6267U（2 コアラップトップ）で走らせるとストリーム約 1.3 GB/s、RPC 約 790 MB/s——ライブラリの性能はハードウェアに沿ってスケールします。自分のマシンで `make bench` をどうぞ。
+ストリーム約 3.9 万件/秒・5 GB/s、エンドツーエンドの RPC ラウンドトリップ約 2.3 万件/秒・3 GB/s、短メッセージ約 6.8 万件/秒・8.9 GB/s。同じスイートを 2016 年の Intel Core i5-6267U（2 コアラップトップ）で走らせてもストリーム約 1.3 GB/s、RPC 約 790 MB/s——ライブラリの性能はハードウェアに沿ってスケールします。自分のマシンで `make bench` をどうぞ。
 
 ## ドキュメント
 

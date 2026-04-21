@@ -109,13 +109,13 @@ Trois couches — **Connection** (TCP physique, heartbeat, FSM), **Multiplexer /
 Apple M4 (CPU de portable de 2024) :
 
 ```
-BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
-BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
-BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
-BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-~5 Go/s sur les streams et End, ~3 Go/s sur les aller-retours RPC de bout en bout, ~8.9 Go/s sur les messages courts. La même suite sur un Intel Core i5-6267U (portable dual-core de 2016) tourne autour de 1.3 Go/s sur les streams et 790 Mo/s sur RPC — la bibliothèque passe à l'échelle proprement avec le matériel. Lancez `make bench` sur votre propre machine.
+~39K streams/s à 5 Go/s, ~23K aller-retours RPC/s à 3 Go/s, ~68K messages courts/s à 8.9 Go/s. La même suite sur un Intel Core i5-6267U (portable dual-core de 2016) tient ~1.3 Go/s sur les streams et ~790 Mo/s sur RPC — la bibliothèque passe à l'échelle proprement avec le matériel. Lancez `make bench` sur votre propre machine.
 
 ## Documentation
 

@@ -109,13 +109,13 @@ for {
 Apple M4 (2024 년 노트북급 CPU):
 
 ```
-BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
-BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
-BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
-BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-스트림과 End 약 5 GB/s, 엔드투엔드 RPC 왕복 약 3 GB/s, 짧은 메시지 약 8.9 GB/s. 같은 스위트를 2016 년 Intel Core i5-6267U(듀얼 코어 노트북)에서 돌리면 스트림 약 1.3 GB/s, RPC 약 790 MB/s — 라이브러리 성능이 하드웨어에 맞춰 깔끔하게 스케일됩니다. 자기 머신에서 `make bench` 를 돌려보세요.
+스트림 약 3.9만 건/초 · 5 GB/s, 엔드투엔드 RPC 왕복 약 2.3만 건/초 · 3 GB/s, 짧은 메시지 약 6.8만 건/초 · 8.9 GB/s. 같은 스위트를 2016 년 Intel Core i5-6267U(듀얼 코어 노트북)에서 돌리면 스트림 약 1.3 GB/s, RPC 약 790 MB/s — 라이브러리 성능이 하드웨어에 맞춰 깔끔하게 스케일됩니다. 자기 머신에서 `make bench` 를 돌려보세요.
 
 ## 문서
 

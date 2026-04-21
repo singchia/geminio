@@ -109,13 +109,13 @@ for {
 Apple M4（2024 年笔记本级 CPU）：
 
 ```
-BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
-BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
-BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
-BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-流吞吐和 End 约 5 GB/s，RPC 端到端往返约 3 GB/s，短消息约 8.9 GB/s。同一套测试在 2016 年的 Intel Core i5-6267U（双核笔记本）上只有约 1.3 GB/s 的流和 790 MB/s 的 RPC——库的性能完全随硬件线性提升。在你自己机器上跑 `make bench` 看看。
+流约 3.9 万条/秒、5 GB/s，RPC 端到端约 2.3 万次/秒、3 GB/s，短消息约 6.8 万次/秒、8.9 GB/s。同一套测试在 2016 年的 Intel Core i5-6267U（双核笔记本）上也能稳定跑到约 1.3 GB/s 的流和 790 MB/s 的 RPC——库的性能完全随硬件线性提升。在你自己机器上跑 `make bench` 看看。
 
 ## 文档
 

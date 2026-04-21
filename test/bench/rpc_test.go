@@ -10,6 +10,7 @@ import (
 )
 
 func BenchmarkRPC(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {

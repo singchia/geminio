@@ -15,6 +15,7 @@ import (
 // ==================== Message Benchmarks ====================
 
 func BenchmarkMessageThroughput(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -49,6 +50,7 @@ func BenchmarkMessageThroughput(b *testing.B) {
 }
 
 func BenchmarkMessageLatency(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -84,6 +86,7 @@ func BenchmarkMessageLatency(b *testing.B) {
 }
 
 func BenchmarkMessageConcurrent(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -125,6 +128,7 @@ func BenchmarkMessageConcurrent(b *testing.B) {
 // ==================== RPC Benchmarks ====================
 
 func BenchmarkRPCLatency(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -149,6 +153,7 @@ func BenchmarkRPCLatency(b *testing.B) {
 }
 
 func BenchmarkRPCThroughput(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -175,6 +180,7 @@ func BenchmarkRPCThroughput(b *testing.B) {
 }
 
 func BenchmarkRPCConcurrent(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -201,6 +207,7 @@ func BenchmarkRPCConcurrent(b *testing.B) {
 }
 
 func BenchmarkRPCDifferentSizes(b *testing.B) {
+	defer reportOpsPerSec(b)
 	sizes := []int{64, 256, 1024, 4096, 16384, 65536, 262144}
 
 	for _, size := range sizes {
@@ -235,6 +242,7 @@ func BenchmarkRPCDifferentSizes(b *testing.B) {
 // ==================== Stream Benchmarks ====================
 
 func BenchmarkStreamThroughput(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, ss, cs, err := test.GetEndStream()
 	if err != nil {
@@ -276,6 +284,7 @@ func BenchmarkStreamThroughput(b *testing.B) {
 }
 
 func BenchmarkStreamConcurrent(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -331,6 +340,7 @@ func BenchmarkStreamConcurrent(b *testing.B) {
 // ==================== End Benchmarks ====================
 
 func BenchmarkEndRawThroughput(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -369,6 +379,7 @@ func BenchmarkEndRawThroughput(b *testing.B) {
 // ==================== Connection Benchmarks ====================
 
 func BenchmarkConnectionCreation(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -384,6 +395,7 @@ func BenchmarkConnectionCreation(b *testing.B) {
 }
 
 func BenchmarkStreamCreation(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -416,6 +428,7 @@ func BenchmarkStreamCreation(b *testing.B) {
 // ==================== Memory Benchmarks ====================
 
 func BenchmarkMemoryAllocation(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -441,6 +454,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 
 // BenchmarkMemoryPressure tests memory behavior under high load
 func BenchmarkMemoryPressure(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
