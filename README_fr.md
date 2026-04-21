@@ -45,7 +45,7 @@ La réponse habituelle : gRPC pour le RPC, yamux/smux pour le multiplexage, NATS
 - 🔌 **Compatible `net.Conn` / `net.Listener`** — les streams s'intègrent à tout code qui parle les interfaces net de Go.
 - 🆔 **IDs stables de peer et de stream** — `ClientID` et `StreamID` rendent routing, autorisation et tracing naturels.
 - 🔁 **Reconnexion automatique** — le client se rétablit de façon transparente après une coupure réseau.
-- ⚡ **~1.3 Go/s** de débit par stream sur un CPU de portable de 2016 (voir [Benchmarks](#benchmarks)).
+- ⚡ **~5 Go/s** de débit par stream et **~23K aller-retours RPC/s** sur un CPU de portable (voir [Benchmarks](#benchmarks)).
 - 🧪 **Éprouvé** — suites de tests unitaires, d'intégration, e2e, stress, chaos et régression.
 
 ## Démo en 60 secondes : envoyer un fichier du serveur au client
@@ -115,7 +115,7 @@ BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
 BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-~39K streams/s à 5 Go/s, ~23K aller-retours RPC/s à 3 Go/s, ~68K messages courts/s à 8.9 Go/s. La même suite sur un Intel Core i5-6267U (portable dual-core de 2016) tient ~1.3 Go/s sur les streams et ~790 Mo/s sur RPC — la bibliothèque passe à l'échelle proprement avec le matériel. Lancez `make bench` sur votre propre machine.
+~39K streams/s à 5 Go/s, ~23K aller-retours RPC/s à 3 Go/s, ~68K messages courts/s à 8.9 Go/s. Lancez `make bench` sur votre propre machine.
 
 ## Documentation
 
