@@ -82,17 +82,18 @@ func (sm *stream) Read(b []byte) (int, error) {
 }
 
 func (sm *stream) Write(b []byte) (int, error) {
-	// Mirror Read's pattern: only hold mtx while checking streamOK, then
-	// release before any blocking wait. Holding RLock across the select
-	// would deadlock fini() — fini grabs Write lock to flip streamOK and
-	// close monitorStop, but cannot get it while a stalled Write still
-	// holds RLock, which in turn is waiting for monitorStop to close.
+	// Hold RLock across the whole body so fini's close(writeInCh) (which
+	// runs under Lock) is serialised against our send into writeInCh.
+	// fini closes monitorStop before grabbing Lock, so a Writer stalled
+	// on a full channel escapes via the monitorStop arm below, then
+	// releases RLock, then fini can grab Lock and close writeInCh with
+	// no concurrent senders — deadlock-free and race-free.
 	sm.mtx.RLock()
+	defer sm.mtx.RUnlock()
+
 	if !sm.streamOK {
-		sm.mtx.RUnlock()
 		return 0, io.EOF
 	}
-	sm.mtx.RUnlock()
 
 	newb := make([]byte, len(b))
 	copy(newb, b)

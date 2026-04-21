@@ -256,7 +256,11 @@ func (end *End) fini() {
 	if end.tmrOwner == end {
 		end.tmr.Close()
 	}
-	end.tmr = nil
+	// Do NOT set end.tmr = nil: *End embeds *opts, and newStream() reads
+	// opts.tmr for every new stream's shub. A concurrent nil store
+	// (common under rapid open/close or kill-during-accept) races that
+	// read. Close() already released the timer's resources; letting GC
+	// reclaim the struct handles the rest.
 	end.log.Debugf("end finished, clientID: %d", end.cn.ClientID())
 }
 

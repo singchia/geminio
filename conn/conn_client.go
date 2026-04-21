@@ -522,7 +522,10 @@ DRAINED_WRITE_CC:
 	// collect channels
 	close(cc.heartbeatCh)
 	close(cc.heartbeatWriteCh)
-	cc.readInCh, cc.writeInCh, cc.writeOutCh, cc.heartbeatCh, cc.heartbeatWriteCh = nil, nil, nil, nil, nil
+	// Do NOT nil these fields: baseConn.writePkt and other goroutines
+	// read them at startup and those reads can overlap with fini under
+	// rapid open/close. The closes above are the real cleanup; GC
+	// reclaims the slots when the struct is unreferenced.
 
 	cc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))

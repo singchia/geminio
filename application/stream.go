@@ -650,12 +650,18 @@ func (sm *stream) fini() {
 	sm.log.Debugf("stream finishing, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())
 
+	// Close monitorStop BEFORE taking the exclusive lock. Write holds
+	// mtx.RLock across its blocking select, so if we tried to grab Lock
+	// first we would deadlock any Writer stalled on a full writeInCh.
+	// Closing monitorStop now lets those Writers escape their select,
+	// release RLock, and let us proceed to the rest of teardown.
+	close(sm.monitorStop)
+
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
 	// collect shub, and all syncs will be close notified
 
 	sm.streamOK = false
-	close(sm.monitorStop) // signal channel-monitor goroutine to exit
 	close(sm.writeInCh)
 
 	for pkt := range sm.writeInCh {
