@@ -82,12 +82,17 @@ func (sm *stream) Read(b []byte) (int, error) {
 }
 
 func (sm *stream) Write(b []byte) (int, error) {
+	// Mirror Read's pattern: only hold mtx while checking streamOK, then
+	// release before any blocking wait. Holding RLock across the select
+	// would deadlock fini() — fini grabs Write lock to flip streamOK and
+	// close monitorStop, but cannot get it while a stalled Write still
+	// holds RLock, which in turn is waiting for monitorStop to close.
 	sm.mtx.RLock()
-	defer sm.mtx.RUnlock()
-
 	if !sm.streamOK {
+		sm.mtx.RUnlock()
 		return 0, io.EOF
 	}
+	sm.mtx.RUnlock()
 
 	newb := make([]byte, len(b))
 	copy(newb, b)
@@ -120,6 +125,16 @@ func (sm *stream) Write(b []byte) (int, error) {
 		return len(b), nil
 	case <-dlCh:
 		return 0, os.ErrDeadlineExceeded
+	case <-sm.monitorStop:
+		// fini() closed monitorStop, i.e. the stream is tearing down —
+		// typically because the transport died underneath us. Without
+		// this case a caller with no Write deadline would block on a
+		// full writeInCh forever, hanging on a conn that will never
+		// drain again.
+		sm.dlMtx.Lock()
+		sm.dlWriteChList.Remove(e)
+		sm.dlMtx.Unlock()
+		return 0, io.EOF
 	}
 }
 
