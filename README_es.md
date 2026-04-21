@@ -45,7 +45,7 @@ La respuesta habitual es: gRPC para RPC, yamux/smux para multiplexación, NATS o
 - 🔌 **Compatible con `net.Conn` / `net.Listener`** — los streams encajan en cualquier código que hable las interfaces net de Go.
 - 🆔 **IDs estables de peer y de stream** — `ClientID` y `StreamID` facilitan routing, autorización y tracing.
 - 🔁 **Reconexión automática** — el cliente se recupera de forma transparente tras cortes de red.
-- ⚡ **~1.3 GB/s** de throughput por stream en una CPU de portátil de 2016 (ver [Benchmarks](#benchmarks)).
+- ⚡ **~5 GB/s** de throughput por stream y **~23K RPC de punta a punta/s** en una CPU de portátil (ver [Benchmarks](#benchmarks)).
 - 🧪 **Endurecido** — suites de tests unitarios, de integración, e2e, estrés, caos y regresión.
 
 ## Demo de 60 segundos: enviar un archivo del servidor al cliente
@@ -106,16 +106,16 @@ Tres capas — **Connection** (TCP físico, heartbeat, FSM), **Multiplexer / Dia
 
 ## Benchmarks
 
-Intel Core i5-6267U @ 2.90 GHz (portátil de dos núcleos de 2016):
+Apple M4 (CPU de portátil de 2024):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-~1.3 GB/s en streams, ~790 MB/s de ida y vuelta en RPC de punta a punta — sobre una CPU de portátil con diez años. Lanza `make bench` en tu propia máquina.
+~39K streams/s a 5 GB/s, ~23K RPC de punta a punta/s a 3 GB/s, ~68K mensajes cortos/s a 8.9 GB/s. Lanza `make bench` en tu propia máquina.
 
 ## Documentación
 

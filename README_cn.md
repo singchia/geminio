@@ -45,7 +45,7 @@
 - 🔌 **`net.Conn` / `net.Listener` 兼容**——流可以直接塞进任何走 Go net 接口的代码。
 - 🆔 **稳定的对端和流标识**——`ClientID`、`StreamID` 让路由、鉴权、追踪简单自然。
 - 🔁 **自动重连**——客户端在网络抖动后自行恢复。
-- ⚡ **~1.3 GB/s** 的流吞吐（2016 年双核笔记本 CPU 实测，见 [基准测试](#基准测试)）。
+- ⚡ **~5 GB/s** 单流吞吐、**~2.3 万 RPC 往返/秒**（笔记本级 CPU 实测，见 [基准测试](#基准测试)）。
 - 🧪 **稳定可靠**——覆盖单测、集成、端到端、压力、混沌和回归测试。
 
 ## 60 秒 demo：服务端往客户端推文件
@@ -106,16 +106,16 @@ for {
 
 ## 基准测试
 
-Intel Core i5-6267U @ 2.90 GHz（2016 年双核笔记本 CPU）：
+Apple M4（2024 年笔记本级 CPU）：
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-流吞吐约 1.3 GB/s，RPC 端到端往返约 790 MB/s——这还是十年前的笔记本 CPU。在你自己机器上跑 `make bench` 看看现代硬件的表现。
+流约 3.9 万条/秒、5 GB/s，RPC 端到端约 2.3 万次/秒、3 GB/s，短消息约 6.8 万次/秒、8.9 GB/s。在你自己机器上跑 `make bench` 看看。
 
 ## 文档
 

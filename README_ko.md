@@ -45,7 +45,7 @@
 - 🔌 **`net.Conn` / `net.Listener` 호환** — Go 의 net 인터페이스를 쓰는 기존 코드에 스트림을 그대로 꽂아 넣습니다.
 - 🆔 **안정적인 peer / stream ID** — `ClientID` 와 `StreamID` 로 라우팅, 권한, 트레이싱이 간결해집니다.
 - 🔁 **자동 재연결** — 네트워크 끊김 이후 클라이언트가 투명하게 복귀합니다.
-- ⚡ **약 1.3 GB/s** 스트림 처리량(2016 년 노트북 CPU 기준, [벤치마크](#벤치마크) 참고).
+- ⚡ **약 5 GB/s** 스트림 처리량과 **초당 2.3만 RPC 왕복**(노트북급 CPU 기준, [벤치마크](#벤치마크) 참고).
 - 🧪 **검증됨** — 단위·통합·E2E·스트레스·카오스·회귀 테스트 구성.
 
 ## 60 초 데모: 서버가 클라이언트로 파일 전송
@@ -106,16 +106,16 @@ for {
 
 ## 벤치마크
 
-Intel Core i5-6267U @ 2.90 GHz(2016 년 듀얼 코어 노트북):
+Apple M4 (2024 년 노트북급 CPU):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    235592    14600 ns/op   8977 MB/s   68495 ops/sec
+BenchmarkEnd-10        137131    25537 ns/op   5132 MB/s   39159 ops/sec
+BenchmarkStream-10     137937    25853 ns/op   5069 MB/s   38680 ops/sec
+BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ```
 
-스트림 약 1.3 GB/s, 엔드투엔드 RPC 왕복 약 790 MB/s — 10 년 된 노트북 CPU 에서의 값입니다. 자기 머신에서 `make bench` 를 돌려보세요.
+스트림 약 3.9만 건/초 · 5 GB/s, 엔드투엔드 RPC 왕복 약 2.3만 건/초 · 3 GB/s, 짧은 메시지 약 6.8만 건/초 · 8.9 GB/s. 자기 머신에서 `make bench` 를 돌려보세요.
 
 ## 문서
 

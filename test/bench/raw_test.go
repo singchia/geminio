@@ -10,6 +10,7 @@ import (
 )
 
 func BenchmarkEnd(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, err := test.GetEndPair()
 	if err != nil {
@@ -23,6 +24,7 @@ func BenchmarkEnd(b *testing.B) {
 }
 
 func BenchmarkStream(b *testing.B) {
+	defer reportOpsPerSec(b)
 	log.SetLevel(log.LevelError)
 	sEnd, cEnd, ss, cs, err := test.GetEndStream()
 	if err != nil {
