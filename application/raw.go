@@ -82,6 +82,12 @@ func (sm *stream) Read(b []byte) (int, error) {
 }
 
 func (sm *stream) Write(b []byte) (int, error) {
+	// Hold RLock across the whole body so fini's close(writeInCh) (which
+	// runs under Lock) is serialised against our send into writeInCh.
+	// fini closes monitorStop before grabbing Lock, so a Writer stalled
+	// on a full channel escapes via the monitorStop arm below, then
+	// releases RLock, then fini can grab Lock and close writeInCh with
+	// no concurrent senders — deadlock-free and race-free.
 	sm.mtx.RLock()
 	defer sm.mtx.RUnlock()
 
@@ -120,6 +126,16 @@ func (sm *stream) Write(b []byte) (int, error) {
 		return len(b), nil
 	case <-dlCh:
 		return 0, os.ErrDeadlineExceeded
+	case <-sm.monitorStop:
+		// fini() closed monitorStop, i.e. the stream is tearing down —
+		// typically because the transport died underneath us. Without
+		// this case a caller with no Write deadline would block on a
+		// full writeInCh forever, hanging on a conn that will never
+		// drain again.
+		sm.dlMtx.Lock()
+		sm.dlWriteChList.Remove(e)
+		sm.dlMtx.Unlock()
+		return 0, io.EOF
 	}
 }
 

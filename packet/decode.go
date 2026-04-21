@@ -11,7 +11,15 @@ var (
 	ErrExpectingData     = errors.New("expecting data")
 	ErrInvalidArguments  = errors.New("invalid arguments")
 	ErrIllegalPacket     = errors.New("illegal packet")
+	ErrPacketTooLarge    = errors.New("packet declared length exceeds MaxDecodablePacketLen")
 )
+
+// MaxDecodablePacketLen caps any inbound packet's declared payload length.
+// Anything larger is rejected at the decoder before allocating or reading
+// the payload, defending against memory-exhaustion and slowloris-style
+// attacks from adversarial peers. A legitimate peer will never exceed this
+// because geminio application-level writes enforce the same cap.
+const MaxDecodablePacketLen = 10 * 1024 * 1024 // 10 MiB
 
 func Decode(data []byte) (Packet, uint32, error) {
 	pktHdr := &PacketHeader{}
@@ -130,6 +138,12 @@ func Decode(data []byte) (Packet, uint32, error) {
 		n, err = pkt.Decode(data[14:])
 		return pkt, n, err
 
+	case TypeRequestCancelPacket:
+		pkt := &RequestCancelPacket{}
+		pkt.PacketHeader = pktHdr
+		n, err = pkt.Decode(data[14:])
+		return pkt, n, err
+
 	default:
 		return nil, 10, ErrUnsupportedPacket
 	}
@@ -143,6 +157,13 @@ func DecodeFromReader(reader io.Reader) (Packet, error) {
 	err := pktHdr.DecodeFromReader(reader)
 	if err != nil {
 		return nil, err
+	}
+	// Reject oversized packets BEFORE the per-type decoder allocates the
+	// payload buffer and io.ReadFull blocks on bytes the peer may never
+	// send. Attackers would otherwise use a single crafted header to
+	// either OOM the server or pin a goroutine indefinitely.
+	if pktHdr.PacketLen > MaxDecodablePacketLen {
+		return nil, ErrPacketTooLarge
 	}
 	//log.Tracef("DecodeFromReader | incoming underlay %s", pktHdr.Typ.String())
 
@@ -249,6 +270,12 @@ func DecodeFromReader(reader io.Reader) (Packet, error) {
 		pkt := &ResponsePacket{
 			&MessageAckPacket{},
 		}
+		pkt.PacketHeader = pktHdr
+		err = pkt.DecodeFromReader(reader)
+		return pkt, err
+
+	case TypeRequestCancelPacket:
+		pkt := &RequestCancelPacket{}
 		pkt.PacketHeader = pktHdr
 		err = pkt.DecodeFromReader(reader)
 		return pkt, err

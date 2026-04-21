@@ -529,7 +529,10 @@ DRAINED_WRITE_SC:
 	// collect channels
 	close(sc.heartbeatCh)
 	close(sc.heartbeatWriteCh)
-	sc.readInCh, sc.writeInCh, sc.writeOutCh, sc.heartbeatCh, sc.heartbeatWriteCh = nil, nil, nil, nil, nil
+	// Do NOT nil these fields: baseConn.writePkt and other goroutines
+	// read them at startup and those reads can overlap with fini under
+	// rapid open/close. The closes above are the real cleanup; GC
+	// reclaims the slots when the struct is unreferenced.
 
 	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))

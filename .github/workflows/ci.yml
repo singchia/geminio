@@ -84,8 +84,11 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Chaos tests (non-iptables)
-        # Skip TestPacketDrop which requires iptables — covered in nightly
-        run: go test ./test/chaos/... -run "^Test[^P]" -count=1 -timeout=120s -v
+        # Skip TestPacketDrop (iptables, nightly) and TestPeerKilled* (the
+        # P-prefix guard) — the heartbeat-timeout tests HalfOpenSendOnly /
+        # HalfOpenRecvOnly / NetworkBlackhole wait out the 30 s closewait
+        # ceiling, so the total run is ~3 minutes.
+        run: go test ./test/chaos/... -run "^Test[^P]" -count=1 -timeout=300s -v
 
   # ─── nightly: benchmarks, fuzz, full race, linux chaos ──────────────────────
   nightly:

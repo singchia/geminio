@@ -342,7 +342,10 @@ func (dg *dialogue) open() error {
 
 // we may or not separate the goroutine because the underlay is still a channel
 func (dg *dialogue) writePkt() {
-	for pkt := range dg.writeOutCh {
+	// Capture the channel locally so fini() writing dg.writeOutCh = nil
+	// concurrently does not race with our range expression.
+	writeOutCh := dg.writeOutCh
+	for pkt := range writeOutCh {
 		dg.log.Tracef("dialogue write down, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 		// dowritePkt already logs the error at the appropriate level.
@@ -807,8 +810,10 @@ func (dg *dialogue) fini() {
 		close(dg.readOutCh)
 		// writeOutCh must be cared since writePkt might quit first
 		close(dg.writeOutCh)
-		// collect channels
-		dg.writeOutCh = nil
+		// Do NOT set dg.writeOutCh = nil: writePkt captures the channel
+		// locally before ranging, so a concurrent nil assignment just
+		// races the read with no benefit (senders already bail out via
+		// sendToWriteOut's ctx.Done case).
 		// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
 
 		// collect fsm

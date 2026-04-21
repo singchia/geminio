@@ -279,12 +279,30 @@ func (sm *stream) handleOut(pkt packet.Packet) iodefine.IORet {
 		return sm.handleOutMessageAckPacket(realPkt)
 	case *packet.RequestPacket:
 		return sm.handleOutRequestPacket(realPkt)
+	case *packet.RequestCancelPacket:
+		return sm.handleOutRequestCancelPacket(realPkt)
 	case *packet.StreamPacket:
 		return sm.handleOutStreamPacket(realPkt)
 	case *packet.RegisterPacket:
 		return sm.handleOutRegisterPacket(realPkt)
 	}
 	// unknown packet
+	return iodefine.IOSuccess
+}
+
+// handleOutRequestCancelPacket forwards a RequestCancelPacket to the
+// dialogue layer. Without this, cancel packets put onto writeInCh were
+// silently discarded by the default case above, which meant server-side
+// handlers never observed the client's cancel and blocked forever.
+func (sm *stream) handleOutRequestCancelPacket(pkt *packet.RequestCancelPacket) iodefine.IORet {
+	if err := sm.dg.Write(pkt); err != nil {
+		if err == io.ErrShortBuffer {
+			return iodefine.IODiscard
+		}
+		sm.log.Debugf("write request cancel packet err: %s, clientID: %d, dialogueID: %d, packetID: %d",
+			err, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID())
+		return iodefine.IOErr
+	}
 	return iodefine.IOSuccess
 }
 
@@ -336,8 +354,12 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			clientID:  sm.cn.ClientID(),
 			streamID:  sm.dg.DialogueID(),
 		}
-	// setup context
-	ctx, cancel := context.Background(), context.CancelFunc(nil)
+	// setup context. Always make the handler ctx cancelable so that a peer
+	// RequestCancelPacket can actually interrupt it — previously ctx was
+	// left as context.Background when no deadline was set, which meant
+	// cancel packets were silently dropped and the handler hung forever.
+	ctx := context.Background()
+	var cancel context.CancelFunc
 	if !pkt.Data.Deadline.IsZero() || !pkt.Data.Context.Deadline.IsZero() {
 		deadline := pkt.Data.Deadline
 		if deadline.IsZero() || (!deadline.IsZero() &&
@@ -346,10 +368,12 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 			deadline = pkt.Data.Context.Deadline
 		}
 		ctx, cancel = context.WithDeadline(ctx, deadline)
-		sm.rpcMtx.Lock()
-		sm.rpcCancels[pkt.ID()] = cancel
-		sm.rpcMtx.Unlock()
+	} else {
+		ctx, cancel = context.WithCancel(ctx)
 	}
+	sm.rpcMtx.Lock()
+	sm.rpcCancels[pkt.ID()] = cancel
+	sm.rpcMtx.Unlock()
 	// hijack exist
 	if sm.hijackRPC != nil {
 		if sm.hijackRPC.pattern == nil {
@@ -560,7 +584,19 @@ func (sm *stream) handleOutStreamPacket(pkt *packet.StreamPacket) iodefine.IORet
 // doRPC provide generic rpc call
 func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string, ctx context.Context, req *request, rsp *response, async bool) {
 	prog := func() {
-		rpc(ctx, method, req, rsp)
+		// Recover from handler panics so the caller End is never taken down
+		// by a single buggy RPC. Convert the panic to an error response so
+		// the peer observes a real Call error instead of a hung sync.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					sm.log.Errorf("rpc handler panic: method=%s, panic=%v, clientID=%d, dialogueID=%d, packetID=%d",
+						method, r, sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID())
+					rsp.err = fmt.Errorf("rpc handler panic: %v", r)
+				}
+			}()
+			rpc(ctx, method, req, rsp)
+		}()
 		// once the rpc complete, we should cancel the context
 		sm.rpcMtx.Lock()
 		cancel, ok := sm.rpcCancels[pkt.ID()]
@@ -614,12 +650,18 @@ func (sm *stream) fini() {
 	sm.log.Debugf("stream finishing, clientID: %d, dialogueID: %d",
 		sm.cn.ClientID(), sm.dg.DialogueID())
 
+	// Close monitorStop BEFORE taking the exclusive lock. Write holds
+	// mtx.RLock across its blocking select, so if we tried to grab Lock
+	// first we would deadlock any Writer stalled on a full writeInCh.
+	// Closing monitorStop now lets those Writers escape their select,
+	// release RLock, and let us proceed to the rest of teardown.
+	close(sm.monitorStop)
+
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
 	// collect shub, and all syncs will be close notified
 
 	sm.streamOK = false
-	close(sm.monitorStop) // signal channel-monitor goroutine to exit
 	close(sm.writeInCh)
 
 	for pkt := range sm.writeInCh {
