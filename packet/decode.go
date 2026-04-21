@@ -130,6 +130,12 @@ func Decode(data []byte) (Packet, uint32, error) {
 		n, err = pkt.Decode(data[14:])
 		return pkt, n, err
 
+	case TypeRequestCancelPacket:
+		pkt := &RequestCancelPacket{}
+		pkt.PacketHeader = pktHdr
+		n, err = pkt.Decode(data[14:])
+		return pkt, n, err
+
 	default:
 		return nil, 10, ErrUnsupportedPacket
 	}
@@ -249,6 +255,12 @@ func DecodeFromReader(reader io.Reader) (Packet, error) {
 		pkt := &ResponsePacket{
 			&MessageAckPacket{},
 		}
+		pkt.PacketHeader = pktHdr
+		err = pkt.DecodeFromReader(reader)
+		return pkt, err
+
+	case TypeRequestCancelPacket:
+		pkt := &RequestCancelPacket{}
 		pkt.PacketHeader = pktHdr
 		err = pkt.DecodeFromReader(reader)
 		return pkt, err
