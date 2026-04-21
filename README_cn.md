@@ -106,16 +106,16 @@ for {
 
 ## 基准测试
 
-Intel Core i5-6267U @ 2.90 GHz（2016 年双核笔记本 CPU）：
+Apple M4（2024 年笔记本级 CPU）：
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-流吞吐约 1.3 GB/s，RPC 端到端往返约 790 MB/s——这还是十年前的笔记本 CPU。在你自己机器上跑 `make bench` 看看现代硬件的表现。
+流吞吐和 End 约 5 GB/s，RPC 端到端往返约 3 GB/s，短消息约 8.9 GB/s。同一套测试在 2016 年的 Intel Core i5-6267U（双核笔记本）上只有约 1.3 GB/s 的流和 790 MB/s 的 RPC——库的性能完全随硬件线性提升。在你自己机器上跑 `make bench` 看看。
 
 ## 文档
 

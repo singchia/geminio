@@ -106,16 +106,16 @@ Tres capas — **Connection** (TCP físico, heartbeat, FSM), **Multiplexer / Dia
 
 ## Benchmarks
 
-Intel Core i5-6267U @ 2.90 GHz (portátil de dos núcleos de 2016):
+Apple M4 (CPU de portátil de 2024):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-~1.3 GB/s en streams, ~790 MB/s de ida y vuelta en RPC de punta a punta — sobre una CPU de portátil con diez años. Lanza `make bench` en tu propia máquina.
+~5 GB/s en streams y End, ~3 GB/s en RPC de punta a punta, ~8.9 GB/s en mensajes cortos. La misma suite en un Intel Core i5-6267U (portátil de dos núcleos de 2016) ronda 1.3 GB/s en streams y 790 MB/s en RPC — la librería escala de forma limpia con el hardware. Lanza `make bench` en tu propia máquina.
 
 ## Documentación
 

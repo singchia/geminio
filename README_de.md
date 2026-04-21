@@ -106,16 +106,16 @@ Drei Schichten — **Connection** (physisches TCP, Heartbeat, FSM), **Multiplexe
 
 ## Benchmarks
 
-Intel Core i5-6267U @ 2,90 GHz (Dual-Core-Laptop von 2016):
+Apple M4 (Laptop-CPU von 2024):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-~1,3 GB/s auf Streams, ~790 MB/s auf Ende-zu-Ende-RPC-Roundtrips — auf einer zehn Jahre alten Laptop-CPU. Auf Ihrer eigenen Maschine: `make bench`.
+~5 GB/s auf Streams und End, ~3 GB/s auf Ende-zu-Ende-RPC-Roundtrips, ~8,9 GB/s auf kurzen Messages. Dieselbe Suite läuft auf einem Intel Core i5-6267U (Dual-Core-Laptop von 2016) bei ~1,3 GB/s auf Streams und ~790 MB/s auf RPC — die Bibliothek skaliert sauber mit der Hardware. Auf Ihrer eigenen Maschine: `make bench`.
 
 ## Dokumentation
 

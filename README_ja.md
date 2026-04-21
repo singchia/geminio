@@ -106,16 +106,16 @@ for {
 
 ## ベンチマーク
 
-Intel Core i5-6267U @ 2.90 GHz（2016 年の 2 コアラップトップ）：
+Apple M4（2024 年のラップトップクラス CPU）：
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-ストリームで約 1.3 GB/s、エンドツーエンドの RPC ラウンドトリップで約 790 MB/s——10 年前のラップトップ CPU での値です。自分のマシンで `make bench` をどうぞ。
+ストリームと End で約 5 GB/s、エンドツーエンドの RPC ラウンドトリップで約 3 GB/s、短メッセージで約 8.9 GB/s。同じスイートを 2016 年の Intel Core i5-6267U（2 コアラップトップ）で走らせるとストリーム約 1.3 GB/s、RPC 約 790 MB/s——ライブラリの性能はハードウェアに沿ってスケールします。自分のマシンで `make bench` をどうぞ。
 
 ## ドキュメント
 

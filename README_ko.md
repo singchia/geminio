@@ -106,16 +106,16 @@ for {
 
 ## 벤치마크
 
-Intel Core i5-6267U @ 2.90 GHz(2016 년 듀얼 코어 노트북):
+Apple M4 (2024 년 노트북급 CPU):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-스트림 약 1.3 GB/s, 엔드투엔드 RPC 왕복 약 790 MB/s — 10 년 된 노트북 CPU 에서의 값입니다. 자기 머신에서 `make bench` 를 돌려보세요.
+스트림과 End 약 5 GB/s, 엔드투엔드 RPC 왕복 약 3 GB/s, 짧은 메시지 약 8.9 GB/s. 같은 스위트를 2016 년 Intel Core i5-6267U(듀얼 코어 노트북)에서 돌리면 스트림 약 1.3 GB/s, RPC 약 790 MB/s — 라이브러리 성능이 하드웨어에 맞춰 깔끔하게 스케일됩니다. 자기 머신에서 `make bench` 를 돌려보세요.
 
 ## 문서
 

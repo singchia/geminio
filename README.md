@@ -106,16 +106,16 @@ Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / 
 
 ## Benchmarks
 
-Intel Core i5-6267U @ 2.90 GHz (2016 dual-core laptop):
+Apple M4 (2024 laptop-class CPU):
 
 ```
-BenchmarkMessage-4     10117   112584 ns/op   1164 MB/s
-BenchmarkEnd-4         11644    98586 ns/op   1329 MB/s
-BenchmarkStream-4      12301    96955 ns/op   1351 MB/s
-BenchmarkRPC-4          6960   165384 ns/op    792 MB/s
+BenchmarkMessage-10    253470    14770 ns/op   8874 MB/s
+BenchmarkEnd-10        138441    25493 ns/op   5141 MB/s
+BenchmarkStream-10     137670    26334 ns/op   4977 MB/s
+BenchmarkRPC-10         83877    42875 ns/op   3057 MB/s
 ```
 
-~1.3 GB/s on streams, ~790 MB/s on end-to-end RPC round-trips — on a ten-year-old laptop CPU. Run `make bench` on your own box.
+~5 GB/s on streams and End, ~3 GB/s on end-to-end RPC round-trips, ~8.9 GB/s on short messages. On an Intel Core i5-6267U (2016 dual-core) the same suite runs at ~1.3 GB/s on streams and ~790 MB/s on RPC — the library scales cleanly with hardware. Run `make bench` on your own box.
 
 ## Documentation
 
