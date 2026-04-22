@@ -85,10 +85,12 @@ jobs:
           cache: true
       - name: Chaos tests (non-iptables)
         # Skip TestPacketDrop (iptables, nightly) and TestPeerKilled* (the
-        # P-prefix guard) — the heartbeat-timeout tests HalfOpenSendOnly /
-        # HalfOpenRecvOnly / NetworkBlackhole wait out the 30 s closewait
-        # ceiling, so the total run is ~3 minutes.
-        run: go test ./test/chaos/... -run "^Test[^P]" -count=1 -timeout=300s -v
+        # P-prefix guard). Several tests wait out the 30 s heartbeat ceiling
+        # (HalfOpenSendOnly ~94 s, HalfOpenRecvOnly ~30 s, NetworkBlackhole
+        # ~33 s, WireBitFlip ~105 s) so the cumulative run is near 5 minutes
+        # on a warm runner. 600 s keeps the binary from tripping the Go
+        # timeout when the runner is under load.
+        run: go test ./test/chaos/... -run "^Test[^P]" -count=1 -timeout=600s -v
 
   # ─── nightly: benchmarks, fuzz, full race, linux chaos ──────────────────────
   nightly:
