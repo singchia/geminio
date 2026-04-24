@@ -17,8 +17,8 @@ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZN
 github.com/singchia/go-hammer v0.0.2-0.20220516141917-9d83fc02d653 h1:gG/deqGKj9NPQuNYjc2Xq/F8ye//d4tD2hteVxNe/sw=
 github.com/singchia/go-hammer v0.0.2-0.20220516141917-9d83fc02d653/go.mod h1:ZnHQPGlM+VoTnPOBBD6bU11dOsxebJflOohewlfLpA8=
 github.com/singchia/go-timer/v2 v2.0.3/go.mod h1:PgkEQc6io8slCUiT5rHzWKU4/P2HXHWk3WWfijZXAf4=
-github.com/singchia/go-timer/v2 v2.2.1 h1:gJucmL99fkuNzGk2AfNPFpa1X3/4+aGO21KkjFAG624=
-github.com/singchia/go-timer/v2 v2.2.1/go.mod h1:PgkEQc6io8slCUiT5rHzWKU4/P2HXHWk3WWfijZXAf4=
+github.com/singchia/go-timer/v2 v2.2.2 h1:r0VPTHfKMPv2MZfKDSG/aXsHYfmR0+GVyXZLhf53vds=
+github.com/singchia/go-timer/v2 v2.2.2/go.mod h1:PgkEQc6io8slCUiT5rHzWKU4/P2HXHWk3WWfijZXAf4=
 github.com/singchia/go-xtables v1.0.5 h1:IeVhIFYGhDJp7Hf8qi1fnptVhVYBdtcEyKR6q9oK0zw=
 github.com/singchia/go-xtables v1.0.5/go.mod h1:mJJgdpG+gwapf6PyIFqICcbCH8M3p77a/xwlMzLnVwE=
 github.com/singchia/yafsm v1.0.1 h1:TTDSX7SBCr2YNdv/DZ76LjTer0rYwm7IPt24odNymUs=
