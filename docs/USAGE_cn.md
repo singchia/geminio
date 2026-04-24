@@ -1,6 +1,6 @@
-# Gemino 使用文档
+# Geminio 使用文档
 
-可跑的端到端代码。项目介绍和主卖点请看 [README](../README_cn.md)。完整 API 参考见 [pkg.go.dev](https://pkg.go.dev/github.com/singchia/gemino)。
+可跑的端到端代码。项目介绍和主卖点请看 [README](../README_cn.md)。完整 API 参考见 [pkg.go.dev](https://pkg.go.dev/github.com/singchia/geminio)。
 
 ## 目录
 
@@ -15,7 +15,7 @@
 
 ## 核心接口
 
-库对外暴露的所有抽象都在 [`gemino.go`](../gemino.go)。看懂 `End`，你就看懂了这个库：
+库对外暴露的所有抽象都在 [`geminio.go`](../geminio.go)。看懂 `End`，你就看懂了这个库：
 
 ```go
 // End 表示一个逻辑上的对端：
@@ -65,7 +65,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -99,7 +99,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -127,8 +127,8 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -149,7 +149,7 @@ func main() {
     }
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("echo: %s", req.Data())
 }
@@ -164,7 +164,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -198,14 +198,14 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
     opt := server.NewEndOptions()
     opt.SetWaitRemoteRPCs("client-echo")
-    opt.SetRegisterLocalRPCs(&gemino.MethodRPC{Method: "server-echo", RPC: echo})
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "server-echo", RPC: echo})
 
     ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
     if err != nil {
@@ -226,7 +226,7 @@ func main() {
     }
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("服务端 echo: %s", req.Data())
 }
@@ -241,14 +241,14 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
     opt.SetWaitRemoteRPCs("server-echo")
-    opt.SetRegisterLocalRPCs(&gemino.MethodRPC{Method: "client-echo", RPC: echo})
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "client-echo", RPC: echo})
 
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
@@ -263,7 +263,7 @@ func main() {
     log.Printf("来自服务端: %s", rsp.Data())
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("客户端 echo: %s", req.Data())
 }
@@ -279,7 +279,7 @@ package main
 import (
     "log"
 
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -319,7 +319,7 @@ import (
     "log"
     "net"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -352,7 +352,7 @@ func main() {
 `client.NewEndOptions()` 和 `server.NewEndOptions()` 返回可修改的 option 构造器，常用项：
 
 - `SetWaitRemoteRPCs(methods ...string)` —— 在 `NewEnd` / `AcceptEnd` 时阻塞，直到对端注册了列出的方法。
-- `SetRegisterLocalRPCs(rpcs ...*gemino.MethodRPC)` —— 构造时声明式注册 RPC。
+- `SetRegisterLocalRPCs(rpcs ...*geminio.MethodRPC)` —— 构造时声明式注册 RPC。
 - `SetTimer(...)`、`SetBufferSize(...)`、`SetMeta(...)` —— 生产环境下的调参。
 
-调用级 options（`CallOptions`、`PublishOptions`、`OpenStreamOptions` 等）在 `github.com/singchia/gemino/options`，完整列表见 [pkg.go.dev](https://pkg.go.dev/github.com/singchia/gemino/options)。
+调用级 options（`CallOptions`、`PublishOptions`、`OpenStreamOptions` 等）在 `github.com/singchia/geminio/options`，完整列表见 [pkg.go.dev](https://pkg.go.dev/github.com/singchia/geminio/options)。

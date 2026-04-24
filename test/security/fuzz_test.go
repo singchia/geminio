@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test"
 )
 
 // FuzzRPCData fuzzes RPC data with random bytes
@@ -27,7 +27,7 @@ func FuzzRPCData(f *testing.F) {
 		defer sEnd.Close()
 		defer cEnd.Close()
 
-		sEnd.Register(context.TODO(), "fuzz", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+		sEnd.Register(context.TODO(), "fuzz", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData(req.Data())
 		})
 

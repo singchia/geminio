@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // ─────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────
 
-func mustNewEnd(t *testing.T, addr string) gemino.End {
+func mustNewEnd(t *testing.T, addr string) geminio.End {
 	t.Helper()
 	end, err := client.NewEnd("tcp", addr)
 	if err != nil {
@@ -28,7 +28,7 @@ func mustNewEnd(t *testing.T, addr string) gemino.End {
 	return end
 }
 
-func waitAccept(t *testing.T, ch <-chan gemino.End, d time.Duration) gemino.End {
+func waitAccept(t *testing.T, ch <-chan geminio.End, d time.Duration) geminio.End {
 	t.Helper()
 	select {
 	case end := <-ch:
@@ -50,7 +50,7 @@ func TestMixedRPCAndMessage(t *testing.T) {
 	harness.LogSilence(t)
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 	go func() {
@@ -102,15 +102,15 @@ func TestMixedStreamsAndRPC(t *testing.T) {
 	harness.LogSilence(t)
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "ping", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "ping", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData([]byte("pong"))
 	})
 
 	const numStreams = 5
-	type spair struct{ s, c gemino.Stream }
+	type spair struct{ s, c geminio.Stream }
 	pairs := make([]spair, numStreams)
 
-	accepted := make(chan gemino.Stream, numStreams)
+	accepted := make(chan geminio.Stream, numStreams)
 	go func() {
 		for i := 0; i < numStreams; i++ {
 			s, err := sEnd.AcceptStream()
@@ -196,9 +196,9 @@ func TestMultipleClientsOneServer(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(e gemino.End) {
+			go func(e geminio.End) {
 				defer e.Close()
-				e.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+				e.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 					resp.SetData(req.Data())
 				})
 				// drain messages to keep end alive
@@ -261,7 +261,7 @@ func TestReconnectAfterClose(t *testing.T) {
 	ln := harness.NewListener(t)
 	addr := ln.Addr().String()
 
-	accepted := make(chan gemino.End, 4)
+	accepted := make(chan geminio.End, 4)
 	go func() {
 		for {
 			end, err := ln.AcceptEnd()
@@ -339,10 +339,10 @@ func TestBidirectionalRPC(t *testing.T) {
 	t.Parallel()
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "s-echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "s-echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(append([]byte("from-server:"), req.Data()...))
 	})
-	cEnd.Register(context.Background(), "c-echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	cEnd.Register(context.Background(), "c-echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(append([]byte("from-client:"), req.Data()...))
 	})
 

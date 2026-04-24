@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/chaos/helpers"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/chaos/helpers"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // H1 — run 20 iterations of: open stream, start streaming data, kill
@@ -121,7 +121,7 @@ func TestConcurrentKillWithActiveStreams(t *testing.T) {
 	clientWG.Add(streams)
 	for i := 0; i < streams; i++ {
 		cs := acceptStreamWithTimeout(t, cEnd, 2*time.Second)
-		go func(s gemino.Stream) {
+		go func(s geminio.Stream) {
 			defer clientWG.Done()
 			io.Copy(io.Discard, s)
 		}(cs)
@@ -164,7 +164,7 @@ func TestCascadingFailures(t *testing.T) {
 
 	sEnd, cEnd, _, cChaos := helpers.NewChaosEndPair(t)
 
-	sEnd.Register(context.Background(), "sleep", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "sleep", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		<-ctx.Done()
 		resp.SetError(ctx.Err())
 	})

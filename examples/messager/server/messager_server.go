@@ -8,8 +8,8 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/gemino/examples/messager/share"
-	"github.com/singchia/gemino/server"
+	"github.com/singchia/geminio/examples/messager/share"
+	"github.com/singchia/geminio/server"
 )
 
 func main() {

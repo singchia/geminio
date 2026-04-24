@@ -1,11 +1,11 @@
-package gemino
+package geminio
 
 import (
 	"context"
 	"net"
 	"time"
 
-	"github.com/singchia/gemino/options"
+	"github.com/singchia/geminio/options"
 )
 
 // RPC releated
@@ -138,7 +138,7 @@ const (
 )
 
 type Stream interface {
-	// a stream is a gemino
+	// a stream is a geminio
 	RawRPCMessager
 	// meta info for a stream
 	StreamID() uint64

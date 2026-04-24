@@ -4,18 +4,18 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/server"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
 )
 
-func GetEndStream() (gemino.End, gemino.End, gemino.Stream, gemino.Stream, error) {
+func GetEndStream() (geminio.End, geminio.End, geminio.Stream, geminio.Stream, error) {
 	sEnd, cEnd, err := GetEndPair()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 
-	var ss gemino.Stream
+	var ss geminio.Stream
 	var sErr error
 	done := make(chan struct{})
 	go func() {
@@ -39,10 +39,10 @@ func GetEndStream() (gemino.End, gemino.End, gemino.Stream, gemino.Stream, error
 	return sEnd, cEnd, ss, cs, nil
 }
 
-func GetEndPair() (gemino.End, gemino.End, error) {
+func GetEndPair() (geminio.End, geminio.End, error) {
 	sConn, cConn := net.Pipe()
 
-	var sEnd gemino.End
+	var sEnd geminio.End
 	var sErr error
 	done := make(chan struct{})
 	go func() {

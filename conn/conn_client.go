@@ -10,10 +10,10 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/packet"
-	"github.com/singchia/gemino/pkg/id"
-	"github.com/singchia/gemino/pkg/iodefine"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/geminio/pkg/iodefine"
 	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
@@ -107,7 +107,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 			},
 			netconn:      netconn,
 			fsm:          yafsm.NewFSM(),
-			side:         gemino.InitiatorSide,
+			side:         geminio.InitiatorSide,
 			connOK:       true,
 			monitorStop:  make(chan struct{}),
 			readInSize:   256,

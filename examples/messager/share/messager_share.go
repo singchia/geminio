@@ -5,10 +5,10 @@ import (
 	"strconv"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
+	"github.com/singchia/geminio"
 )
 
-func Receive(end gemino.End) {
+func Receive(end geminio.End) {
 	for {
 		msg, err := end.Receive(context.TODO())
 		if err != nil {
@@ -20,7 +20,7 @@ func Receive(end gemino.End) {
 	}
 }
 
-func Publish(end gemino.End, count int) error {
+func Publish(end geminio.End, count int) error {
 	for i := 0; i < count; i++ {
 		msg := end.NewMessage([]byte(strconv.Itoa(i)))
 		err := end.Publish(context.TODO(), msg)

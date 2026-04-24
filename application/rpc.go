@@ -7,17 +7,17 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/options"
-	"github.com/singchia/gemino/packet"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/options"
+	"github.com/singchia/geminio/packet"
 )
 
-// gemino.RPCer
-func (sm *stream) NewRequest(data []byte, opts ...*options.NewRequestOptions) gemino.Request {
+// geminio.RPCer
+func (sm *stream) NewRequest(data []byte, opts ...*options.NewRequestOptions) geminio.Request {
 	id := sm.pf.NewPacketID()
 	opt := options.MergeNewRequestOptions(opts...)
 	req := &request{
-		//RequestAttribute: &gemino.RequestAttribute{},
+		//RequestAttribute: &geminio.RequestAttribute{},
 		data:     data,
 		id:       id,
 		clientID: sm.cn.ClientID(),
@@ -27,7 +27,7 @@ func (sm *stream) NewRequest(data []byte, opts ...*options.NewRequestOptions) ge
 	return req
 }
 
-func (sm *stream) addLocalRPC(method string, rpc gemino.RPC) {
+func (sm *stream) addLocalRPC(method string, rpc geminio.RPC) {
 	sm.rpcMtx.Lock()
 	defer sm.rpcMtx.Unlock()
 	sm.localRPCs[method] = rpc
@@ -40,7 +40,7 @@ func (sm *stream) delLocalRPC(method string) {
 }
 
 // Register will overwrite the old method if exists.
-func (sm *stream) Register(ctx context.Context, method string, rpc gemino.RPC) error {
+func (sm *stream) Register(ctx context.Context, method string, rpc geminio.RPC) error {
 	sm.mtx.RLock()
 	if !sm.streamOK {
 		sm.mtx.RUnlock()
@@ -66,7 +66,7 @@ func (sm *stream) Register(ctx context.Context, method string, rpc gemino.RPC) e
 	return nil
 }
 
-func (sm *stream) Call(ctx context.Context, method string, req gemino.Request, opts ...*options.CallOptions) (gemino.Response, error) {
+func (sm *stream) Call(ctx context.Context, method string, req geminio.Request, opts ...*options.CallOptions) (geminio.Response, error) {
 	if req.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
@@ -156,7 +156,7 @@ func (sm *stream) Call(ctx context.Context, method string, req gemino.Request, o
 	}
 }
 
-func (sm *stream) CallAsync(ctx context.Context, method string, req gemino.Request, ch chan *gemino.Call, opts ...*options.CallOptions) (*gemino.Call, error) {
+func (sm *stream) CallAsync(ctx context.Context, method string, req geminio.Request, ch chan *geminio.Call, opts ...*options.CallOptions) (*geminio.Call, error) {
 	if req.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
@@ -187,9 +187,9 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req gemino.Reque
 	}
 
 	if ch == nil {
-		ch = make(chan *gemino.Call, 1)
+		ch = make(chan *geminio.Call, 1)
 	}
-	call := &gemino.Call{
+	call := &geminio.Call{
 		Method:  method,
 		Request: req,
 		Done:    ch,
@@ -218,7 +218,7 @@ func (sm *stream) CallAsync(ctx context.Context, method string, req gemino.Reque
 	return call, nil
 }
 
-func (sm *stream) Hijack(rpc gemino.HijackRPC, opts ...*options.HijackOptions) error {
+func (sm *stream) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions) error {
 	pRPC := &patternRPC{
 		match: true,
 	}

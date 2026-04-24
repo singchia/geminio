@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino/packet"
-	"github.com/singchia/gemino/pkg/id"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 )
 
 func writeToChanWithDone(ch chan<- int, value int, done <-chan struct{}) error {

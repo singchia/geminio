@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio/test"
 )
 
 func BenchmarkMessage(b *testing.B) {

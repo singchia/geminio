@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/harness"
 )
 
 const (
@@ -60,10 +60,10 @@ func readAllWithDeadline(t *testing.T, r io.Reader, deadline time.Duration) (int
 }
 
 // acceptStream pulls the next stream off cEnd within d.
-func acceptStream(t *testing.T, end gemino.End, d time.Duration) gemino.Stream {
+func acceptStream(t *testing.T, end geminio.End, d time.Duration) geminio.Stream {
 	t.Helper()
 	type res struct {
-		s   gemino.Stream
+		s   geminio.Stream
 		err error
 	}
 	ch := make(chan res, 1)
@@ -602,7 +602,7 @@ func TestStreamClose_ParallelStress(t *testing.T) {
 		for {
 			// short-deadline accept to detect shutdown
 			type r struct {
-				s   gemino.Stream
+				s   geminio.Stream
 				err error
 			}
 			ch := make(chan r, 1)
@@ -616,7 +616,7 @@ func TestStreamClose_ParallelStress(t *testing.T) {
 					return
 				}
 				consumerWG.Add(1)
-				go func(s gemino.Stream) {
+				go func(s geminio.Stream) {
 					defer consumerWG.Done()
 					n, err := readAllWithDeadline(t, s, 2*time.Second)
 					if err != io.EOF {

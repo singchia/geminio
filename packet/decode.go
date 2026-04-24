@@ -18,7 +18,7 @@ var (
 // Anything larger is rejected at the decoder before allocating or reading
 // the payload, defending against memory-exhaustion and slowloris-style
 // attacks from adversarial peers. A legitimate peer will never exceed this
-// because gemino application-level writes enforce the same cap.
+// because geminio application-level writes enforce the same cap.
 const MaxDecodablePacketLen = 10 * 1024 * 1024 // 10 MiB
 
 func Decode(data []byte) (Packet, uint32, error) {

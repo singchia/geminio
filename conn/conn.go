@@ -3,8 +3,8 @@ package conn
 import (
 	"net"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/packet"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/packet"
 )
 
 type Reader interface {
@@ -28,7 +28,7 @@ type ConnDescriber interface {
 	Meta() []byte
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-	Side() gemino.Side
+	Side() geminio.Side
 }
 
 type Conn interface {

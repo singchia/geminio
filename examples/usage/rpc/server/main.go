@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/server"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -30,7 +30,7 @@ func main() {
 	}
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
 	rsp.SetData(req.Data())
 	log.Info("echo:", string(req.Data()))
 }

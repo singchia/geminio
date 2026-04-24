@@ -8,10 +8,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/server"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
+	"github.com/singchia/geminio/test"
 )
 
 func TestCall(t *testing.T) {
@@ -22,7 +22,7 @@ func TestCall(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	echoServer := func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	echoServer := func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	}
 	sEnd.Register(context.TODO(), "hello", echoServer)

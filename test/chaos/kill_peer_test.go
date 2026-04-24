@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/chaos/helpers"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/chaos/helpers"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // closeDeadline bounds how long End.Close() may take under adversarial
-// network conditions. gemino's dialogue closewait is 30 s, so a fully
+// network conditions. geminio's dialogue closewait is 30 s, so a fully
 // silenced peer pushes Close() up against that ceiling; we accept the
 // ceiling as current behaviour here and will re-tighten if/when a
 // bounded-close API lands upstream.
@@ -284,10 +284,10 @@ func TestNetworkBlackhole(t *testing.T) {
 // Shared helpers for the batch.
 // ─────────────────────────────────────────────
 
-func acceptStreamWithTimeout(t *testing.T, end gemino.End, d time.Duration) gemino.Stream {
+func acceptStreamWithTimeout(t *testing.T, end geminio.End, d time.Duration) geminio.Stream {
 	t.Helper()
 	type r struct {
-		s   gemino.Stream
+		s   geminio.Stream
 		err error
 	}
 	ch := make(chan r, 1)

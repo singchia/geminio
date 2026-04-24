@@ -1,4 +1,4 @@
-# Gemino 设计改进方案
+# Geminio 设计改进方案
 
 > 针对死锁、panic、goroutine 泄漏的根本性修复建议
 

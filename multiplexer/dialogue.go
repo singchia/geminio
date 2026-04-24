@@ -7,12 +7,12 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/conn"
-	"github.com/singchia/gemino/packet"
-	"github.com/singchia/gemino/pkg/id"
-	"github.com/singchia/gemino/pkg/iodefine"
-	gsync "github.com/singchia/gemino/pkg/sync"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/geminio/pkg/iodefine"
+	gsync "github.com/singchia/geminio/pkg/sync"
 	"github.com/singchia/yafsm"
 )
 
@@ -219,8 +219,8 @@ func (dg *dialogue) DialogueID() uint64 {
 }
 
 // TODO
-func (dg *dialogue) Side() gemino.Side {
-	return gemino.RecipientSide
+func (dg *dialogue) Side() geminio.Side {
+	return geminio.RecipientSide
 }
 
 func (dg *dialogue) Peer() string {

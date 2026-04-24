@@ -4,10 +4,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/singchia/gemino/options"
+	"github.com/singchia/geminio/options"
 )
 
-// request implements gemino.Request
+// request implements geminio.Request
 type request struct {
 	method   string
 	data     []byte
@@ -68,7 +68,7 @@ func (req *request) SetStreamID(streamID uint64) {
 	req.streamID = streamID
 }
 
-// response implements gemino.Response
+// response implements geminio.Response
 type response struct {
 	err    error
 	method string

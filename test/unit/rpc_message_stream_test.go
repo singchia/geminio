@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // ─────────────────────────────────────────────
@@ -18,7 +18,7 @@ func TestRPCEcho(t *testing.T) {
 	t.Parallel()
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -35,7 +35,7 @@ func TestRPCHandlerError(t *testing.T) {
 	t.Parallel()
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "fail", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "fail", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetError(context.DeadlineExceeded)
 	})
 
@@ -60,7 +60,7 @@ func TestRPCTimeout(t *testing.T) {
 	sEnd, cEnd := harness.NewEndPair(t)
 
 	ready := make(chan struct{})
-	sEnd.Register(context.Background(), "slow", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "slow", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		close(ready) // signal that handler started
 		select {
 		case <-time.After(10 * time.Second):
@@ -76,7 +76,7 @@ func TestRPCTimeout(t *testing.T) {
 
 	// Start the call in a goroutine so we can wait for the handler to start.
 	type result struct {
-		resp gemino.Response
+		resp geminio.Response
 		err  error
 	}
 	ch := make(chan result, 1)
@@ -103,7 +103,7 @@ func TestRPCConcurrent(t *testing.T) {
 	harness.LogSilence(t)
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -140,7 +140,7 @@ func TestRPCMultipleHandlers(t *testing.T) {
 	methods := []string{"a", "b", "c", "d"}
 	for _, m := range methods {
 		name := m
-		sEnd.Register(context.Background(), name, func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+		sEnd.Register(context.Background(), name, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData([]byte(name))
 		})
 	}
@@ -264,7 +264,7 @@ func TestStreamMultipleOnOneEnd(t *testing.T) {
 	sEnd, cEnd := harness.NewEndPair(t)
 
 	const n = 5
-	serverStreams := make(chan gemino.Stream, n)
+	serverStreams := make(chan geminio.Stream, n)
 	go func() {
 		for i := 0; i < n; i++ {
 			s, err := sEnd.AcceptStream()
@@ -275,7 +275,7 @@ func TestStreamMultipleOnOneEnd(t *testing.T) {
 		}
 	}()
 
-	clientStreams := make([]gemino.Stream, n)
+	clientStreams := make([]geminio.Stream, n)
 	for i := 0; i < n; i++ {
 		s, err := cEnd.OpenStream()
 		if err != nil {

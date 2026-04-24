@@ -10,9 +10,9 @@ import (
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/rproxy"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/server"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 )
 
 var (
-	end gemino.End
+	end geminio.End
 )
 
 func main() {

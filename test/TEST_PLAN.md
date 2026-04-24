@@ -1,4 +1,4 @@
-# Gemino 测试计划与问题追踪文档
+# Geminio 测试计划与问题追踪文档
 
 **文档版本:** 1.0
 **创建日期:** 2026-03-26
@@ -85,8 +85,8 @@ examples/        █ 1个 (格式错误)
 ```
 panic: send on closed channel
 goroutine 3425 [running]:
-github.com/singchia/gemino/multiplexer.(*dialogue).Close.func1.1()
-    /Users/zhaizenghui/austinzhai/gemino/multiplexer/dialogue.go:702 +0x38
+github.com/singchia/geminio/multiplexer.(*dialogue).Close.func1.1()
+    /Users/zhaizenghui/austinzhai/geminio/multiplexer/dialogue.go:702 +0x38
 ```
 
 **问题描述:**
@@ -145,11 +145,11 @@ if !closed {
 ```
 goroutine 36 [sync.Mutex.Lock, 9 minutes]:
 sync.(*RWMutex).Lock(...)
-github.com/singchia/gemino/multiplexer.(*dialogueMgr).handlePkt
+github.com/singchia/geminio/multiplexer.(*dialogueMgr).handlePkt
     dialogue_mgr.go:388
 
 goroutine 41 [select, 9 minutes]:
-github.com/singchia/gemino/application.(*stream).Call
+github.com/singchia/geminio/application.(*stream).Call
     rpc.go:128
 ```
 
