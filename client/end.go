@@ -3,10 +3,10 @@ package client
 import (
 	"net"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/application"
-	"github.com/singchia/gemino/conn"
-	"github.com/singchia/gemino/multiplexer"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/application"
+	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/multiplexer"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -15,10 +15,10 @@ type Dialer func() (net.Conn, error)
 type clientEnd struct {
 	// we need the opts to hold resources to close
 	opts *EndOptions
-	gemino.End
+	geminio.End
 }
 
-func NewEnd(network, address string, opts ...*EndOptions) (gemino.End, error) {
+func NewEnd(network, address string, opts ...*EndOptions) (geminio.End, error) {
 	// connection
 	netcn, err := net.Dial(network, address)
 	if err != nil {
@@ -27,7 +27,7 @@ func NewEnd(network, address string, opts ...*EndOptions) (gemino.End, error) {
 	return new(netcn, opts...)
 }
 
-func NewEndWithDialer(dialer Dialer, opts ...*EndOptions) (gemino.End, error) {
+func NewEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
 	netcn, err := dialer()
 	if err != nil {
 		return nil, err
@@ -35,11 +35,11 @@ func NewEndWithDialer(dialer Dialer, opts ...*EndOptions) (gemino.End, error) {
 	return new(netcn, opts...)
 }
 
-func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (gemino.End, error) {
+func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	return new(conn, opts...)
 }
 
-func new(netcn net.Conn, opts ...*EndOptions) (gemino.End, error) {
+func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
 	initEndOptions(eo)
@@ -60,7 +60,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (gemino.End, error) {
 		mp     multiplexer.Multiplexer
 		mpOpts []multiplexer.MultiplexerOption
 		// application
-		ep     gemino.End
+		ep     geminio.End
 		epOpts []application.EndOption
 	)
 	// we share packet factory, log, timer and delegate for follow 3 layers.

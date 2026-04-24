@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/chaos/helpers"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/chaos/helpers"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // D1 — server never Receive()s but client keeps publishing. Client
@@ -113,7 +113,7 @@ func TestManyConcurrentStreams(t *testing.T) {
 			default:
 			}
 			type r struct {
-				s   gemino.Stream
+				s   geminio.Stream
 				err error
 			}
 			ch := make(chan r, 1)
@@ -127,7 +127,7 @@ func TestManyConcurrentStreams(t *testing.T) {
 					return
 				}
 				consumerWG.Add(1)
-				go func(s gemino.Stream) {
+				go func(s geminio.Stream) {
 					defer consumerWG.Done()
 					io.Copy(io.Discard, s)
 				}(res.s)

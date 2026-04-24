@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test"
 )
 
 // ==================== Message Benchmarks ====================
@@ -137,7 +137,7 @@ func BenchmarkRPCLatency(b *testing.B) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -163,7 +163,7 @@ func BenchmarkRPCThroughput(b *testing.B) {
 	defer cEnd.Close()
 
 	payload := make([]byte, 64*1024)
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -189,7 +189,7 @@ func BenchmarkRPCConcurrent(b *testing.B) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -221,7 +221,7 @@ func BenchmarkRPCDifferentSizes(b *testing.B) {
 			defer cEnd.Close()
 
 			payload := make([]byte, size)
-			sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+			sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 				resp.SetData(req.Data())
 			})
 
@@ -294,7 +294,7 @@ func BenchmarkStreamConcurrent(b *testing.B) {
 	defer cEnd.Close()
 
 	numStreams := 10
-	streams := make([]gemino.Stream, numStreams)
+	streams := make([]geminio.Stream, numStreams)
 	for i := 0; i < numStreams; i++ {
 		s, err := cEnd.OpenStream()
 		if err != nil {
@@ -310,7 +310,7 @@ func BenchmarkStreamConcurrent(b *testing.B) {
 			if err != nil {
 				return
 			}
-			go func(s gemino.Stream) {
+			go func(s geminio.Stream) {
 				buf := make([]byte, 4096)
 				for {
 					_, err := s.Read(buf)
@@ -437,7 +437,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 

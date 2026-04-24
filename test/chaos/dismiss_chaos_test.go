@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/test/chaos/helpers"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/test/chaos/helpers"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // B1 — kill the peer right in the middle of the 4-way dismiss handshake.
@@ -145,7 +145,7 @@ func TestCloseReadRaceOver100Iterations(t *testing.T) {
 			default:
 			}
 			type r struct {
-				s   gemino.Stream
+				s   geminio.Stream
 				err error
 			}
 			ch := make(chan r, 1)
@@ -158,7 +158,7 @@ func TestCloseReadRaceOver100Iterations(t *testing.T) {
 				if res.err != nil {
 					return
 				}
-				go func(s gemino.Stream) {
+				go func(s geminio.Stream) {
 					buf := make([]byte, 64)
 					for {
 						if _, err := s.Read(buf); err != nil {
@@ -203,7 +203,7 @@ func TestEndCloseWithInflightRPCs(t *testing.T) {
 	sEnd, cEnd, _, _ := helpers.NewChaosEndPair(t)
 
 	method := "slow"
-	sEnd.Register(context.Background(), method, func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), method, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		select {
 		case <-time.After(5 * time.Second):
 			resp.SetData(req.Data())

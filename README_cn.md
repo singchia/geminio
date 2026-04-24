@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="./docs/gemino.png" width="180">
+<img src="./docs/geminio.png" width="180">
 
 **一个连接，搞定双向 RPC、带确认的消息、流多路复用——全部藏在一个 `net.Conn` 后面。**
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/gemino.svg)](https://pkg.go.dev/github.com/singchia/gemino)
-[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/gemino)](https://goreportcard.com/report/github.com/singchia/gemino)
+[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
+[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/gemino)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
 [English](./README.md) | [简体中文](./README_cn.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md)
 
@@ -15,17 +15,17 @@
 
 ---
 
-## 为什么是 Gemino?
+## 为什么是 Geminio?
 
 你要写的可能是一个 IM 服务、消息队列、API 网关、内网穿透隧道，或者 service mesh 的 sidecar。要把它做对，你会需要：**双向 RPC**、**带 ack 的可靠消息**、**一条 TCP 连接上多路逻辑流**、**客户端自动重连**，而且整套东西必须能无缝融入 Go 的 `net.Conn` / `net.Listener` 生态。
 
-今天的主流做法是：RPC 用 gRPC，多路复用用 yamux/smux，消息用 NATS 或自研协议，再写一堆胶水代码把它们的生命周期捏到一起。**Gemino 把这些能力统一在一个接口下面。**
+今天的主流做法是：RPC 用 gRPC，多路复用用 yamux/smux，消息用 NATS 或自研协议，再写一堆胶水代码把它们的生命周期捏到一起。**Geminio 把这些能力统一在一个接口下面。**
 
 <p align="center"><img src="./docs/overview.png" width="85%"></p>
 
-## Gemino 与常见替代品
+## Geminio 与常见替代品
 
-|                                       | gRPC              | yamux / smux | NATS | **Gemino** |
+|                                       | gRPC              | yamux / smux | NATS | **Geminio** |
 | ------------------------------------- |:-----------------:|:------------:|:----:|:-----------:|
 | 请求/响应 RPC                         | ✅                | —            | —    | ✅          |
 | **服务端反向调用客户端方法**           | ⚠️ 仅 streaming    | —            | —    | ✅          |
@@ -51,10 +51,10 @@
 ## 60 秒 demo：服务端往客户端推文件
 
 ```bash
-go get github.com/singchia/gemino
+go get github.com/singchia/geminio
 ```
 
-Gemino 里每条 stream 都是一个 `net.Conn`，每个 `End` 都是一个 `net.Listener`。于是"服务端主动推文件给客户端"这件事，一行 `io.Copy` 就够了——不用封帧、不用编解码、不用 broker。
+Geminio 里每条 stream 都是一个 `net.Conn`，每个 `End` 都是一个 `net.Listener`。于是"服务端主动推文件给客户端"这件事，一行 `io.Copy` 就够了——不用封帧、不用编解码、不用 broker。
 
 **服务端** —— 接入客户端后，反向打开一条流把文件 copy 进去。
 
@@ -90,7 +90,7 @@ for {
 
 ## 可以用它搭什么
 
-| 场景 | Gemino 带来的 | 示例 |
+| 场景 | Geminio 带来的 | 示例 |
 | --- | --- | --- |
 | **内网穿透 / 反向隧道** | 一条向外连接承载双向控制 + 多条数据流 | [`examples/traversal`](./examples/traversal) |
 | **聊天室 / IM** | 带 ack 的消息、客户端标识、自动重连 | [`examples/chatroom`](./examples/chatroom) |
@@ -102,7 +102,7 @@ for {
 
 <p align="center"><img src="./docs/design.png" width="65%"></p>
 
-三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Gemino 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)。
+三层——**连接层**（物理 TCP、心跳、FSM）、**多路复用 / Dialogue 层**（逻辑流、路由、写调度）、**应用层**（RPC 和消息语义）——让 Geminio 对外只暴露一个统一的 `End`，而每层关注点各自隔离、各自可测。完整细节见 [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)。
 
 ## 基准测试
 
@@ -120,7 +120,7 @@ BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ## 文档
 
 - **使用手册** —— [`docs/USAGE_cn.md`](./docs/USAGE_cn.md)
-- **API 参考** —— [pkg.go.dev/github.com/singchia/gemino](https://pkg.go.dev/github.com/singchia/gemino)
+- **API 参考** —— [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **可跑示例** —— [`examples/`](./examples)
 - **设计原理** —— [`docs/MULTIPLEXING_cn.md`](./docs/MULTIPLEXING_cn.md)
 - **Roadmap** —— [`ROADMAP_cn.md`](./ROADMAP_cn.md)
@@ -140,7 +140,7 @@ Apache 2.0 —— © Austin Zhai, 2023–2030。
 <a href="https://next.ossinsight.io/widgets/official/compose-activity-trends?repo_id=412119706" target="_blank" style="display: block" align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=dark" width="815" height="auto">
-    <img alt="Activity Trends of singchia/gemino - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
+    <img alt="Activity Trends of singchia/geminio - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
   </picture>
 </a>
 

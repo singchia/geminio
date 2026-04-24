@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/server"
-	"github.com/singchia/gemino/test/chaos/helpers"
-	"github.com/singchia/gemino/test/harness"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/server"
+	"github.com/singchia/geminio/test/chaos/helpers"
+	"github.com/singchia/geminio/test/harness"
 )
 
 // F1 — randomly flip bits on Read bytes during a live RPC workload. The
@@ -28,7 +28,7 @@ func TestWireBitFlip(t *testing.T) {
 
 	sEnd, cEnd, sChaos, _ := helpers.NewChaosEndPair(t)
 
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 	time.Sleep(100 * time.Millisecond) // register propagation
@@ -175,7 +175,7 @@ func TestHeavyCorruptionDuringTraffic(t *testing.T) {
 	sEnd, cEnd, sChaos, cChaos := helpers.NewChaosEndPair(t)
 
 	// Run a few normal ops to confirm the link is healthy.
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 	time.Sleep(100 * time.Millisecond)

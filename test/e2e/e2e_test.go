@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/server"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
+	"github.com/singchia/geminio/test"
 )
 
 // ==================== Connection Lifecycle Tests ====================
@@ -28,7 +28,7 @@ func TestConnectionEstablishment(t *testing.T) {
 	}
 	defer ln.Close()
 
-	accepted := make(chan gemino.End, 1)
+	accepted := make(chan geminio.End, 1)
 	go func() {
 		end, err := ln.AcceptEnd()
 		if err != nil {
@@ -139,7 +139,7 @@ func TestMultipleClients(t *testing.T) {
 				t.Errorf("accept end failed: %v", err)
 				return
 			}
-			go func(e gemino.End) {
+			go func(e geminio.End) {
 				defer wg.Done()
 				time.Sleep(10 * time.Millisecond)
 				e.Close()
@@ -188,7 +188,7 @@ func TestMessageBasic(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	msgContent := []byte("hello, gemino!")
+	msgContent := []byte("hello, geminio!")
 
 	done := make(chan struct{})
 	go func() {
@@ -340,7 +340,7 @@ func TestRPCBasic(t *testing.T) {
 	defer cEnd.Close()
 
 	method := "echo"
-	sEnd.Register(context.TODO(), method, func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), method, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -366,7 +366,7 @@ func TestRPCWithError(t *testing.T) {
 	method := "error-method"
 	expectedErrMsg := "intentional error"
 
-	sEnd.Register(context.TODO(), method, func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), method, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetError(fmt.Errorf("%s", expectedErrMsg))
 	})
 
@@ -388,14 +388,14 @@ func TestRPCMultipleMethods(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	methods := map[string]func(context.Context, gemino.Request, gemino.Response){
-		"add": func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	methods := map[string]func(context.Context, geminio.Request, geminio.Response){
+		"add": func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData([]byte("add result"))
 		},
-		"sub": func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+		"sub": func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData([]byte("sub result"))
 		},
-		"mul": func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+		"mul": func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData([]byte("mul result"))
 		},
 	}
@@ -427,7 +427,7 @@ func TestRPCTimeout(t *testing.T) {
 	defer cEnd.Close()
 
 	method := "slow-method"
-	sEnd.Register(context.TODO(), method, func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), method, func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		// Simulate slow processing.
 		select {
 		case <-time.After(5 * time.Second):
@@ -457,7 +457,7 @@ func TestRPCConcurrent(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -506,7 +506,7 @@ func TestStreamBasic(t *testing.T) {
 	defer sEnd.Close()
 
 	type streamResult struct {
-		s   gemino.Stream
+		s   geminio.Stream
 		err error
 	}
 	ch := make(chan streamResult, 1)
@@ -558,8 +558,8 @@ func TestStreamMultiple(t *testing.T) {
 
 	numStreams := 10
 	streams := make([]struct {
-		server gemino.Stream
-		client gemino.Stream
+		server geminio.Stream
+		client geminio.Stream
 	}, numStreams)
 
 	// Accept streams in background; use WaitGroup for proper synchronization.
@@ -623,7 +623,7 @@ func TestStreamBidirectional(t *testing.T) {
 	defer sEnd.Close()
 
 	type streamResult struct {
-		s   gemino.Stream
+		s   geminio.Stream
 		err error
 	}
 	ch := make(chan streamResult, 1)
@@ -701,7 +701,7 @@ func TestConnectionReconnect(t *testing.T) {
 	}
 
 	acceptCount := int32(0)
-	serverEnds := make(chan gemino.End, 2)
+	serverEnds := make(chan geminio.End, 2)
 
 	go func() {
 		for {
@@ -779,7 +779,7 @@ func TestResourceCleanup(t *testing.T) {
 		}
 
 		// Do some operations
-		sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+		sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 			resp.SetData(req.Data())
 		})
 
@@ -818,7 +818,7 @@ func TestStressMixedOperations(t *testing.T) {
 	defer cEnd.Close()
 
 	// Setup RPC handlers
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -840,7 +840,7 @@ func TestStressMixedOperations(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(s gemino.Stream) {
+			go func(s geminio.Stream) {
 				defer s.Close()
 				buf := make([]byte, 64)
 				s.Read(buf)

@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="./docs/gemino.png" width="180">
+<img src="./docs/geminio.png" width="180">
 
 **One connection. Bidirectional RPC, acked messaging, and stream multiplexing — behind a single `net.Conn`.**
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/gemino.svg)](https://pkg.go.dev/github.com/singchia/gemino)
-[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/gemino)](https://goreportcard.com/report/github.com/singchia/gemino)
+[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
+[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/gemino)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
 
 [English](./README.md) | [简体中文](./README_cn.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md)
 
@@ -15,17 +15,17 @@
 
 ---
 
-## Why Gemino?
+## Why Geminio?
 
 You're building an IM server, a message queue, an API gateway, a reverse tunnel for NAT traversal, or a service-mesh sidecar. To get it right you need **bidirectional RPC**, **reliable messaging with acks**, **many logical streams over one TCP connection**, **automatic reconnect**, and all of it has to play nicely with Go's `net.Conn` / `net.Listener`.
 
-The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom protocol for messaging, and a tangle of glue to keep their lifecycles in sync. **Gemino offers the whole bundle behind one interface.**
+The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom protocol for messaging, and a tangle of glue to keep their lifecycles in sync. **Geminio offers the whole bundle behind one interface.**
 
 <p align="center"><img src="./docs/overview.png" width="85%"></p>
 
-## Gemino vs. the usual suspects
+## Geminio vs. the usual suspects
 
-|                                       | gRPC              | yamux / smux | NATS | **Gemino** |
+|                                       | gRPC              | yamux / smux | NATS | **Geminio** |
 | ------------------------------------- |:-----------------:|:------------:|:----:|:-----------:|
 | Request / response RPC                | ✅                | —            | —    | ✅          |
 | **Server-initiated RPC to client**    | ⚠️ streaming only | —            | —    | ✅          |
@@ -51,10 +51,10 @@ The usual answer is: gRPC for RPC, yamux/smux for multiplexing, NATS or a custom
 ## 60-second demo: push a file from server to client
 
 ```bash
-go get github.com/singchia/gemino
+go get github.com/singchia/geminio
 ```
 
-Every Gemino stream is a `net.Conn`, and every `End` is a `net.Listener`. So a server-initiated file transfer is just `io.Copy` — no framing, no codec, no broker.
+Every Geminio stream is a `net.Conn`, and every `End` is a `net.Listener`. So a server-initiated file transfer is just `io.Copy` — no framing, no codec, no broker.
 
 **Server** — accept clients, open a stream back, copy the file in.
 
@@ -90,7 +90,7 @@ The server initiates. The client listens on its own dial-out connection. `io.Cop
 
 ## What you can build
 
-| Scenario | Why Gemino fits | Example |
+| Scenario | Why Geminio fits | Example |
 | --- | --- | --- |
 | **NAT traversal / reverse tunnel** | one outbound connection carries bidirectional control + many data streams | [`examples/traversal`](./examples/traversal) |
 | **Chatroom / IM** | acked messaging, per-client IDs, auto-reconnect | [`examples/chatroom`](./examples/chatroom) |
@@ -102,7 +102,7 @@ The server initiates. The client listens on its own dial-out connection. `io.Cop
 
 <p align="center"><img src="./docs/design.png" width="65%"></p>
 
-Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / Dialogue** (logical streams, routing, write scheduling), and **Application** (RPC and messaging semantics) — let Gemino ship one unified `End` while keeping each concern isolated and testable. Deep dive in [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md).
+Three layers — **Connection** (physical TCP, heartbeat, FSM), **Multiplexer / Dialogue** (logical streams, routing, write scheduling), and **Application** (RPC and messaging semantics) — let Geminio ship one unified `End` while keeping each concern isolated and testable. Deep dive in [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md).
 
 ## Benchmarks
 
@@ -120,7 +120,7 @@ BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ## Documentation
 
 - **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md)
-- **API reference** — [pkg.go.dev/github.com/singchia/gemino](https://pkg.go.dev/github.com/singchia/gemino)
+- **API reference** — [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
 - **Runnable examples** — [`examples/`](./examples)
 - **Design deep dive** — [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md)
 - **Roadmap** — [`ROADMAP.md`](./ROADMAP.md)
@@ -140,7 +140,7 @@ Apache 2.0 — © Austin Zhai, 2023–2030.
 <a href="https://next.ossinsight.io/widgets/official/compose-activity-trends?repo_id=412119706" target="_blank" style="display: block" align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=dark" width="815" height="auto">
-    <img alt="Activity Trends of singchia/gemino - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
+    <img alt="Activity Trends of singchia/geminio - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
   </picture>
 </a>
 

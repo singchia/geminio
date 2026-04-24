@@ -8,13 +8,13 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/conn"
-	"github.com/singchia/gemino/delegate"
-	"github.com/singchia/gemino/multiplexer"
-	"github.com/singchia/gemino/options"
-	"github.com/singchia/gemino/packet"
-	"github.com/singchia/gemino/pkg/id"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
+	"github.com/singchia/geminio/multiplexer"
+	"github.com/singchia/geminio/options"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -31,10 +31,10 @@ type opts struct {
 	// methods
 	remoteMethods     []string
 	remoteMethodCheck bool
-	localMethods      []*gemino.MethodRPC
+	localMethods      []*geminio.MethodRPC
 	// callback funcs
-	acceptStreamFunc func(gemino.Stream)
-	closedStreamFunc func(gemino.Stream)
+	acceptStreamFunc func(geminio.Stream)
+	closedStreamFunc func(geminio.Stream)
 	// size
 	readBufferSize, writeBufferSize int
 }
@@ -82,19 +82,19 @@ func OptionWithRemoteRPCCheck() EndOption {
 	}
 }
 
-func OptionRegisterLocalRPCs(methodRPCs ...*gemino.MethodRPC) EndOption {
+func OptionRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) EndOption {
 	return func(end *End) {
 		end.localMethods = methodRPCs
 	}
 }
 
-func OptionAcceptStreamFunc(fn func(gemino.Stream)) EndOption {
+func OptionAcceptStreamFunc(fn func(geminio.Stream)) EndOption {
 	return func(end *End) {
 		end.acceptStreamFunc = fn
 	}
 }
 
-func OptionClosedStreamFunc(fn func(gemino.Stream)) EndOption {
+func OptionClosedStreamFunc(fn func(geminio.Stream)) EndOption {
 	return func(end *End) {
 		end.closedStreamFunc = fn
 	}
@@ -193,7 +193,7 @@ ERR:
 }
 
 func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
-	gemino.Stream, error) {
+	geminio.Stream, error) {
 
 	oo := options.MergeOpenStreamOptions(opts...)
 	peer := ""
@@ -213,7 +213,7 @@ func (end *End) delStream(streamID uint64) {
 	end.streams.Delete(streamID)
 }
 
-func (end *End) AcceptStream() (gemino.Stream, error) {
+func (end *End) AcceptStream() (geminio.Stream, error) {
 	dg, err := end.multiplexer.AcceptDialogue()
 	if err != nil {
 		return nil, err
@@ -227,8 +227,8 @@ func (end *End) Accept() (net.Conn, error) {
 	return end.AcceptStream()
 }
 
-func (end *End) ListStreams() []gemino.Stream {
-	streams := []gemino.Stream{}
+func (end *End) ListStreams() []geminio.Stream {
+	streams := []geminio.Stream{}
 	end.streams.Range(func(_, value interface{}) bool {
 		streams = append(streams, value.(*stream))
 		return true

@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/options"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/options"
 )
 
-// gemino.Messager
-func (sm *stream) NewMessage(data []byte, opts ...*options.NewMessageOptions) gemino.Message {
+// geminio.Messager
+func (sm *stream) NewMessage(data []byte, opts ...*options.NewMessageOptions) geminio.Message {
 	id := sm.pf.NewPacketID()
 
 	msg := &message{
@@ -48,7 +48,7 @@ func (sm *stream) ackMessage(pktID uint64, err error) error {
 }
 
 // Publish to peer, a sync function
-func (sm *stream) Publish(ctx context.Context, msg gemino.Message, opts ...*options.PublishOptions) error {
+func (sm *stream) Publish(ctx context.Context, msg geminio.Message, opts ...*options.PublishOptions) error {
 	if msg.ClientID() != sm.cn.ClientID() {
 		return ErrMismatchClientID
 	}
@@ -112,8 +112,8 @@ func (sm *stream) Publish(ctx context.Context, msg gemino.Message, opts ...*opti
 	return nil
 }
 
-func (sm *stream) PublishAsync(ctx context.Context, msg gemino.Message, ch chan *gemino.Publish,
-	opts ...*options.PublishOptions) (*gemino.Publish, error) {
+func (sm *stream) PublishAsync(ctx context.Context, msg geminio.Message, ch chan *geminio.Publish,
+	opts ...*options.PublishOptions) (*geminio.Publish, error) {
 	if msg.ClientID() != sm.cn.ClientID() {
 		return nil, ErrMismatchClientID
 	}
@@ -159,9 +159,9 @@ func (sm *stream) PublishAsync(ctx context.Context, msg gemino.Message, ch chan 
 	}
 	if ch == nil {
 		// we don't want block here
-		ch = make(chan *gemino.Publish, 1)
+		ch = make(chan *geminio.Publish, 1)
 	}
-	publish := &gemino.Publish{
+	publish := &geminio.Publish{
 		Message: msg,
 		Done:    ch,
 	}
@@ -190,7 +190,7 @@ func (sm *stream) PublishAsync(ctx context.Context, msg gemino.Message, ch chan 
 }
 
 // return EOF means the stream is closed
-func (sm *stream) Receive(ctx context.Context) (gemino.Message, error) {
+func (sm *stream) Receive(ctx context.Context) (geminio.Message, error) {
 	select {
 	case pkt, ok := <-sm.messageCh:
 		if !ok {

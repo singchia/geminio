@@ -1,6 +1,6 @@
-# Gemino Usage
+# Geminio Usage
 
-Runnable, end-to-end patterns. For the pitch and the big picture, see [README](../README.md). For API reference, see [pkg.go.dev](https://pkg.go.dev/github.com/singchia/gemino).
+Runnable, end-to-end patterns. For the pitch and the big picture, see [README](../README.md). For API reference, see [pkg.go.dev](https://pkg.go.dev/github.com/singchia/geminio).
 
 ## Table of contents
 
@@ -15,7 +15,7 @@ Runnable, end-to-end patterns. For the pitch and the big picture, see [README](.
 
 ## Core interface
 
-Everything the library exposes lives in [`gemino.go`](../gemino.go). If you understand `End`, you understand the library:
+Everything the library exposes lives in [`geminio.go`](../geminio.go). If you understand `End`, you understand the library:
 
 ```go
 // An End is a single logical peer:
@@ -65,7 +65,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -99,7 +99,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -127,8 +127,8 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -149,7 +149,7 @@ func main() {
     }
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("echo: %s", req.Data())
 }
@@ -164,7 +164,7 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -198,14 +198,14 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
     opt := server.NewEndOptions()
     opt.SetWaitRemoteRPCs("client-echo")
-    opt.SetRegisterLocalRPCs(&gemino.MethodRPC{Method: "server-echo", RPC: echo})
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "server-echo", RPC: echo})
 
     ln, err := server.Listen("tcp", "127.0.0.1:8080", opt)
     if err != nil {
@@ -226,7 +226,7 @@ func main() {
     }
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("server echo: %s", req.Data())
 }
@@ -241,14 +241,14 @@ import (
     "context"
     "log"
 
-    "github.com/singchia/gemino"
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
     opt := client.NewEndOptions()
     opt.SetWaitRemoteRPCs("server-echo")
-    opt.SetRegisterLocalRPCs(&gemino.MethodRPC{Method: "client-echo", RPC: echo})
+    opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "client-echo", RPC: echo})
 
     end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
     if err != nil {
@@ -263,7 +263,7 @@ func main() {
     log.Printf("from server: %s", rsp.Data())
 }
 
-func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
+func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
     rsp.SetData(req.Data())
     log.Printf("client echo: %s", req.Data())
 }
@@ -279,7 +279,7 @@ package main
 import (
     "log"
 
-    "github.com/singchia/gemino/server"
+    "github.com/singchia/geminio/server"
 )
 
 func main() {
@@ -319,7 +319,7 @@ import (
     "log"
     "net"
 
-    "github.com/singchia/gemino/client"
+    "github.com/singchia/geminio/client"
 )
 
 func main() {
@@ -352,7 +352,7 @@ func main() {
 Both `client.NewEndOptions()` and `server.NewEndOptions()` return mutable option builders. Common knobs:
 
 - `SetWaitRemoteRPCs(methods ...string)` — block `NewEnd` / `AcceptEnd` until the peer has registered the listed methods.
-- `SetRegisterLocalRPCs(rpcs ...*gemino.MethodRPC)` — register RPCs declaratively at construction time.
+- `SetRegisterLocalRPCs(rpcs ...*geminio.MethodRPC)` — register RPCs declaratively at construction time.
 - `SetTimer(...)`, `SetBufferSize(...)`, `SetMeta(...)` — tuning for production deployments.
 
-Call-site options like `CallOptions`, `PublishOptions`, `OpenStreamOptions` live in `github.com/singchia/gemino/options`. See [pkg.go.dev](https://pkg.go.dev/github.com/singchia/gemino/options) for the full list.
+Call-site options like `CallOptions`, `PublishOptions`, `OpenStreamOptions` live in `github.com/singchia/geminio/options`. See [pkg.go.dev](https://pkg.go.dev/github.com/singchia/geminio/options) for the full list.

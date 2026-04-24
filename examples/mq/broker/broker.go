@@ -8,14 +8,14 @@ import (
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/examples/mq/share"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/examples/mq/share"
 )
 
 type roleEnd struct {
 	role  string
 	topic string
-	end   gemino.End
+	end   geminio.End
 }
 
 type Broker struct {
@@ -158,7 +158,7 @@ func (broker *Broker) deleteSyncer(topic string) {
 	delete(broker.syncers, topic)
 }
 
-func (broker *Broker) Handle(end gemino.End) error {
+func (broker *Broker) Handle(end geminio.End) error {
 	clientID := end.ClientID()
 	log.Debugf("add client: %d", clientID)
 	broker.mtx.Lock()
@@ -213,7 +213,7 @@ func (broker *Broker) Handle(end gemino.End) error {
 	return err
 }
 
-func (broker *Broker) claim(ctx context.Context, req gemino.Request, rsp gemino.Response) {
+func (broker *Broker) claim(ctx context.Context, req geminio.Request, rsp geminio.Response) {
 	claim := &share.Claim{}
 	_ = json.Unmarshal(req.Data(), claim)
 	clientID := req.ClientID()

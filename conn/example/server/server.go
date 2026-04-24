@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/gemino/conn"
-	"github.com/singchia/gemino/delegate"
-	"github.com/singchia/gemino/packet"
-	"github.com/singchia/gemino/pkg/id"
+	"github.com/singchia/geminio/conn"
+	"github.com/singchia/geminio/delegate"
+	"github.com/singchia/geminio/packet"
+	"github.com/singchia/geminio/pkg/id"
 )
 
 type server struct {

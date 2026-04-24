@@ -1,6 +1,6 @@
 package conn
 
-import "github.com/singchia/gemino/delegate"
+import "github.com/singchia/geminio/delegate"
 
 type Delegate interface {
 	ConnOnline(delegate.ConnDescriber) error

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/gemino"
-	"github.com/singchia/gemino/client"
-	"github.com/singchia/gemino/server"
-	"github.com/singchia/gemino/test"
+	"github.com/singchia/geminio"
+	"github.com/singchia/geminio/client"
+	"github.com/singchia/geminio/server"
+	"github.com/singchia/geminio/test"
 )
 
 // ==================== Input Validation Tests ====================
@@ -27,7 +27,7 @@ func TestLargePayload(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -85,7 +85,7 @@ func TestEmptyPayload(t *testing.T) {
 	}
 
 	// Empty RPC
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -131,7 +131,7 @@ func TestSpecialCharacters(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -217,7 +217,7 @@ func TestBoundaryStreamCount(t *testing.T) {
 
 	// Test opening many streams
 	numStreams := 1000
-	streams := make([]gemino.Stream, 0, numStreams)
+	streams := make([]geminio.Stream, 0, numStreams)
 
 	for i := 0; i < numStreams; i++ {
 		s, err := cEnd.OpenStream()
@@ -257,7 +257,7 @@ func TestBoundaryConnectionCount(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go func(e gemino.End) {
+			go func(e geminio.End) {
 				time.Sleep(100 * time.Millisecond)
 				e.Close()
 			}(end)
@@ -436,7 +436,7 @@ func TestFuzzRPCMethod(t *testing.T) {
 	defer cEnd.Close()
 
 	// Register normal handler
-	sEnd.Register(context.TODO(), "normal", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "normal", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData([]byte("ok"))
 	})
 
@@ -563,7 +563,7 @@ func TestSQLInjection(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -714,7 +714,7 @@ func TestTimingSideChannel(t *testing.T) {
 	defer sEnd.Close()
 	defer cEnd.Close()
 
-	sEnd.Register(context.TODO(), "exists", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
+	sEnd.Register(context.TODO(), "exists", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
 		resp.SetData([]byte("found"))
 	})
 

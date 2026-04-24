@@ -1,10 +1,10 @@
-# Gemino 多路复用设计
+# Geminio 多路复用设计
 
 [English](./MULTIPLEXING.md) | [简体中文](./MULTIPLEXING_cn.md)
 
 ## 概述
 
-Gemino 是一个支持多路复用的网络框架，允许在单个物理连接上同时运行多个逻辑对话（Dialogue）。这种设计可以显著减少连接数，提高资源利用率。
+Geminio 是一个支持多路复用的网络框架，允许在单个物理连接上同时运行多个逻辑对话（Dialogue）。这种设计可以显著减少连接数，提高资源利用率。
 
 ## 核心概念
 
@@ -534,7 +534,7 @@ dialogue2.Write(dataPkt2)
 
 ## 总结
 
-Gemino 的多路复用机制通过以下方式实现：
+Geminio 的多路复用机制通过以下方式实现：
 
 1. **标识分离**：使用 `dialogueID` 区分不同对话的数据包。
 2. **集中路由**：`DialogueMgr` 统一管理所有对话的路由。
