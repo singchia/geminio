@@ -1,5 +1,5 @@
 // Package chaos contains resilience tests that inject network failures and
-// verify geminio recovers or fails gracefully.
+// verify gemino recovers or fails gracefully.
 //
 // Unlike retry_linux_test.go (which uses iptables), the tests in this file
 // use in-process techniques (conn interception, forced close, net.Pipe) that
@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
-	"github.com/singchia/geminio/test/harness"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/server"
+	"github.com/singchia/gemino/test/harness"
 )
 
 // ─────────────────────────────────────────────
@@ -76,7 +76,7 @@ func TestAbruptServerDisconnect(t *testing.T) {
 		t.Fatalf("Listen: %v", err)
 	}
 
-	accepted := make(chan geminio.End, 1)
+	accepted := make(chan gemino.End, 1)
 	go func() {
 		end, err := ln.AcceptEnd()
 		if err != nil {
@@ -214,7 +214,7 @@ func TestSlowServerReceiver(t *testing.T) {
 // ─────────────────────────────────────────────
 
 // TestGarbageDataFromClient verifies the server does not crash or hang when a
-// raw TCP client sends random garbage (no geminio handshake).
+// raw TCP client sends random garbage (no gemino handshake).
 func TestGarbageDataFromClient(t *testing.T) {
 	t.Parallel()
 	ln, err := server.Listen("tcp", "127.0.0.1:0")
@@ -270,7 +270,7 @@ func TestHighRateReconnect(t *testing.T) {
 				return
 			}
 			atomic.AddInt64(&accepted, 1)
-			go func(e geminio.End) { e.Close() }(end)
+			go func(e gemino.End) { e.Close() }(end)
 		}
 	}()
 

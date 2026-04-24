@@ -1,4 +1,4 @@
-// Package unit contains fine-grained protocol-level tests for geminio.
+// Package unit contains fine-grained protocol-level tests for gemino.
 // Each test focuses on a single behaviour of the conn / application layer.
 package unit
 
@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
-	"github.com/singchia/geminio/test/harness"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/server"
+	"github.com/singchia/gemino/test/harness"
 )
 
 // ─────────────────────────────────────────────
@@ -18,7 +18,7 @@ import (
 // ─────────────────────────────────────────────
 
 // TestHandshakeBasic verifies that a client and server can complete the
-// geminio handshake over a raw TCP connection.
+// gemino handshake over a raw TCP connection.
 func TestHandshakeBasic(t *testing.T) {
 	t.Parallel()
 	_, _ = harness.NewEndPair(t)

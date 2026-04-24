@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/test/harness"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/test/harness"
 )
 
 // ─────────────────────────────────────────────
@@ -48,7 +48,7 @@ func TestNewEndPair_RPC(t *testing.T) {
 	t.Parallel()
 	sEnd, cEnd := harness.NewEndPair(t)
 
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		resp.SetData(req.Data())
 	})
 
@@ -160,7 +160,7 @@ func TestParallelEndPairs(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		t.Run("", func(t *testing.T) {
 			sEnd, cEnd := harness.NewEndPair(t)
-			sEnd.Register(context.Background(), "ping", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+			sEnd.Register(context.Background(), "ping", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 				resp.SetData([]byte("pong"))
 			})
 			resp, err := cEnd.Call(context.Background(), "ping", cEnd.NewRequest(nil))

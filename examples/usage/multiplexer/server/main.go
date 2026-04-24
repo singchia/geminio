@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino/server"
 )
 
 func main() {

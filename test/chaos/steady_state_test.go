@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/test/chaos/helpers"
-	"github.com/singchia/geminio/test/harness"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/test/chaos/helpers"
+	"github.com/singchia/gemino/test/harness"
 )
 
 // gcAndSnapshot forces two collection cycles so any unreferenced
@@ -54,7 +54,7 @@ func TestGoroutineStableOverManyStreams(t *testing.T) {
 			default:
 			}
 			type r struct {
-				s   geminio.Stream
+				s   gemino.Stream
 				err error
 			}
 			ch := make(chan r, 1)
@@ -68,7 +68,7 @@ func TestGoroutineStableOverManyStreams(t *testing.T) {
 					return
 				}
 				drain.Add(1)
-				go func(s geminio.Stream) {
+				go func(s gemino.Stream) {
 					defer drain.Done()
 					io.Copy(io.Discard, s)
 				}(res.s)

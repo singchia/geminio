@@ -3,12 +3,12 @@ package server
 import (
 	"net"
 
-	"github.com/singchia/geminio"
+	"github.com/singchia/gemino"
 )
 
 type Listener interface {
 	// Accept waits for and returns the next end to the listener.
-	AcceptEnd() (geminio.End, error)
+	AcceptEnd() (gemino.End, error)
 
 	// Accept waits for and returns the next connection to the listener.
 	// the returned Conn is actually a End
@@ -23,7 +23,7 @@ type Listener interface {
 }
 
 type ret struct {
-	end geminio.End
+	end gemino.End
 	err error
 }
 
@@ -44,7 +44,7 @@ func Listen(network, address string, opts ...*EndOptions) (Listener, error) {
 		ch:   make(chan *ret, 32)}, nil
 }
 
-func (ln *listener) AcceptEnd() (geminio.End, error) {
+func (ln *listener) AcceptEnd() (gemino.End, error) {
 	netconn, err := ln.ln.Accept()
 	if err != nil {
 		return nil, err

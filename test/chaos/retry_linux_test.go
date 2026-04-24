@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/server"
 	"github.com/singchia/go-xtables/iptables"
 	"github.com/singchia/go-xtables/pkg/network"
 )
@@ -39,7 +39,7 @@ func TestPacketDrop(t *testing.T) {
 				log.Errorf("accept end err: %s", err)
 				break
 			}
-			go func(end geminio.End) {
+			go func(end gemino.End) {
 				for {
 					msg, err := end.Receive(context.TODO())
 					if err != nil {

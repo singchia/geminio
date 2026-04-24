@@ -6,11 +6,11 @@ import (
 	"sync"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/conn"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/conn"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -142,7 +142,7 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 		closeCh:              make(chan struct{}),
 	}
 	// dialogue id counter
-	if dm.cn.Side() == geminio.RecipientSide {
+	if dm.cn.Side() == gemino.RecipientSide {
 		dm.dialogueIDs = id.NewIDCounter(id.Even)
 		dm.dialogueIDs.ReserveID(packet.SessionID1)
 	} else {
@@ -262,7 +262,7 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 	dm.mtx.RUnlock()
 
 	negotiatingID := dm.dialogueIDs.GetID()
-	dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
+	dialogueIDPeersCall := dm.cn.Side() == gemino.InitiatorSide
 	dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 		OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 		OptionDialogueDelegate(dm),
@@ -372,7 +372,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 	case *packet.SessionPacket:
 		// new negotiating dialogue
 		negotiatingID := dm.dialogueIDs.GetID()
-		dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
+		dialogueIDPeersCall := dm.cn.Side() == gemino.InitiatorSide
 		dg, err := NewDialogue(dm.cn, dm.multiplexerOpts.opts,
 			OptionDialogueNegotiatingID(negotiatingID, dialogueIDPeersCall),
 			OptionDialogueDelegate(dm),

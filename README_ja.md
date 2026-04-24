@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="./docs/geminio.png" width="180">
+<img src="./docs/gemino.png" width="180">
 
 **1 本の接続。双方向 RPC、ACK 付きメッセージング、ストリーム多重化——すべてを単一の `net.Conn` の背後に。**
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/geminio.svg)](https://pkg.go.dev/github.com/singchia/geminio)
-[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/geminio)](https://goreportcard.com/report/github.com/singchia/geminio)
+[![Go Reference](https://pkg.go.dev/badge/github.com/singchia/gemino.svg)](https://pkg.go.dev/github.com/singchia/gemino)
+[![Go Report Card](https://goreportcard.com/badge/github.com/singchia/gemino)](https://goreportcard.com/report/github.com/singchia/gemino)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/geminio)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-brightgreen.svg)](https://github.com/singchia/gemino)
 
 [English](./README.md) | [简体中文](./README_cn.md) | [日本語](./README_ja.md) | [한국어](./README_ko.md) | [Español](./README_es.md) | [Français](./README_fr.md) | [Deutsch](./README_de.md)
 
@@ -15,17 +15,17 @@
 
 ---
 
-## なぜ Geminio？
+## なぜ Gemino？
 
 あなたが作っているのは IM サーバー、メッセージキュー、API ゲートウェイ、NAT 越えのリバーストンネル、あるいはサービスメッシュのサイドカーかもしれません。どれをまともに作るにも、**双方向 RPC**、**ACK 付きの信頼できるメッセージング**、**1 本の TCP 接続上で複数の論理ストリーム**、**自動再接続**、そしてこれらすべてが Go の `net.Conn` / `net.Listener` と自然に噛み合うことが必要になります。
 
-通常の答えは：RPC に gRPC、多重化に yamux/smux、メッセージングに NATS か独自プロトコル、そしてそれらのライフサイクルを合わせるための大量の糊付けコード。**Geminio はこの一式を単一のインターフェースの背後に提供します。**
+通常の答えは：RPC に gRPC、多重化に yamux/smux、メッセージングに NATS か独自プロトコル、そしてそれらのライフサイクルを合わせるための大量の糊付けコード。**Gemino はこの一式を単一のインターフェースの背後に提供します。**
 
 <p align="center"><img src="./docs/overview.png" width="85%"></p>
 
-## Geminio と既存の選択肢
+## Gemino と既存の選択肢
 
-|                                       | gRPC              | yamux / smux | NATS | **Geminio** |
+|                                       | gRPC              | yamux / smux | NATS | **Gemino** |
 | ------------------------------------- |:-----------------:|:------------:|:----:|:-----------:|
 | リクエスト / レスポンス RPC            | ✅                | —            | —    | ✅          |
 | **サーバーから クライアントへの RPC**  | ⚠️ streaming のみ  | —            | —    | ✅          |
@@ -51,10 +51,10 @@
 ## 60 秒 デモ：サーバーからクライアントへファイル送信
 
 ```bash
-go get github.com/singchia/geminio
+go get github.com/singchia/gemino
 ```
 
-Geminio のストリームはすべて `net.Conn` で、`End` はすべて `net.Listener` です。ですから、サーバー起点のファイル転送はただの `io.Copy` になります——フレーミングもコーデックも broker も不要。
+Gemino のストリームはすべて `net.Conn` で、`End` はすべて `net.Listener` です。ですから、サーバー起点のファイル転送はただの `io.Copy` になります——フレーミングもコーデックも broker も不要。
 
 **サーバー** — クライアントを受け入れ、逆方向にストリームを開いてファイルを流し込みます。
 
@@ -90,7 +90,7 @@ for {
 
 ## こんなものが作れます
 
-| シナリオ | Geminio が合う理由 | 例 |
+| シナリオ | Gemino が合う理由 | 例 |
 | --- | --- | --- |
 | **NAT 越え / リバーストンネル**       | 1 本の発信接続で双方向の制御と多数のデータストリームを運ぶ | [`examples/traversal`](./examples/traversal) |
 | **チャット / IM**                   | ACK 付きメッセージ、クライアント単位 ID、自動再接続         | [`examples/chatroom`](./examples/chatroom) |
@@ -102,7 +102,7 @@ for {
 
 <p align="center"><img src="./docs/design.png" width="65%"></p>
 
-3 層構成——**Connection**（物理 TCP、ハートビート、FSM）、**Multiplexer / Dialogue**（論理ストリーム、ルーティング、書き込みスケジューリング）、**Application**（RPC とメッセージングのセマンティクス）——により、Geminio は統一された `End` を提供しつつ、各関心事を独立かつテスト可能に保ちます。詳細は [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md) で。
+3 層構成——**Connection**（物理 TCP、ハートビート、FSM）、**Multiplexer / Dialogue**（論理ストリーム、ルーティング、書き込みスケジューリング）、**Application**（RPC とメッセージングのセマンティクス）——により、Gemino は統一された `End` を提供しつつ、各関心事を独立かつテスト可能に保ちます。詳細は [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md) で。
 
 ## ベンチマーク
 
@@ -120,7 +120,7 @@ BenchmarkRPC-10         84450    42527 ns/op   3082 MB/s   23515 ops/sec
 ## ドキュメント
 
 - **Usage guide** — [`docs/USAGE.md`](./docs/USAGE.md)
-- **API reference** — [pkg.go.dev/github.com/singchia/geminio](https://pkg.go.dev/github.com/singchia/geminio)
+- **API reference** — [pkg.go.dev/github.com/singchia/gemino](https://pkg.go.dev/github.com/singchia/gemino)
 - **Runnable examples** — [`examples/`](./examples)
 - **Design deep dive** — [`docs/MULTIPLEXING.md`](./docs/MULTIPLEXING.md)
 - **Roadmap** — [`ROADMAP.md`](./ROADMAP.md)
@@ -140,7 +140,7 @@ Apache 2.0 — © Austin Zhai, 2023–2030。
 <a href="https://next.ossinsight.io/widgets/official/compose-activity-trends?repo_id=412119706" target="_blank" style="display: block" align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=dark" width="815" height="auto">
-    <img alt="Activity Trends of singchia/geminio - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
+    <img alt="Activity Trends of singchia/gemino - Last 28 days" src="https://next.ossinsight.io/widgets/official/compose-activity-trends/thumbnail.png?repo_id=412119706&image_size=auto&color_scheme=light" width="815" height="auto">
   </picture>
 </a>
 

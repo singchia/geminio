@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/test"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/test"
 )
 
 func BenchmarkRPC(b *testing.B) {
@@ -22,7 +22,7 @@ func BenchmarkRPC(b *testing.B) {
 	buf1 := make([]byte, 256)
 	buf2 := make([]byte, 4096)
 
-	echoServer := func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	echoServer := func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		resp.SetData(buf2)
 	}
 	sEnd.Register(context.TODO(), "hello", echoServer)

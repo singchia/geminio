@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	deadlineReadSyncKey  = "geminio:read_deadline"
-	deadlineWriteSyncKey = "geminio:write_deadline"
+	deadlineReadSyncKey  = "gemino:read_deadline"
+	deadlineWriteSyncKey = "gemino:write_deadline"
 )
 
-// geminio.Raw
+// gemino.Raw
 //
 // Read follows net.Conn semantics: bytes already in flight must reach the
 // caller even after the stream is closed. Specifically:

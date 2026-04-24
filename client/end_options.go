@@ -3,10 +3,10 @@ package client
 import (
 	"github.com/jumboframes/armorigo/log"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -21,7 +21,7 @@ type EndOptions struct {
 	Meta                            []byte
 	RemoteMethods                   []string
 	RemoteMethodCheck               bool
-	LocalMethods                    []*geminio.MethodRPC
+	LocalMethods                    []*gemino.MethodRPC
 	ReadBufferSize, WriteBufferSize int
 }
 
@@ -63,7 +63,7 @@ func (eo *EndOptions) SetRemoteRPCCheck() {
 	eo.RemoteMethodCheck = true
 }
 
-func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) {
+func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*gemino.MethodRPC) {
 	eo.LocalMethods = methodRPCs
 }
 

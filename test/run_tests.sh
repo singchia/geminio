@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Geminio Test Suite Runner — see `test/run_tests.sh -h`
+# Gemino Test Suite Runner — see `test/run_tests.sh -h`
 
 # Benchmark -benchtime defaults (longer runs: BENCH_TIME_EACH=5s BENCH_TIME_ALL=30s ./test/run_tests.sh --bench)
 : "${BENCH_TIME_EACH:=3s}"
@@ -137,7 +137,7 @@ fi
 set -e
 
 echo "==================================="
-echo "Geminio Comprehensive Test Suite"
+echo "Gemino Comprehensive Test Suite"
 echo "==================================="
 if [[ -n "$OUTPUT_FILE" ]]; then
     echo "Full output also logged to: $OUTPUT_FILE"

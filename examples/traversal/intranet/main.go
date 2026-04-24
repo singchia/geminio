@@ -12,7 +12,7 @@ import (
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/rproxy"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio/client"
+	"github.com/singchia/gemino/client"
 )
 
 var (

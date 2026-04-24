@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/test/chaos/helpers"
-	"github.com/singchia/geminio/test/harness"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/test/chaos/helpers"
+	"github.com/singchia/gemino/test/harness"
 )
 
 // waitForRemoteRPC gives the client a brief window to receive the peer's
@@ -31,10 +31,10 @@ func TestHandlerPanics(t *testing.T) {
 
 	sEnd, cEnd, _, _ := helpers.NewChaosEndPair(t)
 
-	sEnd.Register(context.Background(), "boom", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "boom", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		panic("handler panic")
 	})
-	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "echo", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		resp.SetData(req.Data())
 	})
 	waitForRemoteRPC()
@@ -73,7 +73,7 @@ func TestHandlerBlocksForever(t *testing.T) {
 	sEnd, cEnd, _, _ := helpers.NewChaosEndPair(t)
 
 	var handlerExited atomic.Bool
-	sEnd.Register(context.Background(), "wait", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "wait", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		<-ctx.Done()
 		handlerExited.Store(true)
 		resp.SetError(ctx.Err())
@@ -106,7 +106,7 @@ func TestHandlerBlocksForever(t *testing.T) {
 }
 
 // E3 — cross-recursive bidirectional RPC: A's handler calls B, B's
-// handler calls A. A naive serial dispatch would deadlock; geminio is
+// handler calls A. A naive serial dispatch would deadlock; gemino is
 // expected to handle each inbound request in its own goroutine so both
 // calls progress.
 func TestBiRPCDeadlockAvoidance(t *testing.T) {
@@ -117,7 +117,7 @@ func TestBiRPCDeadlockAvoidance(t *testing.T) {
 
 	// Server exposes pingS; it calls pingC on the client inside the
 	// handler and echoes the response.
-	sEnd.Register(context.Background(), "pingS", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "pingS", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		r, err := sEnd.Call(callCtx, "pingC", sEnd.NewRequest([]byte("from-server")))
@@ -128,7 +128,7 @@ func TestBiRPCDeadlockAvoidance(t *testing.T) {
 		resp.SetData(r.Data())
 	})
 
-	cEnd.Register(context.Background(), "pingC", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	cEnd.Register(context.Background(), "pingC", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		resp.SetData(append([]byte("client-saw:"), req.Data()...))
 	})
 	waitForRemoteRPC()
@@ -159,7 +159,7 @@ func TestRPCCancelThroughReconnect(t *testing.T) {
 	sEnd, cEnd, _, cChaos := helpers.NewChaosEndPair(t)
 
 	started := make(chan struct{}, 1)
-	sEnd.Register(context.Background(), "long", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+	sEnd.Register(context.Background(), "long", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 		select {
 		case started <- struct{}{}:
 		default:
@@ -220,13 +220,13 @@ func TestManySimultaneousRPCCancels(t *testing.T) {
 	serverReady := make(chan struct{})
 	handlerStarted := make(chan struct{}, 1024)
 	handlerExits := make(chan struct{}, 1024)
-	serverEndCh := make(chan geminio.End, 1)
+	serverEndCh := make(chan gemino.End, 1)
 	go func() {
 		end, err := ln.AcceptEnd()
 		if err != nil {
 			return
 		}
-		end.Register(context.Background(), "sleep", func(ctx context.Context, req geminio.Request, resp geminio.Response) {
+		end.Register(context.Background(), "sleep", func(ctx context.Context, req gemino.Request, resp gemino.Response) {
 			handlerStarted <- struct{}{}
 			<-ctx.Done()
 			resp.SetError(ctx.Err())

@@ -12,8 +12,8 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/examples/chatroom/share"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/examples/chatroom/share"
 )
 
 func main() {

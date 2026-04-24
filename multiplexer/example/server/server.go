@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singchia/geminio/conn"
-	"github.com/singchia/geminio/multiplexer"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/gemino/conn"
+	"github.com/singchia/gemino/multiplexer"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 

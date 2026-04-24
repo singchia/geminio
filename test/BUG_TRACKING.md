@@ -1,4 +1,4 @@
-# Geminio Bug 追踪表
+# Gemino Bug 追踪表
 
 **快速参考版本** | [详细测试计划](./TEST_PLAN.md)
 
@@ -120,7 +120,7 @@ if event.Error == timer.ErrTimerForceClosed || strings.Contains(event.Error.Erro
 ### BUG-P3-003: 测试脚本误报 — `signal: killed` on `conn` 包
 - **发现日期:** 2026-03-27
 - **位置:** `test/run_tests.sh:82`
-- **现象:** `FAIL github.com/singchia/geminio/conn — signal: killed`，实为伪失败
+- **现象:** `FAIL github.com/singchia/gemino/conn — signal: killed`，实为伪失败
 - **根因:** `go test -v ./... -short -count=1 2>&1 | head -100` 中 `head -100` 读够 100 行后退出，向 `go test` 发送 SIGPIPE，`conn` 包进程被杀死。`conn` 包仅含 `BenchmarkSelectClosed`，无 `Test*` 函数，测试结果无意义但被误报为 FAIL
 - **修复:** 脚本改为只跑 Test*，或去掉 `| head -100`：
 ```bash

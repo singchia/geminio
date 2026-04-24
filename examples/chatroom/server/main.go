@@ -11,11 +11,11 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/examples/chatroom/share"
-	"github.com/singchia/geminio/pkg/id"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/examples/chatroom/share"
+	"github.com/singchia/gemino/pkg/id"
+	"github.com/singchia/gemino/server"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -29,7 +29,7 @@ type ChatRoom struct {
 	idFactory id.IDFactory
 
 	mtx     *sync.RWMutex
-	clients map[string]geminio.End
+	clients map[string]gemino.End
 }
 
 func NewChatRoom() *ChatRoom {
@@ -37,7 +37,7 @@ func NewChatRoom() *ChatRoom {
 		UnimplementedDelegate: &delegate.UnimplementedDelegate{},
 		idFactory:             id.DefaultIncIDCounter,
 		mtx:                   new(sync.RWMutex),
-		clients:               map[string]geminio.End{},
+		clients:               map[string]gemino.End{},
 	}
 }
 
@@ -64,7 +64,7 @@ func (room *ChatRoom) ConnOnline(client delegate.ConnDescriber) error {
 		log.Errorf("json marshal err: %s", err)
 		return err
 	}
-	room.foreachUser(func(end geminio.End) {
+	room.foreachUser(func(end gemino.End) {
 		end.Publish(context.TODO(), end.NewMessage(data))
 	}, user)
 	return nil
@@ -83,13 +83,13 @@ func (room *ChatRoom) ConnOffline(client delegate.ConnDescriber) error {
 		log.Errorf("json marshal err: %s", err)
 		return err
 	}
-	room.foreachUser(func(end geminio.End) {
+	room.foreachUser(func(end gemino.End) {
 		end.Publish(context.TODO(), end.NewMessage(data))
 	})
 	return nil
 }
 
-func (room *ChatRoom) addUser(name string, end geminio.End) error {
+func (room *ChatRoom) addUser(name string, end gemino.End) error {
 	room.mtx.Lock()
 	defer room.mtx.Unlock()
 
@@ -108,7 +108,7 @@ func (room *ChatRoom) delUser(name string) {
 	delete(room.clients, name)
 }
 
-func (room *ChatRoom) foreachUser(fun func(end geminio.End), excepts ...string) {
+func (room *ChatRoom) foreachUser(fun func(end gemino.End), excepts ...string) {
 	room.mtx.RLock()
 	defer room.mtx.RUnlock()
 
@@ -146,7 +146,7 @@ func main() {
 	log.SetLevel(lvl)
 	// chatroom
 	room = NewChatRoom()
-	// log for geminio
+	// log for gemino
 	glog := log.NewLog()
 	glog.SetLevel(lvl)
 	// timer
@@ -179,7 +179,7 @@ func main() {
 	ln.Close()
 }
 
-func handle(end geminio.End) {
+func handle(end gemino.End) {
 	for {
 		msg, err := end.Receive(context.TODO())
 		if err != nil {
@@ -196,7 +196,7 @@ func handle(end geminio.End) {
 			continue
 		}
 		// for each user except self
-		room.foreachUser(func(end geminio.End) {
+		room.foreachUser(func(end gemino.End) {
 			end.Publish(context.TODO(), end.NewMessage(data))
 		}, string(end.Meta()))
 	}

@@ -1,4 +1,4 @@
-module github.com/singchia/geminio
+module github.com/singchia/gemino
 
 go 1.24.0
 
