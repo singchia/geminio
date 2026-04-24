@@ -3,9 +3,9 @@ package server
 import (
 	"github.com/jumboframes/armorigo/log"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/packet"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/packet"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -18,10 +18,10 @@ type EndOptions struct {
 	ClientID          *uint64
 	RemoteMethods     []string
 	RemoteMethodCheck bool
-	LocalMethods      []*geminio.MethodRPC
+	LocalMethods      []*gemino.MethodRPC
 	// If set AcceptStreamFunc, the AcceptStream should never be called
-	AcceptStreamFunc                func(geminio.Stream)
-	ClosedStreamFunc                func(geminio.Stream)
+	AcceptStreamFunc                func(gemino.Stream)
+	ClosedStreamFunc                func(gemino.Stream)
 	ReadBufferSize, WriteBufferSize int
 }
 
@@ -54,15 +54,15 @@ func (eo *EndOptions) SetRemoteRPCCheck() {
 	eo.RemoteMethodCheck = true
 }
 
-func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*geminio.MethodRPC) {
+func (eo *EndOptions) SetRegisterLocalRPCs(methodRPCs ...*gemino.MethodRPC) {
 	eo.LocalMethods = methodRPCs
 }
 
-func (eo *EndOptions) SetAcceptStreamFunc(fn func(geminio.Stream)) {
+func (eo *EndOptions) SetAcceptStreamFunc(fn func(gemino.Stream)) {
 	eo.AcceptStreamFunc = fn
 }
 
-func (eo *EndOptions) SetClosedStreamFunc(fn func(geminio.Stream)) {
+func (eo *EndOptions) SetClosedStreamFunc(fn func(gemino.Stream)) {
 	eo.ClosedStreamFunc = fn
 }
 

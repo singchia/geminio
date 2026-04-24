@@ -1,4 +1,4 @@
-// Package helpers provides primitives for chaos testing geminio: a net.Conn
+// Package helpers provides primitives for chaos testing gemino: a net.Conn
 // wrapper that can drop, delay, corrupt, or kill traffic at runtime, plus
 // glue to spin up an End pair over chaosConn pipes.
 package helpers
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/server"
 )
 
 // ChaosDir identifies a direction of traffic.
@@ -120,7 +120,7 @@ func (c *ChaosConn) Read(b []byte) (int, error) {
 	}
 	if c.rollPermille(c.dropRate.Load()) {
 		// Simulate data-on-the-wire being lost by returning zero bytes.
-		// geminio's decoder uses io.ReadFull internally, so a short read
+		// gemino's decoder uses io.ReadFull internally, so a short read
 		// just leads to another Read; we instead zero them so higher
 		// layers see junk and the connection resets. Tests decide which
 		// behaviour they want by how they compose this.
@@ -167,7 +167,7 @@ func (c *ChaosConn) Close() error { return c.Conn.Close() }
 // NewChaosEndPair returns a server/client End pair connected through
 // ChaosConns the caller can sabotage at runtime. Both ends are closed by
 // t.Cleanup in the normal order (client first, then server).
-func NewChaosEndPair(t testing.TB) (sEnd, cEnd geminio.End, sChaos, cChaos *ChaosConn) {
+func NewChaosEndPair(t testing.TB) (sEnd, cEnd gemino.End, sChaos, cChaos *ChaosConn) {
 	t.Helper()
 	sConn, cConn := rawTCPPair(t)
 
@@ -175,7 +175,7 @@ func NewChaosEndPair(t testing.TB) (sEnd, cEnd geminio.End, sChaos, cChaos *Chao
 	cChaos = WrapConn(cConn, 2)
 
 	type result struct {
-		end geminio.End
+		end gemino.End
 		err error
 	}
 	ch := make(chan result, 1)

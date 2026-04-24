@@ -8,9 +8,9 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	geminio "github.com/singchia/geminio"
-	multiplexer "github.com/singchia/geminio/multiplexer"
-	packet "github.com/singchia/geminio/packet"
+	gemino "github.com/singchia/gemino"
+	multiplexer "github.com/singchia/gemino/multiplexer"
+	packet "github.com/singchia/gemino/packet"
 )
 
 // MockMultiplexer is a mock of Multiplexer interface.
@@ -340,10 +340,10 @@ func (mr *MockDialogueDescriberMockRecorder) NegotiatingID() *gomock.Call {
 }
 
 // Side mocks base method.
-func (m *MockDialogueDescriber) Side() geminio.Side {
+func (m *MockDialogueDescriber) Side() gemino.Side {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Side")
-	ret0, _ := ret[0].(geminio.Side)
+	ret0, _ := ret[0].(gemino.Side)
 	return ret0
 }
 
@@ -488,10 +488,10 @@ func (mr *MockDialogueMockRecorder) ReadC() *gomock.Call {
 }
 
 // Side mocks base method.
-func (m *MockDialogue) Side() geminio.Side {
+func (m *MockDialogue) Side() gemino.Side {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Side")
-	ret0, _ := ret[0].(geminio.Side)
+	ret0, _ := ret[0].(gemino.Side)
 	return ret0
 }
 

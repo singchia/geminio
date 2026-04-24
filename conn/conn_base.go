@@ -10,9 +10,9 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/iodefine"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/iodefine"
 	"github.com/singchia/go-timer/v2"
 	"github.com/singchia/yafsm"
 )
@@ -61,7 +61,7 @@ type baseConn struct {
 
 	fsm     *yafsm.FSM
 	netconn net.Conn
-	side    geminio.Side
+	side    gemino.Side
 	onlined bool
 	// sync hub
 	shub *synchub.SyncHub
@@ -399,7 +399,7 @@ func (bc *baseConn) RemoteAddr() net.Addr {
 	return bc.netconn.RemoteAddr()
 }
 
-func (bc *baseConn) Side() geminio.Side {
+func (bc *baseConn) Side() gemino.Side {
 	return bc.side
 }
 

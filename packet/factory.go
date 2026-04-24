@@ -1,6 +1,6 @@
 package packet
 
-import "github.com/singchia/geminio/pkg/id"
+import "github.com/singchia/gemino/pkg/id"
 
 type PacketFactory interface {
 	NewPacketID() uint64

@@ -7,7 +7,7 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino/server"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -34,7 +34,7 @@ func main() {
 	// broker
 	b := NewBroker(*buffer)
 
-	// log for geminio
+	// log for gemino
 	glog := log.NewLog()
 	glog.SetLevel(lvl)
 	// timer

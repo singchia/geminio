@@ -3,7 +3,7 @@ package delegate
 import (
 	"net"
 
-	"github.com/singchia/geminio"
+	"github.com/singchia/gemino"
 )
 
 // connection layer delegation
@@ -12,7 +12,7 @@ type ConnDescriber interface {
 	Meta() []byte
 	LocalAddr() net.Addr
 	RemoteAddr() net.Addr
-	Side() geminio.Side
+	Side() gemino.Side
 }
 
 type ClientConnDelegate interface {
@@ -34,7 +34,7 @@ type DialogueDescriber interface {
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
-	Side() geminio.Side
+	Side() gemino.Side
 }
 
 type ClientDialogueDelegate interface {

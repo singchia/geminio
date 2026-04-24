@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
 )
 
 func main() {
@@ -13,7 +13,7 @@ func main() {
 	// the option means all End from server will wait for the rpc registration
 	opt.SetWaitRemoteRPCs("server-echo")
 	// pre-register client side method
-	opt.SetRegisterLocalRPCs(&geminio.MethodRPC{Method: "client-echo", RPC: echo})
+	opt.SetRegisterLocalRPCs(&gemino.MethodRPC{Method: "client-echo", RPC: echo})
 
 	end, err := client.NewEnd("tcp", "127.0.0.1:8080", opt)
 	if err != nil {
@@ -33,7 +33,7 @@ func main() {
 	end.Close()
 }
 
-func echo(_ context.Context, req geminio.Request, rsp geminio.Response) {
+func echo(_ context.Context, req gemino.Request, rsp gemino.Response) {
 	rsp.SetData(req.Data())
 	log.Info("client echo:", string(req.Data()))
 }

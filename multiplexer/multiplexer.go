@@ -3,8 +3,8 @@ package multiplexer
 import (
 	"errors"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/packet"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/packet"
 )
 
 var (
@@ -53,7 +53,7 @@ type DialogueDescriber interface {
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
-	Side() geminio.Side
+	Side() gemino.Side
 }
 
 type Dialogue interface {
@@ -66,7 +66,7 @@ type Dialogue interface {
 	ClientID() uint64
 	DialogueID() uint64
 	Meta() []byte
-	Side() geminio.Side
+	Side() gemino.Side
 	Peer() string
 	// Done returns a channel that is closed when the dialogue is closed.
 	Done() <-chan struct{}

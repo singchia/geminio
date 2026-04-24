@@ -9,9 +9,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/options"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/options"
 	"github.com/singchia/go-timer/v2"
 )
 
@@ -29,15 +29,15 @@ type RetryEnd struct {
 	dialer Dialer
 
 	// rpcs for re-register
-	rpcs   map[string]geminio.RPC
+	rpcs   map[string]gemino.RPC
 	rpcMtx sync.RWMutex
 	// hijack
 	hijackRPCOpts *options.HijackOptions
-	hijackRPC     geminio.HijackRPC
+	hijackRPC     gemino.HijackRPC
 }
 
 // RetryEnd with retry connection infinity
-func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, error) {
+func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (gemino.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
 	initEndOptions(eo)
@@ -48,7 +48,7 @@ func NewRetryEndWithDialer(dialer Dialer, opts ...*EndOptions) (geminio.End, err
 		dialer:                dialer,
 		ok:                    &ok,
 		onceClose:             &sync.Once{},
-		rpcs:                  make(map[string]geminio.RPC),
+		rpcs:                  make(map[string]gemino.RPC),
 	}
 	if eo.Timer == nil {
 		eo.Timer = timer.NewTimer()
@@ -209,7 +209,7 @@ func (re *RetryEnd) RemoteRegistration(method string, clientID uint64, streamID 
 func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
 
 // Multiplexer
-func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (gemino.Stream, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -238,7 +238,7 @@ func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stre
 	return sm, nil
 }
 
-func (re *RetryEnd) AcceptStream() (geminio.Stream, error) {
+func (re *RetryEnd) AcceptStream() (gemino.Stream, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -271,7 +271,7 @@ func (re *RetryEnd) Accept() (net.Conn, error) {
 	return re.AcceptStream()
 }
 
-func (re *RetryEnd) ListStreams() []geminio.Stream {
+func (re *RetryEnd) ListStreams() []gemino.Stream {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil
@@ -281,13 +281,13 @@ func (re *RetryEnd) ListStreams() []geminio.Stream {
 }
 
 // RPCer
-func (re *RetryEnd) NewRequest(data []byte, opts ...*options.NewRequestOptions) geminio.Request {
+func (re *RetryEnd) NewRequest(data []byte, opts ...*options.NewRequestOptions) gemino.Request {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
 	return cur.NewRequest(data, opts...)
 }
 
-func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request,
-	opts ...*options.CallOptions) (geminio.Response, error) {
+func (re *RetryEnd) Call(ctx context.Context, method string, req gemino.Request,
+	opts ...*options.CallOptions) (gemino.Response, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -316,8 +316,8 @@ func (re *RetryEnd) Call(ctx context.Context, method string, req geminio.Request
 	return rsp, nil
 }
 
-func (re *RetryEnd) CallAsync(ctx context.Context, method string, req geminio.Request, ch chan *geminio.Call,
-	opts ...*options.CallOptions) (*geminio.Call, error) {
+func (re *RetryEnd) CallAsync(ctx context.Context, method string, req gemino.Request, ch chan *gemino.Call,
+	opts ...*options.CallOptions) (*gemino.Call, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -346,11 +346,11 @@ func (re *RetryEnd) CallAsync(ctx context.Context, method string, req geminio.Re
 	return call, nil
 }
 
-func (re *RetryEnd) Register(ctx context.Context, method string, rpc geminio.RPC) error {
+func (re *RetryEnd) Register(ctx context.Context, method string, rpc gemino.RPC) error {
 	return re.register(ctx, method, rpc, true)
 }
 
-func (re *RetryEnd) register(ctx context.Context, method string, rpc geminio.RPC,
+func (re *RetryEnd) register(ctx context.Context, method string, rpc gemino.RPC,
 	memorize bool) error {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
@@ -386,7 +386,7 @@ func (re *RetryEnd) register(ctx context.Context, method string, rpc geminio.RPC
 	return nil
 }
 
-func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions) error {
+func (re *RetryEnd) Hijack(rpc gemino.HijackRPC, opts ...*options.HijackOptions) error {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return io.EOF
@@ -418,12 +418,12 @@ func (re *RetryEnd) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions
 }
 
 // Messager
-func (re *RetryEnd) NewMessage(data []byte, opts ...*options.NewMessageOptions) geminio.Message {
+func (re *RetryEnd) NewMessage(data []byte, opts ...*options.NewMessageOptions) gemino.Message {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
 	return cur.NewMessage(data, opts...)
 }
 
-func (re *RetryEnd) Publish(ctx context.Context, msg geminio.Message,
+func (re *RetryEnd) Publish(ctx context.Context, msg gemino.Message,
 	opts ...*options.PublishOptions) error {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
@@ -452,8 +452,8 @@ func (re *RetryEnd) Publish(ctx context.Context, msg geminio.Message,
 	return nil
 }
 
-func (re *RetryEnd) PublishAsync(ctx context.Context, msg geminio.Message, ch chan *geminio.Publish,
-	opts ...*options.PublishOptions) (*geminio.Publish, error) {
+func (re *RetryEnd) PublishAsync(ctx context.Context, msg gemino.Message, ch chan *gemino.Publish,
+	opts ...*options.PublishOptions) (*gemino.Publish, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -481,7 +481,7 @@ func (re *RetryEnd) PublishAsync(ctx context.Context, msg geminio.Message, ch ch
 	return pub, nil
 }
 
-func (re *RetryEnd) Receive(ctx context.Context) (geminio.Message, error) {
+func (re *RetryEnd) Receive(ctx context.Context) (gemino.Message, error) {
 	if atomic.LoadInt32(re.ok) != 1 {
 		// TODO optimize the error
 		return nil, io.EOF
@@ -642,7 +642,7 @@ func (re *RetryEnd) Meta() []byte {
 	return cur.Meta()
 }
 
-func (re *RetryEnd) Side() geminio.Side {
+func (re *RetryEnd) Side() gemino.Side {
 	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
 	return cur.Side()
 }

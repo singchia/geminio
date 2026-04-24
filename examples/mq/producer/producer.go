@@ -14,14 +14,14 @@ import (
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/delegate"
-	"github.com/singchia/geminio/examples/mq/share"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/delegate"
+	"github.com/singchia/gemino/examples/mq/share"
 )
 
 var (
-	end    geminio.End
+	end    gemino.End
 	pprof  *string
 	broker *string
 	topic  *string

@@ -10,9 +10,9 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/geminio/application/mock"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/gemino/application/mock"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 

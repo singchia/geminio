@@ -14,8 +14,8 @@ import (
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/rproxy"
 	"github.com/jumboframes/armorigo/sigaction"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/server"
 )
 
 var (
@@ -26,7 +26,7 @@ var (
 )
 
 var (
-	ends    = map[uint64]geminio.End{}
+	ends    = map[uint64]gemino.End{}
 	endsMtx sync.RWMutex
 )
 
@@ -108,12 +108,12 @@ func main() {
 	internetln.Close()
 	proxy.Close()
 	tunnelln.Close()
-	foreachEnd(func(end geminio.End) {
+	foreachEnd(func(end gemino.End) {
 		end.Close()
 	})
 }
 
-func picEnd() geminio.End {
+func picEnd() gemino.End {
 	endsMtx.RLock()
 	defer endsMtx.RUnlock()
 
@@ -123,7 +123,7 @@ func picEnd() geminio.End {
 	return nil
 }
 
-func foreachEnd(fun func(geminio.End)) {
+func foreachEnd(fun func(gemino.End)) {
 	endsMtx.RLock()
 	defer endsMtx.RUnlock()
 

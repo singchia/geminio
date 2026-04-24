@@ -4,26 +4,26 @@ import (
 	"net"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/application"
-	"github.com/singchia/geminio/conn"
-	"github.com/singchia/geminio/multiplexer"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/id"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/application"
+	"github.com/singchia/gemino/conn"
+	"github.com/singchia/gemino/multiplexer"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/id"
 	"github.com/singchia/go-timer/v2"
 )
 
 type ServerEnd struct {
 	// we need the opts to hold resources to close
 	opts *EndOptions
-	geminio.End
+	gemino.End
 }
 
-func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (geminio.End, error) {
+func NewEndWithConn(conn net.Conn, opts ...*EndOptions) (gemino.End, error) {
 	return new(conn, opts...)
 }
 
-func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
+func new(netcn net.Conn, opts ...*EndOptions) (gemino.End, error) {
 	// options
 	eo := MergeEndOptions(opts...)
 	initEndOptions(eo)
@@ -45,7 +45,7 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		acceptfn func(multiplexer.Dialogue)
 		closedfn func(multiplexer.Dialogue)
 		// application
-		ep     geminio.End
+		ep     gemino.End
 		epOpts []application.EndOption
 	)
 	// we share packet factory, log, timer and delegate for follow 3 layers.

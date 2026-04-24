@@ -1,4 +1,4 @@
-// Package harness provides reusable test helpers for geminio tests.
+// Package harness provides reusable test helpers for gemino tests.
 //
 // All constructors accept *testing.T (or *testing.B) and register cleanup
 // via t.Cleanup, so callers never need manual defer/Close boilerplate.
@@ -16,9 +16,9 @@ import (
 	"testing"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/client"
-	"github.com/singchia/geminio/server"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/client"
+	"github.com/singchia/gemino/server"
 )
 
 // TB is the common interface satisfied by *testing.T and *testing.B.
@@ -92,12 +92,12 @@ func newConnPairRaw(t TB) (sConn net.Conn, cConn net.Conn) {
 // NewEndPair creates a matched server/client End pair over a random TCP port.
 // Both ends are closed automatically when t finishes. The client is closed
 // first, then the server, to follow the expected disconnect handshake order.
-func NewEndPair(t TB) (sEnd geminio.End, cEnd geminio.End) {
+func NewEndPair(t TB) (sEnd gemino.End, cEnd gemino.End) {
 	t.Helper()
 	sConn, cConn := newConnPairRaw(t)
 
 	type result struct {
-		end geminio.End
+		end gemino.End
 		err error
 	}
 	ch := make(chan result, 1)
@@ -131,12 +131,12 @@ func NewEndPair(t TB) (sEnd geminio.End, cEnd geminio.End) {
 // NewEndStream creates a matched stream pair (server-side, client-side) by
 // building an End pair first and negotiating one stream. All resources are
 // closed via t.Cleanup.
-func NewEndStream(t TB) (sStream geminio.Stream, cStream geminio.Stream) {
+func NewEndStream(t TB) (sStream gemino.Stream, cStream gemino.Stream) {
 	t.Helper()
 	sEnd, cEnd := NewEndPair(t)
 
 	type result struct {
-		s   geminio.Stream
+		s   gemino.Stream
 		err error
 	}
 	ch := make(chan result, 1)
@@ -167,7 +167,7 @@ func NewEndStream(t TB) (sStream geminio.Stream, cStream geminio.Stream) {
 // Observability helpers
 // ─────────────────────────────────────────────
 
-// LogSilence suppresses geminio log output for the duration of the test and
+// LogSilence suppresses gemino log output for the duration of the test and
 // restores it afterwards. Call at the start of noisy tests.
 func LogSilence(t TB) {
 	t.Helper()

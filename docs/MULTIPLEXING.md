@@ -1,10 +1,10 @@
-# Geminio Multiplexing Design
+# Gemino Multiplexing Design
 
 [English](./MULTIPLEXING.md) | [简体中文](../多路复用原理.md)
 
 ## Overview
 
-Geminio is a multiplexing network framework: many logical conversations (**Dialogues**) share one physical connection. This reduces connection count and raises resource utilization.
+Gemino is a multiplexing network framework: many logical conversations (**Dialogues**) share one physical connection. This reduces connection count and raises resource utilization.
 
 ## Core concepts
 
@@ -535,7 +535,7 @@ dialogue2.Write(dataPkt2)
 
 ## Summary
 
-Geminio's multiplexing works by:
+Gemino's multiplexing works by:
 
 1. **Identifier separation**: `dialogueID` distinguishes packets across dialogues.
 2. **Central routing**: `DialogueMgr` owns routing for every dialogue.

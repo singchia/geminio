@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/jumboframes/armorigo/log"
-	"github.com/singchia/geminio/client"
+	"github.com/singchia/gemino/client"
 )
 
 func main() {

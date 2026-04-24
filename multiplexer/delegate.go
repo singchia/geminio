@@ -1,6 +1,6 @@
 package multiplexer
 
-import "github.com/singchia/geminio/delegate"
+import "github.com/singchia/gemino/delegate"
 
 type Delegate interface {
 	DialogueOnline(delegate.DialogueDescriber) error

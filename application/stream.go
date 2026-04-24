@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/jumboframes/armorigo/synchub"
-	"github.com/singchia/geminio"
-	"github.com/singchia/geminio/conn"
-	"github.com/singchia/geminio/multiplexer"
-	"github.com/singchia/geminio/packet"
-	"github.com/singchia/geminio/pkg/iodefine"
-	gnet "github.com/singchia/geminio/pkg/net"
-	gsync "github.com/singchia/geminio/pkg/sync"
+	"github.com/singchia/gemino"
+	"github.com/singchia/gemino/conn"
+	"github.com/singchia/gemino/multiplexer"
+	"github.com/singchia/gemino/packet"
+	"github.com/singchia/gemino/pkg/iodefine"
+	gnet "github.com/singchia/gemino/pkg/net"
+	gsync "github.com/singchia/gemino/pkg/sync"
 )
 
 var (
@@ -37,10 +37,10 @@ const (
 type patternRPC struct {
 	match   bool
 	pattern *regexp.Regexp
-	rpc     geminio.HijackRPC
+	rpc     gemino.HijackRPC
 }
 
-type methodRPC geminio.HijackRPC
+type methodRPC gemino.HijackRPC
 
 type stream struct {
 	*gnet.UnimplementedConn
@@ -60,7 +60,7 @@ type stream struct {
 	// inflight rpc's cancel
 	rpcCancels map[uint64]context.CancelFunc
 	// key: method value: RPC
-	localRPCs map[string]geminio.RPC
+	localRPCs map[string]gemino.RPC
 	// key: method value: placeholder
 	remoteRPCs map[string]struct{}
 	// hijack
@@ -107,7 +107,7 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 		cn:                cn,
 		dg:                dg,
 		rpcCancels:        make(map[uint64]context.CancelFunc),
-		localRPCs:         make(map[string]geminio.RPC),
+		localRPCs:         make(map[string]gemino.RPC),
 		remoteRPCs:        make(map[string]struct{}),
 		streamOK:          true,
 		closeOnce:         new(gsync.Once),
@@ -165,8 +165,8 @@ func (sm *stream) Peer() string {
 	return sm.dg.Peer()
 }
 
-func (sm *stream) Side() geminio.Side {
-	return geminio.Side(sm.dg.Side())
+func (sm *stream) Side() gemino.Side {
+	return gemino.Side(sm.dg.Side())
 }
 
 // main handle logic
@@ -392,7 +392,7 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	rpc, ok := sm.localRPCs[method]
 	sm.rpcMtx.RUnlock()
 	if ok {
-		wrapperRPC := func(ctx context.Context, _ string, req geminio.Request, rsp geminio.Response) {
+		wrapperRPC := func(ctx context.Context, _ string, req gemino.Request, rsp gemino.Response) {
 			rpc(ctx, req, rsp)
 		}
 		// do RPC and cancel the context
