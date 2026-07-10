@@ -1,8 +1,6 @@
 module github.com/singchia/geminio
 
-go 1.24.0
-
-toolchain go1.24.13
+go 1.25.0
 
 require (
 	github.com/golang/mock v1.6.0
@@ -14,6 +12,6 @@ require (
 
 require (
 	github.com/singchia/go-hammer v0.0.2-0.20220516141917-9d83fc02d653 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 )
