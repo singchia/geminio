@@ -56,6 +56,13 @@ type connOpts struct {
 }
 
 type baseConn struct {
+	// pendingUp/pendingDown are owned only by handlePkt.
+	pendingUp   packet.Packet
+	pendingDown packet.Packet
+	// Ack completion is reported by the existing socket writer.
+	ackWritten chan struct{}
+	ackQueued  bool
+
 	connOpts
 	cn Conn
 
@@ -236,6 +243,12 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 			bc.failedCh <- pkt
 		}
 	}
+	if err == nil && pkt.Type() == packet.TypeDisConnAckPacket {
+		select {
+		case bc.ackWritten <- struct{}{}:
+		default:
+		}
+	}
 	return err
 }
 
@@ -323,13 +336,8 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
-	// DisConnPacket is critical (connection-related), must be sent successfully, so we block here
-	// This ensures the disconnection packet is always sent, even if writeOutCh is full
-	select {
-	case bc.writeOutCh <- pkt:
-	case <-bc.ctx.Done():
-		return iodefine.IOClosed
-	}
+	// Queue behind earlier output; the event loop owns delivery.
+	bc.pendingDown = pkt
 	bc.log.Debugf("send dis conn down succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
@@ -342,11 +350,8 @@ func (bc *baseConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iode
 			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
-	// make sure this packet is flushed before writeOutCh closed
-	err = bc.dowritePkt(pkt, false)
-	if err != nil {
-		return iodefine.IOErr
-	}
+	bc.pendingDown = pkt
+	bc.ackQueued = true
 	bc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
 		bc.ClientID(), pkt.ID(), pkt.Type().String())
 	if bc.fsm.State() == CLOSE_HALF {
@@ -377,14 +382,8 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 			writeOutLen, writeOutSize, bc.ClientID(), pkt.ID(), pkt.Type().String())
 	}
 
-	// Data packets: block to ensure delivery, no packet loss
-	// This ensures all packets are sent, even if it means slower processing
-	// The blocking will wait for writePkt() to process packets and make room
-	select {
-	case writeOutCh <- pkt:
-	case <-bc.ctx.Done():
-		return iodefine.IOClosed
-	}
+	// Retain this packet until the outer select can deliver it.
+	bc.pendingDown = pkt
 	bc.log.Tracef("send data succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess

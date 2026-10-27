@@ -38,6 +38,10 @@ const (
 )
 
 type dialogue struct {
+	// pendingUp/pendingDown are owned only by handlePkt.
+	pendingUp   packet.Packet
+	pendingDown packet.Packet
+
 	// options for timer, packet factory, log, delegate and meta
 	*opts
 	// log and pf are independent from opts to avoid data races when updated via options
@@ -76,7 +80,6 @@ type dialogue struct {
 	readInSize, writeOutSize int
 	readOutSize, writeInSize int
 	failedCh                 chan packet.Packet
-
 
 	closeOnce   *gsync.Once
 	closeIOOnce *gsync.Once
@@ -167,7 +170,7 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	for _, opt := range opts {
 		opt(dg)
 	}
-// io size
+	// io size
 	dg.readInCh = make(chan packet.Packet, dg.readInSize)
 	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
 	dg.readOutCh = make(chan packet.Packet, dg.readOutSize)
@@ -248,15 +251,15 @@ func (dg *dialogue) sendToWriteIn(pkt packet.Packet) error {
 	}
 }
 
-// sendToWriteOut is the single entry point for all writes to writeOutCh.
-// It selects on ctx.Done() so it never blocks after writePkt() exits.
+// sendToWriteOut queues protocol output for writeOutCh.
+// Protocol handlers retain output for the outer event loop to deliver.
+// Called only by the state-machine owner after older output has drained.
 func (dg *dialogue) sendToWriteOut(pkt packet.Packet) error {
-	select {
-	case <-dg.ctx.Done():
+	if dg.ctx.Err() != nil {
 		return io.EOF
-	case dg.writeOutCh <- pkt:
-		return nil
 	}
+	dg.pendingDown = pkt
+	return nil
 }
 
 func (dg *dialogue) Read() (packet.Packet, error) {
@@ -386,8 +389,67 @@ func (dg *dialogue) handlePkt() {
 	readInCh := dg.readInCh
 	writeInCh := dg.writeInCh
 
+	var deferredIn, deferredOut packet.Packet
+
+	finishing := false
+
 	for {
+		in, out := readInCh, writeInCh
+		var up, down chan packet.Packet
+		if dg.pendingUp != nil {
+			in = nil
+			up = dg.readOutCh
+		}
+		if dg.pendingDown != nil {
+			out = nil
+			down = dg.writeOutCh
+		}
+		if deferredIn != nil {
+			in = nil
+		}
+		if deferredOut != nil {
+			out = nil
+		}
+		if !finishing && dg.pendingDown == nil {
+			if deferredIn != nil {
+				pkt := deferredIn
+				deferredIn = nil
+				ret := dg.handleIn(pkt)
+				if ret == iodefine.IOErr {
+					goto FINI
+				}
+				if ret == iodefine.IOClosed {
+					finishing = true
+				}
+				continue
+			}
+			if deferredOut != nil {
+				pkt := deferredOut
+				deferredOut = nil
+				ret := dg.handleOut(pkt)
+				if ret == iodefine.IOErr {
+					goto FINI
+				}
+				if ret == iodefine.IOClosed {
+					finishing = true
+				}
+				continue
+			}
+		}
+
+		if finishing {
+			in, out = nil, nil
+			if dg.pendingUp == nil && dg.pendingDown == nil {
+				goto FINI
+			}
+		}
+
 		select {
+		case up <- dg.pendingUp:
+			dg.pendingUp = nil
+		case down <- dg.pendingDown:
+			dg.pendingDown = nil
+
 		case <-dg.ctx.Done():
 			// fini() cancelled us; drain writeInCh before exiting
 			for {
@@ -403,30 +465,38 @@ func (dg *dialogue) handlePkt() {
 					goto FINI
 				}
 			}
-		case pkt, ok := <-readInCh:
+		case pkt, ok := <-in:
 			if !ok {
 				goto FINI
 			}
 			dg.log.Tracef("dialogue read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+			if packet.SessionLayer(pkt) && dg.pendingDown != nil {
+				deferredIn = pkt
+				continue
+			}
 			ret := dg.handleIn(pkt)
 			switch ret {
 			case iodefine.IONewActive, iodefine.IOSuccess:
 				continue
 			case iodefine.IOClosed:
-				goto FINI
+				finishing = true
 			case iodefine.IOErr:
 				goto FINI
 			}
-		case pkt := <-writeInCh:
+		case pkt := <-out:
 			dg.log.Tracef("dialogue write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+			if packet.SessionLayer(pkt) {
+				deferredOut = pkt
+				continue
+			}
 			ret := dg.handleOut(pkt)
 			switch ret {
 			case iodefine.IONewPassive, iodefine.IOSuccess:
 				continue
 			case iodefine.IOClosed:
-				goto FINI
+				finishing = true
 			case iodefine.IOErr:
 				goto FINI
 			}
@@ -606,11 +676,7 @@ func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		}
 		return iodefine.IODiscard
 	}
-	select {
-	case dg.readOutCh <- pkt:
-	case <-dg.ctx.Done():
-		return iodefine.IODiscard
-	}
+	dg.pendingUp = pkt
 	return iodefine.IOSuccess
 }
 
@@ -710,11 +776,7 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 }
 
 func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
-	if err := dg.sendToWriteOut(pkt); err != nil {
-		return iodefine.IOClosed
-	}
-	dg.log.Tracef("dialogue write data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+	dg.pendingDown = pkt
 	return iodefine.IOSuccess
 }
 
@@ -813,7 +875,7 @@ func (dg *dialogue) fini() {
 		// Do NOT set dg.writeOutCh = nil: writePkt captures the channel
 		// locally before ranging, so a concurrent nil assignment just
 		// races the read with no benefit (senders already bail out via
-		// sendToWriteOut's ctx.Done case).
+		// sendToWriteOut's cancellation check).
 		// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
 
 		// collect fsm
