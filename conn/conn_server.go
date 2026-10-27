@@ -295,7 +295,7 @@ func (sc *ServerConn) handlePkt() {
 			// Priority processing for heartbeat packets
 			sc.log.Tracef("conn read in heartbeat packet, clientID: %d, packetID: %d, packetType: %s",
 				sc.clientID, pkt.ID(), pkt.Type().String())
-			if packet.ConnLayer(pkt) && sc.pendingDown != nil {
+			if packet.ConnLayer(pkt) && pkt.Type() != packet.TypeHeartbeatPacket && sc.pendingDown != nil {
 				deferredIn = pkt
 				continue
 			}
@@ -314,7 +314,7 @@ func (sc *ServerConn) handlePkt() {
 			}
 			sc.log.Tracef("conn read in packet, clientID: %d, packetID: %d, packetType: %s",
 				sc.clientID, pkt.ID(), pkt.Type().String())
-			if packet.ConnLayer(pkt) && sc.pendingDown != nil {
+			if packet.ConnLayer(pkt) && pkt.Type() != packet.TypeHeartbeatPacket && sc.pendingDown != nil {
 				deferredIn = pkt
 				continue
 			}
@@ -456,7 +456,9 @@ func (sc *ServerConn) handleInHeartbeatPacket(pkt *packet.HeartbeatPacket) iodef
 	sc.resetHeartbeatTimeout()
 
 	retPkt := sc.pf.NewHeartbeatAckPacket(pkt.PacketID)
-	sc.pendingDown = retPkt
+	if !sc.queueHeartbeat(retPkt) {
+		return iodefine.IOErr
+	}
 	if sc.dlgt != nil {
 		sc.dlgt.Heartbeat(sc)
 	}
@@ -471,7 +473,10 @@ func (sc *ServerConn) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		sc.log.Debugf("data at non CONNED, clientID: %d, packetID: %d, remote: %s, meta: %s",
 			sc.clientID, pkt.ID(), sc.netconn.RemoteAddr(), string(sc.meta))
 		if sc.failedCh != nil {
-			sc.failedCh <- pkt
+			select {
+			case sc.failedCh <- pkt:
+			case <-sc.ctx.Done():
+			}
 		}
 		return iodefine.IODiscard
 	}
@@ -566,7 +571,10 @@ DRAINED_WRITE_SC:
 				break DRAINED_WRITE_SC
 			}
 			if sc.failedCh != nil && !packet.ConnLayer(pkt) {
-				sc.failedCh <- pkt
+				select {
+				case sc.failedCh <- pkt:
+				case <-sc.ctx.Done():
+				}
 			}
 		default:
 			break DRAINED_WRITE_SC
@@ -578,7 +586,10 @@ DRAINED_WRITE_SC:
 	close(sc.writeOutCh)
 	for pkt := range sc.writeOutCh {
 		if sc.failedCh != nil && !packet.ConnLayer(pkt) {
-			sc.failedCh <- pkt
+			select {
+			case sc.failedCh <- pkt:
+			case <-sc.ctx.Done():
+			}
 		}
 	}
 	// collect timer
@@ -593,12 +604,12 @@ DRAINED_WRITE_SC:
 	// collect id
 	sc.clientIDs = nil
 	// collect channels
-	close(sc.heartbeatCh)
-	close(sc.heartbeatWriteCh)
+	// Heartbeat producers can race teardown; cancellation owns their lifetime.
+	// Do not close these queues while the socket reader or timer may send.
 	// Do NOT nil these fields: baseConn.writePkt and other goroutines
 	// read them at startup and those reads can overlap with fini under
-	// rapid open/close. The closes above are the real cleanup; GC
-	// reclaims the slots when the struct is unreferenced.
+	// rapid open/close. Cancellation stops their users; GC reclaims the
+	// queues when the connection is unreferenced.
 
 	sc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		sc.clientID, sc.netconn.RemoteAddr(), string(sc.meta))

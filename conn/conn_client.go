@@ -308,7 +308,7 @@ func (cc *ClientConn) handlePkt() {
 			// Priority processing for heartbeat packets
 			cc.log.Tracef("conn read in heartbeat packet, clientID: %d, packetID: %d, packetType: %s",
 				cc.clientID, pkt.ID(), pkt.Type().String())
-			if packet.ConnLayer(pkt) && cc.pendingDown != nil {
+			if packet.ConnLayer(pkt) && pkt.Type() != packet.TypeHeartbeatAckPacket && cc.pendingDown != nil {
 				deferredIn = pkt
 				continue
 			}
@@ -325,7 +325,7 @@ func (cc *ClientConn) handlePkt() {
 			if !ok {
 				goto FINI
 			}
-			if packet.ConnLayer(pkt) && cc.pendingDown != nil {
+			if packet.ConnLayer(pkt) && pkt.Type() != packet.TypeHeartbeatAckPacket && cc.pendingDown != nil {
 				deferredIn = pkt
 				continue
 			}
@@ -474,7 +474,9 @@ func (cc *ClientConn) handleOutConnPacket(pkt *packet.ConnPacket) iodefine.IORet
 }
 
 func (cc *ClientConn) handleOutHeartbeatPacket(pkt *packet.HeartbeatPacket) iodefine.IORet {
-	cc.pendingDown = pkt
+	if !cc.queueHeartbeat(pkt) {
+		return iodefine.IOErr
+	}
 	return iodefine.IOSuccess
 }
 
@@ -489,12 +491,8 @@ func (cc *ClientConn) sendHeartbeat(event *timer.Event) {
 	pkt := cc.pf.NewHeartbeatPacket()
 	cc.connMtx.RUnlock()
 
-	// HeartbeatPacket is critical, must be sent successfully, so we block here
-	cc.sendToWriteIn(pkt) //nolint:errcheck
-	// Successfully sent heartbeat packet to writeInCh
-	// Note: The packet will be processed by handlePkt() and then sent to heartbeatWriteCh or writeOutCh
-	// "conn write heartbeat down" will be printed in writePkt() when the packet is actually written to network
-	cc.log.Tracef("heartbeat packet sent to writeInCh, clientID: %d, packetID: %d", cc.clientID, pkt.ID())
+	cc.queueHeartbeat(pkt)
+
 }
 
 func (cc *ClientConn) Close() {
@@ -553,7 +551,10 @@ DRAINED_WRITE_CC:
 				break DRAINED_WRITE_CC
 			}
 			if cc.failedCh != nil && !packet.ConnLayer(pkt) {
-				cc.failedCh <- pkt
+				select {
+				case cc.failedCh <- pkt:
+				case <-cc.ctx.Done():
+				}
 			}
 		default:
 			break DRAINED_WRITE_CC
@@ -565,7 +566,10 @@ DRAINED_WRITE_CC:
 	close(cc.writeOutCh)
 	for pkt := range cc.writeOutCh {
 		if cc.failedCh != nil && !packet.ConnLayer(pkt) {
-			cc.failedCh <- pkt
+			select {
+			case cc.failedCh <- pkt:
+			case <-cc.ctx.Done():
+			}
 		}
 	}
 	// collect timer
@@ -578,12 +582,12 @@ DRAINED_WRITE_CC:
 	cc.fsm.Close()
 	cc.fsm = nil
 	// collect channels
-	close(cc.heartbeatCh)
-	close(cc.heartbeatWriteCh)
+	// Heartbeat producers can race teardown; cancellation owns their lifetime.
+	// Do not close these queues while the socket reader or timer may send.
 	// Do NOT nil these fields: baseConn.writePkt and other goroutines
 	// read them at startup and those reads can overlap with fini under
-	// rapid open/close. The closes above are the real cleanup; GC
-	// reclaims the slots when the struct is unreferenced.
+	// rapid open/close. Cancellation stops their users; GC reclaims the
+	// queues when the connection is unreferenced.
 
 	cc.log.Debugf("client finished, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))
