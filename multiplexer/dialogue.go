@@ -322,7 +322,7 @@ func (dg *dialogue) initFSM() {
 	dg.fsm.AddEvent(ET_FINI, dismissed, fini)
 }
 
-func (dg *dialogue) open() error {
+func (dg *dialogue) open(ctx context.Context) error {
 	dg.log.Debugf("dialogue is opening, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
@@ -330,17 +330,22 @@ func (dg *dialogue) open() error {
 	// sync must set before the packet send down, in case of the ack coming first
 	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 
-	if err := dg.sendToWriteIn(pkt); err != nil {
-		return err
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-dg.ctx.Done():
+		return io.EOF
+	case dg.writeInCh <- pkt:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-dg.ctx.Done():
+		return io.EOF
+	case event := <-sync.C():
+		return event.Error
 	}
 
-	event := <-sync.C()
-	if event.Error != nil {
-		dg.log.Debugf("dialogue open err: %s, clientID: %d, dialogueID: %d",
-			event.Error, dg.cn.ClientID(), dg.dialogueID)
-		// ctx.Done() will stop handlePkt; readInCh will be garbage collected.
-	}
-	return event.Error
 }
 
 // we may or not separate the goroutine because the underlay is still a channel

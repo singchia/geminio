@@ -2,6 +2,7 @@ package geminio
 
 import (
 	"context"
+	"errors"
 	"net"
 	"time"
 
@@ -171,4 +172,24 @@ type End interface {
 	net.Listener
 
 	Close() error
+}
+
+// ContextMultiplexer opens a stream with a deadline for negotiation only.
+// Canceling ctx after a successful return does not close the stream.
+// This optional interface preserves compatibility with existing End implementations.
+type ContextMultiplexer interface {
+	OpenStreamContext(context.Context, ...*options.OpenStreamOptions) (Stream, error)
+}
+
+var ErrOpenStreamContextUnsupported = errors.New("context-aware stream opening unsupported")
+
+// OpenStreamContext requires cancellation support rather than silently ignoring ctx.
+func OpenStreamContext(ctx context.Context, end Multiplexer, opts ...*options.OpenStreamOptions) (Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if opener, ok := end.(ContextMultiplexer); ok {
+		return opener.OpenStreamContext(ctx, opts...)
+	}
+	return nil, ErrOpenStreamContextUnsupported
 }

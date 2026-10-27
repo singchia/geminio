@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"github.com/singchia/geminio/options"
 	"net"
 
 	"github.com/jumboframes/armorigo/log"
@@ -144,4 +146,8 @@ func (se *ServerEnd) Close() error {
 		se.opts.Timer.Close()
 	}
 	return err
+}
+
+func (end *ServerEnd) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	return geminio.OpenStreamContext(ctx, end.End, opts...)
 }

@@ -22,8 +22,10 @@ type RetryEnd struct {
 	end unsafe.Pointer
 	ok  *int32
 
-	retry     sync.Mutex
-	onceClose *sync.Once
+	retry       sync.Mutex
+	openRetryMu sync.Mutex
+	openRetry   *openRetry
+	onceClose   *sync.Once
 
 	// dialer to use while retry
 	dialer Dialer
@@ -210,32 +212,60 @@ func (re *RetryEnd) GetClientID(meta []byte) (uint64, error) { return 0, nil }
 
 // Multiplexer
 func (re *RetryEnd) OpenStream(opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
-	if atomic.LoadInt32(re.ok) != 1 {
-		// TODO optimize the error
-		return nil, io.EOF
-	}
-	cur := (*clientEnd)(atomic.LoadPointer(&re.end))
-	sm, oerr := cur.OpenStream(opts...)
-	if oerr != nil {
-		if oerr == io.EOF && atomic.LoadInt32(re.ok) == 1 {
-			// under layer EOF but not closed, we should retry the end,
-			// pass the old end for comparition
-			ierr := re.reinit(cur)
-			if ierr != nil {
-				if ierr == io.EOF {
-					// reinit should only return io.EOF aflter RetryEnd Close
-					re.opts.Log.Infof("reinit got io.EOF after Call err: %s", oerr)
-					return nil, ierr
-				}
-				// some other error, maybe ErrInvalidConn, ErrClosed
-				return nil, ierr
-			}
-			// retry succeed, recursive the Call
-			return re.OpenStream(opts...)
+	return re.OpenStreamContext(context.Background(), opts...)
+}
+
+// OpenStreamContext bounds negotiation and waiting for a shared reconnect.
+// Reconnect belongs to the endpoint: one caller canceling must not abort it
+// for other callers. At most one reconnect worker is started by this path.
+func (re *RetryEnd) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
-		return nil, oerr
+		if atomic.LoadInt32(re.ok) != 1 {
+			return nil, io.EOF
+		}
+		cur := (*clientEnd)(atomic.LoadPointer(&re.end))
+		sm, err := cur.OpenStreamContext(ctx, opts...)
+		if err != io.EOF || atomic.LoadInt32(re.ok) != 1 {
+			return sm, err
+		}
+		if err := re.waitOpenRetry(ctx, cur); err != nil {
+			return nil, err
+		}
 	}
-	return sm, nil
+}
+
+type openRetry struct {
+	done chan struct{}
+	err  error
+}
+
+func (re *RetryEnd) waitOpenRetry(ctx context.Context, old *clientEnd) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	re.openRetryMu.Lock()
+	attempt := re.openRetry
+	if attempt == nil {
+		attempt = &openRetry{done: make(chan struct{})}
+		re.openRetry = attempt
+		go func() {
+			attempt.err = re.reinit(old)
+			re.openRetryMu.Lock()
+			close(attempt.done)
+			re.openRetry = nil
+			re.openRetryMu.Unlock()
+		}()
+	}
+	re.openRetryMu.Unlock()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-attempt.done:
+		return attempt.err
+	}
 }
 
 func (re *RetryEnd) AcceptStream() (geminio.Stream, error) {

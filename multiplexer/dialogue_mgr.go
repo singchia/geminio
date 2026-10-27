@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"context"
 	"errors"
 	"io"
 	"sync"
@@ -254,12 +255,18 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 
 // OpenDialogue blocks until succeed or failed
 func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) {
-	dm.mtx.RLock()
+	return dm.OpenDialogueContext(context.Background(), meta, peer)
+}
+
+func (dm *dialogueMgr) OpenDialogueContext(ctx context.Context, meta []byte, peer string) (Dialogue, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	dm.mtx.Lock()
 	if !dm.mgrOK {
-		dm.mtx.RUnlock()
+		dm.mtx.Unlock()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
-	dm.mtx.RUnlock()
 
 	negotiatingID := dm.dialogueIDs.GetID()
 	dialogueIDPeersCall := dm.cn.Side() == geminio.InitiatorSide
@@ -271,16 +278,17 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 		OptionDialogueMeta(meta),
 		OptionDialoguePeer(peer))
 	if err != nil {
+		dm.mtx.Unlock()
 		dm.log.Errorf("new dialogue err: %s, clientID: %d", err, dm.cn.ClientID())
 		return nil, err
 	}
-	dm.mtx.Lock()
 	dm.negotiatingDialogues[negotiatingID] = dg
 	dm.mtx.Unlock()
 	// Open take times, shouldn't be locked
-	err = dg.open()
+	err = dg.open(ctx)
 	if err != nil {
-		dm.log.Errorf("dialogue open err: %s, clientID: %d, negotiatingID: %d", err, dm.cn.ClientID(), dg.negotiatingID)
+		dg.ForceClose()
+		dm.log.Debugf("dialogue open err: %s, clientID: %d, negotiatingID: %d", err, dm.cn.ClientID(), dg.negotiatingID)
 		dm.mtx.Lock()
 		delete(dm.negotiatingDialogues, negotiatingID)
 		dm.mtx.Unlock()
@@ -288,11 +296,16 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 	}
 	dm.mtx.Lock()
 	delete(dm.negotiatingDialogues, negotiatingID)
-	if !dm.mgrOK {
+	if err := ctx.Err(); err != nil {
+		dm.mtx.Unlock()
+		dg.ForceClose()
+		return nil, err
+	}
+	if !dm.mgrOK || dg.ctx.Err() != nil {
 		// delete(dm.dialogues, dg.dialogueID)
 		// !mgrOK only happens after dialogueMgr fini, so fini the dialogue
 		dm.mtx.Unlock()
-		dg.fini()
+		dg.ForceClose()
 		return nil, ErrOperationOnClosedMultiplexer
 	}
 	// the logic on negotiatingDialogues is tricky, be care of it.

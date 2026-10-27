@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"context"
 	"io"
 	"strconv"
 	"sync"
@@ -145,7 +146,7 @@ func (dh *dialogueHub) OpenDialogue(clientID uint64, meta []byte) (Dialogue, err
 	dh.negotiatingDialogues[key] = dg
 	dh.mtx.Unlock()
 	// Open take times, shouldn't be locked
-	err = dg.open()
+	err = dg.open(context.Background())
 	if err != nil {
 		dh.log.Errorf("dialogue open err: %s, clientID: %d, negotiatingID: %d",
 			err, clientID, negotiatingID)

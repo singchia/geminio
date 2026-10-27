@@ -195,12 +195,28 @@ ERR:
 func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
 	geminio.Stream, error) {
 
+	return end.OpenStreamContext(context.Background(), opts...)
+}
+
+// OpenStreamContext applies ctx only to the stream-opening handshake.
+func (end *End) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	oo := options.MergeOpenStreamOptions(opts...)
 	peer := ""
 	if oo.Peer != nil {
 		peer = *oo.Peer
 	}
-	dg, err := end.multiplexer.OpenDialogue(oo.Meta, peer)
+	var dg multiplexer.Dialogue
+	var err error
+	if opener, ok := end.multiplexer.(multiplexer.ContextMultiplexer); ok {
+		dg, err = opener.OpenDialogueContext(ctx, oo.Meta, peer)
+	} else if ctx.Done() == nil {
+		dg, err = end.multiplexer.OpenDialogue(oo.Meta, peer)
+	} else {
+		return nil, geminio.ErrOpenStreamContextUnsupported
+	}
 	if err != nil {
 		return nil, err
 	}
