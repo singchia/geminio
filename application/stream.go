@@ -190,6 +190,7 @@ func (sm *stream) handlePkt() {
 			case iodefine.IODiscard:
 				sm.shub.Error(pkt.ID(), io.ErrShortBuffer)
 			case iodefine.IOErr:
+				sm.dg.ForceClose()
 				goto FINI
 			}
 		case <-closeWriteCh:
@@ -213,6 +214,7 @@ func (sm *stream) handlePkt() {
 					case iodefine.IODiscard:
 						sm.shub.Error(pkt.ID(), io.ErrShortBuffer)
 					case iodefine.IOErr:
+						sm.dg.ForceClose()
 						goto FINI
 					}
 				default:
@@ -227,7 +229,7 @@ func (sm *stream) handlePkt() {
 		}
 	}
 FINI:
-	sm.finiOnce.Do(sm.fini)
+	// The receive pump owns finalization, so streamCh cannot close under its sender.
 }
 
 func (sm *stream) readPkt() {
@@ -242,6 +244,7 @@ loop:
 			sm.log.Infof("stream read in packet but buffer full and discard, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				sm.cn.ClientID(), sm.dg.DialogueID(), pkt.ID(), pkt.Type().String())
 		case iodefine.IOErr:
+			sm.dg.ForceClose()
 			break loop
 		}
 	}
@@ -624,6 +627,12 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 	} else {
 		prog()
 	}
+}
+
+// ForceClose releases local IO; it does not send a reset to the peer.
+func (sm *stream) ForceClose() error {
+	sm.dg.ForceClose()
+	return nil
 }
 
 func (sm *stream) Close() error {

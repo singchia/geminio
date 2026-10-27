@@ -1,6 +1,7 @@
 package conn
 
 import (
+	"context"
 	"net"
 
 	"github.com/singchia/geminio"
@@ -16,10 +17,12 @@ type ChannelReader interface {
 }
 
 type Writer interface {
+	WriteContext(context.Context, packet.Packet) error
 	Write(pkt packet.Packet) error
 }
 
 type Closer interface {
+	ForceClose()
 	Close()
 }
 

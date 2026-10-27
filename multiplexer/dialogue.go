@@ -345,6 +345,9 @@ func (dg *dialogue) open() error {
 
 // we may or not separate the goroutine because the underlay is still a channel
 func (dg *dialogue) writePkt() {
+	// Normal close drains queued output (including the final ACK) before cancel.
+	// ForceClose cancels immediately and interrupts WriteContext instead.
+	defer dg.cancel()
 	// Capture the channel locally so fini() writing dg.writeOutCh = nil
 	// concurrently does not race with our range expression.
 	writeOutCh := dg.writeOutCh
@@ -362,7 +365,7 @@ func (dg *dialogue) writePkt() {
 }
 
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
-	err := dg.cn.Write(pkt)
+	err := dg.cn.WriteContext(dg.ctx, pkt)
 	if err != nil {
 		// A write failure after the dialogue context has been canceled —
 		// or a plain "conn gone" error from the layer below (EOF, closed
@@ -379,7 +382,10 @@ func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 		}
 		if record && dg.failedCh != nil {
 			// only upper layer packet need to be notified
-			dg.failedCh <- pkt
+			select {
+			case dg.failedCh <- pkt:
+			case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+			}
 		}
 	}
 	return err
@@ -416,6 +422,7 @@ func (dg *dialogue) handlePkt() {
 				deferredIn = nil
 				ret := dg.handleIn(pkt)
 				if ret == iodefine.IOErr {
+					dg.closeIO()
 					goto FINI
 				}
 				if ret == iodefine.IOClosed {
@@ -428,6 +435,7 @@ func (dg *dialogue) handlePkt() {
 				deferredOut = nil
 				ret := dg.handleOut(pkt)
 				if ret == iodefine.IOErr {
+					dg.closeIO()
 					goto FINI
 				}
 				if ret == iodefine.IOClosed {
@@ -459,7 +467,10 @@ func (dg *dialogue) handlePkt() {
 						goto FINI
 					}
 					if dg.failedCh != nil && !packet.SessionLayer(pkt) {
-						dg.failedCh <- pkt
+						select {
+						case dg.failedCh <- pkt:
+						case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+						}
 					}
 				default:
 					goto FINI
@@ -482,6 +493,7 @@ func (dg *dialogue) handlePkt() {
 			case iodefine.IOClosed:
 				finishing = true
 			case iodefine.IOErr:
+				dg.closeIO()
 				goto FINI
 			}
 		case pkt := <-out:
@@ -498,6 +510,7 @@ func (dg *dialogue) handlePkt() {
 			case iodefine.IOClosed:
 				finishing = true
 			case iodefine.IOErr:
+				dg.closeIO()
 				goto FINI
 			}
 		}
@@ -672,7 +685,10 @@ func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		dg.log.Debugf("data at non normal status, clientID: %d, dialogueID: %d, packetID: %d, status: %s",
 			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		if dg.failedCh != nil {
-			dg.failedCh <- pkt
+			select {
+			case dg.failedCh <- pkt:
+			case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+			}
 		}
 		return iodefine.IODiscard
 	}
@@ -780,6 +796,8 @@ func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	return iodefine.IOSuccess
 }
 
+func (dg *dialogue) ForceClose() { dg.closeIO() }
+
 func (dg *dialogue) Close() {
 	dg.closeOnce.Do(func() {
 		pkt := dg.pf.NewDismissPacket(dg.dialogueID)
@@ -860,8 +878,8 @@ func (dg *dialogue) fini() {
 		dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		// Signal all senders to stop; handlePkt will drain writeInCh then exit.
-		dg.cancel()
+		// The writer signals normal completion after draining writeOutCh.
+		// Error and force-close paths already cancelled through closeIO.
 		close(dg.monitorStop)
 
 		// collect shub

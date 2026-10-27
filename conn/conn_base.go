@@ -106,6 +106,14 @@ func (bc *baseConn) ChannelRead() <-chan packet.Packet {
 }
 
 func (bc *baseConn) Write(pkt packet.Packet) error {
+	return bc.WriteContext(context.Background(), pkt)
+}
+
+// WriteContext allows one dialogue to stop waiting without closing the connection.
+func (bc *baseConn) WriteContext(ctx context.Context, pkt packet.Packet) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Minimize lock holding time: only check connOK and get channel reference
 	bc.connMtx.RLock()
 	if !bc.connOK {
@@ -127,6 +135,8 @@ func (bc *baseConn) Write(pkt packet.Packet) error {
 	select {
 	case writeInCh <- pkt:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-bc.ctx.Done():
 		return io.EOF
 	}
@@ -412,4 +422,10 @@ func (bc *baseConn) ClientID() uint64 {
 
 func (bc *baseConn) Close() {
 	bc.cn.Close()
+}
+
+// ForceClose stops the entire transport; individual dialogues use their own context.
+func (bc *baseConn) ForceClose() {
+	bc.cancel()
+	bc.netconn.Close()
 }

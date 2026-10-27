@@ -57,6 +57,8 @@ type DialogueDescriber interface {
 }
 
 type Dialogue interface {
+	// ForceClose cancels local IO without a peer handshake.
+	ForceClose()
 	Reader
 	Writer
 	Closer

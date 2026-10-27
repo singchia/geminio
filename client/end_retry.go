@@ -566,6 +566,20 @@ func (re *RetryEnd) Write(b []byte) (int, error) {
 	return n, nil
 }
 
+func (re *RetryEnd) ForceClose() error {
+	var err error
+	re.onceClose.Do(func() {
+		cur := (*clientEnd)(atomic.LoadPointer(&re.end))
+		// set re.ok false, no more reconnect
+		atomic.StoreInt32(re.ok, 0)
+		err = cur.ForceClose()
+		if re.opts.TimerOwner == re {
+			re.opts.Timer.Close()
+		}
+	})
+	return err
+}
+
 func (re *RetryEnd) Close() error {
 	var err error
 	re.onceClose.Do(func() {

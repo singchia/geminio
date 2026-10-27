@@ -138,6 +138,9 @@ const (
 )
 
 type Stream interface {
+	// ForceClose cancels this stream locally without draining or notifying the peer.
+	// It is idempotent and does not wait for cleanup to finish.
+	ForceClose() error
 	// a stream is a geminio
 	RawRPCMessager
 	// meta info for a stream

@@ -282,3 +282,14 @@ func (end *End) ClosedDialogue(dg multiplexer.Dialogue) {
 		end.closedStreamFunc(sm.(*stream))
 	}
 }
+
+// ForceClose stops all streams and the transport without a close handshake.
+func (end *End) ForceClose() error {
+	end.onceClose.Do(func() {
+		for _, st := range end.ListStreams() {
+			st.ForceClose()
+		}
+		end.cn.ForceClose()
+	})
+	return nil
+}
