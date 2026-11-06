@@ -36,6 +36,15 @@ func Decode(data []byte) (Packet, uint32, error) {
 	}
 
 	switch pktHdr.Typ {
+	case TypeStreamResetPacket:
+		pkt := &StreamResetPacket{PacketHeader: pktHdr}
+		n, err = pkt.Decode(data[14:])
+		return pkt, n, err
+	case TypeWindowUpdatePacket:
+		pkt := &WindowUpdatePacket{PacketHeader: pktHdr}
+		n, err = pkt.Decode(data[14:])
+		return pkt, n, err
+
 	case TypeConnPacket:
 		pkt := &ConnPacket{}
 		pkt.PacketHeader = pktHdr
@@ -168,6 +177,15 @@ func DecodeFromReader(reader io.Reader) (Packet, error) {
 	//log.Tracef("DecodeFromReader | incoming underlay %s", pktHdr.Typ.String())
 
 	switch pktHdr.Typ {
+	case TypeStreamResetPacket:
+		pkt := &StreamResetPacket{PacketHeader: pktHdr}
+		err = pkt.DecodeFromReader(reader)
+		return pkt, err
+	case TypeWindowUpdatePacket:
+		pkt := &WindowUpdatePacket{PacketHeader: pktHdr}
+		err = pkt.DecodeFromReader(reader)
+		return pkt, err
+
 	case TypeConnPacket:
 		pkt := &ConnPacket{}
 		pkt.PacketHeader = pktHdr

@@ -44,6 +44,13 @@ type multiplexerOpts struct {
 }
 
 type dialogueMgr struct {
+	flowCtx    context.Context
+	flowCancel context.CancelFunc
+	resets     map[uint64]*packet.StreamResetPacket
+	creditMu   sync.Mutex
+	credits    map[*dialogue]*packet.WindowUpdatePacket
+	creditWake chan struct{}
+	creditDone chan struct{}
 	// options
 	*multiplexerOpts
 	// under layer
@@ -142,6 +149,11 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 		negotiatingDialogues: make(map[uint64]*dialogue),
 		closeCh:              make(chan struct{}),
 	}
+	dm.resets = make(map[uint64]*packet.StreamResetPacket)
+	dm.flowCtx, dm.flowCancel = context.WithCancel(context.Background())
+	dm.credits = make(map[*dialogue]*packet.WindowUpdatePacket)
+	dm.creditWake = make(chan struct{}, 1)
+	dm.creditDone = make(chan struct{})
 	// dialogue id counter
 	if dm.cn.Side() == geminio.RecipientSide {
 		dm.dialogueIDs = id.NewIDCounter(id.Even)
@@ -180,9 +192,11 @@ func NewDialogueMgr(cn conn.Conn, mpopts ...MultiplexerOption) (Multiplexer, err
 	dm.defaultDialogue = dg
 	dm.dialogues[packet.SessionID1] = dg
 	// rolling up
+	go dm.writeCredits()
 	go dm.readPkt()
 	return dm, nil
 ERR:
+	dm.flowCancel()
 	if dm.tmrOwner == dm {
 		dm.tmr.Close()
 	}
@@ -227,6 +241,9 @@ func (dm *dialogueMgr) DialogueOffline(dg delegate.DialogueDescriber) error {
 	dm.log.Debugf("dialogue offline, clientID: %d, del dialogueID: %d", clientID, dialogueID)
 	dm.mtx.Lock()
 
+	if dm.negotiatingDialogues[dg.NegotiatingID()] == dg {
+		delete(dm.negotiatingDialogues, dg.NegotiatingID())
+	}
 	_, ok := dm.dialogues[dialogueID]
 	if ok {
 		delete(dm.dialogues, dialogueID)
@@ -382,6 +399,12 @@ FINI:
 
 func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 	switch realPkt := pkt.(type) {
+	case *packet.StreamResetPacket:
+		dm.applyReset(realPkt)
+		return
+	case *packet.WindowUpdatePacket:
+		dm.applyCredit(realPkt)
+		return
 	case *packet.SessionPacket:
 		// new negotiating dialogue
 		negotiatingID := dm.dialogueIDs.GetID()
@@ -401,13 +424,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		dm.negotiatingDialogues[negotiatingID] = dg
 		readInCh := dg.readInCh
 		dm.mtx.Unlock()
-		select {
-		case <-dg.ctx.Done():
-			dm.log.Debugf("dialogue is closing, SessionPacket dropped: clientID: %d, negotiatingID: %d, packetID: %d",
-				dm.cn.ClientID(), negotiatingID, pkt.ID())
-			return
-		case readInCh <- pkt:
-		}
+		dm.deliver(dg, readInCh, pkt)
 
 	case *packet.SessionAckPacket:
 		dm.mtx.RLock()
@@ -421,13 +438,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 		}
 		readInCh := dg.readInCh
 		dm.mtx.RUnlock()
-		select {
-		case <-dg.ctx.Done():
-			dm.log.Debugf("dialogue is closing, SessionAckPacket dropped: clientID: %d, negotiatingID: %d, packetID: %d",
-				dm.cn.ClientID(), realPkt.NegotiateID(), pkt.ID())
-			return
-		case readInCh <- pkt:
-		}
+		dm.deliver(dg, readInCh, pkt)
 
 	default:
 		dgPkt, ok := pkt.(packet.SessionAbove)
@@ -453,13 +464,7 @@ func (dm *dialogueMgr) handlePkt(pkt packet.Packet) {
 			dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
 		readInCh := dg.readInCh
 		dm.mtx.RUnlock()
-		select {
-		case <-dg.ctx.Done():
-			dm.log.Debugf("dialogue is closing, packet dropped: clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
-				dm.cn.ClientID(), dialogueID, pkt.ID(), pkt.Type().String())
-			return
-		case readInCh <- pkt:
-		}
+		dm.deliver(dg, readInCh, pkt)
 	}
 }
 
@@ -495,6 +500,8 @@ func (dm *dialogueMgr) Close() {
 }
 
 func (dm *dialogueMgr) fini() {
+	dm.flowCancel()
+	<-dm.creditDone
 	dm.log.Debugf("dialogue manager finishing, clientID: %d", dm.cn.ClientID())
 
 	dm.mtx.Lock()

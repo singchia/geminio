@@ -193,3 +193,18 @@ func OpenStreamContext(ctx context.Context, end Multiplexer, opts ...*options.Op
 	}
 	return nil, ErrOpenStreamContextUnsupported
 }
+
+// ErrStreamAborted distinguishes abnormal termination from an orderly EOF.
+var ErrStreamAborted = errors.New("stream aborted")
+var ErrStreamAbortUnsupported = errors.New("peer does not support stream abort")
+
+// AbortStream releases local IO immediately and, when negotiated, asks the peer
+// to terminate this stream. It does not abort other streams on the connection.
+// Unsupported peers still get local cleanup, but no remote cleanup guarantee.
+func AbortStream(s Stream) error {
+	if a, ok := s.(interface{ Abort() error }); ok {
+		return a.Abort()
+	}
+	_ = s.ForceClose()
+	return ErrStreamAbortUnsupported
+}

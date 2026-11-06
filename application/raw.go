@@ -1,7 +1,6 @@
 package application
 
 import (
-	"io"
 	"net"
 	"os"
 	"time"
@@ -28,6 +27,9 @@ const (
 // deadline). We do NOT early-return on streamOK=false, because that
 // races with fini() and would silently drop any bytes already delivered.
 func (sm *stream) Read(b []byte) (int, error) {
+	if sm.aborted() {
+		return 0, sm.terminalError()
+	}
 	sm.cacheMtx.Lock()
 	if len(sm.cache) != 0 {
 		n := copy(b, sm.cache)
@@ -41,7 +43,7 @@ func (sm *stream) Read(b []byte) (int, error) {
 		select {
 		case pkt, ok := <-sm.streamCh:
 			if !ok {
-				return 0, io.EOF
+				return 0, sm.terminalError()
 			}
 			sm.cacheMtx.Lock()
 			n := copy(b, pkt.Data)
@@ -64,7 +66,7 @@ func (sm *stream) Read(b []byte) (int, error) {
 			sm.dlMtx.Lock()
 			sm.dlReadChList.Remove(e)
 			sm.dlMtx.Unlock()
-			return 0, io.EOF
+			return 0, sm.terminalError()
 		}
 		sm.cacheMtx.Lock()
 		n := copy(b, pkt.Data)
@@ -82,6 +84,9 @@ func (sm *stream) Read(b []byte) (int, error) {
 }
 
 func (sm *stream) Write(b []byte) (int, error) {
+	if sm.aborted() {
+		return 0, sm.terminalError()
+	}
 	// Hold RLock across the whole body so fini's close(writeInCh) (which
 	// runs under Lock) is serialised against our send into writeInCh.
 	// fini closes monitorStop before grabbing Lock, so a Writer stalled
@@ -92,7 +97,7 @@ func (sm *stream) Write(b []byte) (int, error) {
 	defer sm.mtx.RUnlock()
 
 	if !sm.streamOK {
-		return 0, io.EOF
+		return 0, sm.terminalError()
 	}
 
 	newb := make([]byte, len(b))
@@ -135,7 +140,7 @@ func (sm *stream) Write(b []byte) (int, error) {
 		sm.dlMtx.Lock()
 		sm.dlWriteChList.Remove(e)
 		sm.dlMtx.Unlock()
-		return 0, io.EOF
+		return 0, sm.terminalError()
 	}
 }
 

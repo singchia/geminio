@@ -3,6 +3,7 @@ package multiplexer
 import (
 	"context"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -38,6 +39,8 @@ const (
 )
 
 type dialogue struct {
+	flow    *dialogueFlow
+	flowMgr *dialogueMgr
 	// pendingUp/pendingDown are owned only by handlePkt.
 	pendingUp   packet.Packet
 	pendingDown packet.Packet
@@ -71,8 +74,9 @@ type dialogue struct {
 
 	// ctx/cancel controls dialogue lifetime; replaces dialogueOK bool.
 	// All senders select on ctx.Done() before writing to writeInCh.
-	ctx    context.Context
-	cancel context.CancelFunc
+	aborted uint32
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	// io
 	readInCh, writeOutCh     chan packet.Packet
@@ -169,6 +173,12 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	// options
 	for _, opt := range opts {
 		opt(dg)
+	}
+	// Configure flow state before either worker starts.
+	if capable, ok := cn.(interface{ FlowControl() uint32 }); ok && capable.FlowControl() == packet.FlowControlV1 {
+		dg.flow = newDialogueFlow()
+		dg.readInSize = int(packet.FlowWindowPackets) + 2
+		dg.flowMgr, _ = dg.dlgt.(*dialogueMgr)
 	}
 	// io size
 	dg.readInCh = make(chan packet.Packet, dg.readInSize)
@@ -370,6 +380,15 @@ func (dg *dialogue) writePkt() {
 }
 
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
+	if dg.flow != nil && flowControlled(pkt) {
+		cost, err := outgoingCost(pkt)
+		if err != nil {
+			return err
+		}
+		if err := dg.flow.acquire(dg.ctx, cost); err != nil {
+			return err
+		}
+	}
 	err := dg.cn.WriteContext(dg.ctx, pkt)
 	if err != nil {
 		// A write failure after the dialogue context has been canceled —
@@ -485,6 +504,13 @@ func (dg *dialogue) handlePkt() {
 			if !ok {
 				goto FINI
 			}
+			if dg.flow != nil && dg.flowMgr != nil && flowControlled(pkt) {
+				cost := incomingCost(pkt)
+				credit, count := dg.flow.releaseReceive(cost)
+				if count != 0 {
+					dg.flowMgr.returnCredit(dg, pkt.(packet.SessionAbove).SessionID(), credit, count)
+				}
+			}
 			dg.log.Tracef("dialogue read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
 			if packet.SessionLayer(pkt) && dg.pendingDown != nil {
@@ -524,8 +550,9 @@ FINI:
 	dg.log.Debugf("dialogue handle pkt done, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
-	// only onlined Dialogue need to be notified
-	if dg.dlgt != nil && dg.onlined {
+	// The manager may have published a passive dialogue before its ACK is flushed.
+	// Always release that registration, including abort during AcceptStream.
+	if dg.dlgt != nil {
 		dg.dlgt.DialogueOffline(dg)
 	}
 	// only handlePkt leads to this fini, and reclaims all channels and other resources
@@ -799,6 +826,26 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 	dg.pendingDown = pkt
 	return iodefine.IOSuccess
+}
+
+func (dg *dialogue) Aborted() bool { return atomic.LoadUint32(&dg.aborted) != 0 }
+
+// Abort is idempotent and never waits for the transport. The manager owns notification.
+func (dg *dialogue) Abort() error {
+	if !atomic.CompareAndSwapUint32(&dg.aborted, 0, 1) {
+		return nil
+	}
+	// Queue before closeIO: offline cleanup can otherwise remove our routing ID.
+	var err error = geminio.ErrStreamAbortUnsupported
+	if dm, ok := dg.dlgt.(*dialogueMgr); ok {
+		err = dm.queueReset(dg)
+	}
+	dg.closeIO()
+	return err
+}
+func (dg *dialogue) receiveReset() {
+	atomic.StoreUint32(&dg.aborted, 1)
+	dg.closeIO()
 }
 
 func (dg *dialogue) ForceClose() { dg.closeIO() }

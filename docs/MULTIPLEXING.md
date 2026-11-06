@@ -469,6 +469,22 @@ Sender                            Receiver
 3. **Idempotency**: PacketID dedup + application-layer idempotent handling.
 4. **Flexibility**: three semantics, choose per scenario.
 
+### 5.5 Per-dialogue flow control (V1)
+
+`Conn/ConnAck` negotiate the additive JSON field `flow_control: 1`. Both peers must support V1; absent/unsupported versions retain legacy behavior, including its shared-reader backpressure limitation. The default dialogue (ID 1) is covered too.
+
+Each direction of each dialogue starts with **16 MiB of encoded-byte credit and 64 packet credits**. Accounting includes the 14-byte header; even an empty Raw packet consumes 22 bytes and one packet slot. The byte window admits every existing legal packet without fragmenting Message/RPC. All dialogue traffic, including large MessageAck/Response payloads and graceful close packets, is budgeted except Session/SessionAck and WindowUpdate.
+
+`WindowUpdate` uses type `0x43`, the existing header, and a fixed 16-byte big-endian body: `SessionID uint64`, incremental `Credit uint32` (bytes), and incremental `Packets uint32`. Updates consume no credit and are processed directly by the shared manager, bypassing dialogue queues.
+
+The existing dialogue writer waits for credit **before** entering shared connection queues. The receiver uses a credit-sized inbox plus two handshake slots and never blocks shared dispatch on a negotiated dialogue. As its FSM frees inbox capacity, it accumulates returns and sends an update at 32 packets or 4 MiB. The byte threshold is below window minus maximum legal packet size, so an unflushed partial batch cannot strand the next large packet. No timer or per-packet acknowledgment is needed. One cancellable writer per connection coalesces updates; no additional per-dialogue goroutine is introduced.
+
+When an application stops reading, its existing bounded queues fill, credit returns stop, and only that dialogue's sender pauses. Reading again resumes transmission without dropping data. Over-credit sends/returns are protocol violations and close the connection; late updates for closed dialogues are ignored.
+
+This isolates **different dialogues**, not Raw/Message/RPC consumers within one dialogue, and does not remove TCP loss head-of-line blocking. The 16 MiB window covers the receive inbox, not all existing application/send buffers or total process memory. `ForceClose` remains local cancellation without a new remote-reset protocol. Both ends must be upgraded to obtain isolation.
+
+`TestSlowStreamDoesNotBlockConnection` verifies both directions and the default dialogue: A stalls until writer backpressure, B transfers, C opens, then A resumes with all accepted data intact.
+
 ### 6. Concurrency safety
 
 #### 6.1 Locks
@@ -545,3 +561,13 @@ Geminio's multiplexing works by:
 6. **Reliable transport**: three delivery semantics cover different reliability needs.
 
 The result: a simple design that delivers efficient multiplexing and reliable messaging.
+
+### Aborting streams
+
+`geminio.AbortStream(s)` cancels local IO immediately and notifies a capable peer without draining or waiting for an acknowledgement. `ForceClose()` remains local-only. Conn/ConnAck negotiate `stream_reset: 1` separately, requiring flow control V1 as well; unsupported peers receive no new frames and AbortStream returns `ErrStreamAbortUnsupported` after local cleanup. Reset raw IO returns `ErrStreamAborted`, distinct from orderly EOF.
+
+Type `0x44` has a fixed 16-byte body: big-endian dialogue ID and recipient-local negotiating ID (zero when unknown). The latter handles abort immediately after Accept, before SessionAck arrives. The manager first looks up the established dialogue, then the pending negotiation; unknown/late resets are ignored and never echoed.
+
+Resets bypass dialogue queues/credits. One connection control writer feeds the existing bounded urgent socket queue and waits for the actual write, with a 30-second timeout that closes a stuck transport. Pending resets are capped at 256 plus one in-flight batch of up to 256; overflow closes the transport. Local cleanup never waits for notification. No additional permanent goroutine per stream is introduced.
+
+Close now bounds the entire drain and handshake to 30 seconds. The optional concrete stream method `CloseWithTimeout(time.Duration) error` customizes this bound (first close wins). Expiry escalates to Abort; normal EOF retains readable buffered data. Relays must abort the paired stream on abnormal IO while retaining graceful Close for ordinary EOF. RequestCancel remains RPC-scoped and is not repurposed as a stream reset.

@@ -55,6 +55,8 @@ type connOpts struct {
 }
 
 type baseConn struct {
+	streamReset uint32
+	flowControl uint32 // immutable after the connection handshake
 	// pendingUp/pendingDown are owned only by handlePkt.
 	pendingUp   packet.Packet
 	pendingDown packet.Packet
@@ -90,6 +92,10 @@ type baseConn struct {
 	cancel      context.CancelFunc
 	monitorStop chan struct{} // closed when conn shuts down to stop the channel-monitor goroutine
 }
+
+func (bc *baseConn) StreamReset() uint32 { return atomic.LoadUint32(&bc.streamReset) }
+
+func (bc *baseConn) FlowControl() uint32 { return atomic.LoadUint32(&bc.flowControl) }
 
 func (bc *baseConn) Read() (packet.Packet, error) {
 	pkt, ok := <-bc.readOutCh
@@ -160,8 +166,8 @@ func (bc *baseConn) writePkt() {
 		}
 		var pkt packet.Packet
 		var ok bool
-		// Prefer a queued heartbeat between socket writes. This cannot preempt
-		// a blocked socket write, and never reorders data or close packets.
+		// Prefer a queued heartbeat/reset between socket writes. This cannot preempt
+		// a blocked socket write, and never reorders data or graceful close packets. Resets may discard data.
 		select {
 		case pkt = <-bc.heartbeatWriteCh:
 		default:
@@ -203,6 +209,9 @@ func (bc *baseConn) queueHeartbeat(pkt packet.Packet) bool {
 
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, bc.netconn)
+	if receipt, ok := pkt.(*resetReceipt); ok {
+		receipt.written <- err
+	}
 	if err != nil {
 		// Expected during teardown: our own ctx canceled, or the underlying
 		// net.Conn was closed by the peer while we were flushing a trailing
@@ -406,4 +415,31 @@ func (bc *baseConn) Close() {
 func (bc *baseConn) ForceClose() {
 	bc.cancel()
 	bc.netconn.Close()
+}
+
+// resetReceipt is local-only; Encode delegates to the original wire packet.
+type resetReceipt struct {
+	packet.Packet
+	written chan error
+}
+
+// WriteResetContext uses the bounded urgent queue and waits for the socket write,
+// not just queue admission. The caller closes the connection on timeout.
+func (bc *baseConn) WriteResetContext(ctx context.Context, p *packet.StreamResetPacket) error {
+	receipt := &resetReceipt{Packet: p, written: make(chan error, 1)}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-bc.ctx.Done():
+		return io.EOF
+	case bc.heartbeatWriteCh <- receipt:
+	}
+	select {
+	case err := <-receipt.written:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-bc.ctx.Done():
+		return io.EOF
+	}
 }

@@ -423,6 +423,12 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 		atomic.StoreUint64(&sc.clientID, pkt.ClientID)
 	}
 
+	if pkt.ConnData.StreamReset == packet.StreamResetV1 && pkt.ConnData.FlowControl == packet.FlowControlV1 {
+		atomic.StoreUint32(&sc.streamReset, packet.StreamResetV1)
+	}
+	if pkt.ConnData.FlowControl == packet.FlowControlV1 {
+		atomic.StoreUint32(&sc.flowControl, packet.FlowControlV1)
+	}
 	if sc.dlgt != nil {
 		err = sc.dlgt.ConnOnline(sc)
 		if err != nil {
@@ -437,6 +443,8 @@ func (sc *ServerConn) handleInConnPacket(pkt *packet.ConnPacket) iodefine.IORet 
 	// the first packet received.
 	sc.shub.Ack(sc.getSyncID(), nil)
 	retPkt := sc.pf.NewConnAckPacket(pkt.PacketID, sc.clientID, nil)
+	retPkt.ConnData.StreamReset = sc.StreamReset()
+	retPkt.ConnData.FlowControl = sc.FlowControl()
 	go func() { sc.sendToWriteIn(retPkt) }() //nolint:errcheck
 
 	// set the heartbeat

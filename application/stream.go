@@ -72,6 +72,8 @@ type stream struct {
 	closeOnce    *gsync.Once
 	finiOnce     *gsync.Once
 	monitorStop  chan struct{} // closed by fini() to stop the channel-monitor goroutine
+	closeTimerMu sync.Mutex
+	closeTimer   *time.Timer
 	closeWriteCh chan struct{} // closed by Close() to signal handlePkt to drain then call dg.Close()
 
 	// app layer messages
@@ -134,6 +136,8 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 	sm.failedCh = make(chan packet.Packet, sm.failedChSize)
 	sm.writeInCh = make(chan packet.Packet, sm.writeInSize)
 
+	// Publish before receive goroutines can finalize an already-reset dialogue.
+	end.streams.Store(dg.DialogueID(), sm)
 	go sm.handlePkt()
 	go sm.readPkt()
 	// Start channel monitoring for debugging memory issues
@@ -376,17 +380,18 @@ func (sm *stream) handleInRequestPacket(pkt *packet.RequestPacket) iodefine.IORe
 	}
 	sm.rpcMtx.Lock()
 	sm.rpcCancels[pkt.ID()] = cancel
+	hijack := sm.hijackRPC
 	sm.rpcMtx.Unlock()
 	// hijack exist
-	if sm.hijackRPC != nil {
-		if sm.hijackRPC.pattern == nil {
-			sm.doRPC(pkt, methodRPC(sm.hijackRPC.rpc), method, ctx, req, rsp, true)
+	if hijack != nil {
+		if hijack.pattern == nil {
+			sm.doRPC(pkt, methodRPC(hijack.rpc), method, ctx, req, rsp, true)
 			return iodefine.IOSuccess
 		}
-		matched := sm.hijackRPC.pattern.Match([]byte(method))
-		if (sm.hijackRPC.match && matched) || (!sm.hijackRPC.match && !matched) {
+		matched := hijack.pattern.Match([]byte(method))
+		if (hijack.match && matched) || (!hijack.match && !matched) {
 			// do RPC and cancel the context
-			sm.doRPC(pkt, methodRPC(sm.hijackRPC.rpc), method, ctx, req, rsp, true)
+			sm.doRPC(pkt, methodRPC(hijack.rpc), method, ctx, req, rsp, true)
 			return iodefine.IOSuccess
 		}
 	}
@@ -635,8 +640,44 @@ func (sm *stream) ForceClose() error {
 	return nil
 }
 
-func (sm *stream) Close() error {
+func (sm *stream) Abort() error {
+	if a, ok := sm.dg.(interface{ Abort() error }); ok {
+		return a.Abort()
+	}
+	sm.dg.ForceClose()
+	return geminio.ErrStreamAbortUnsupported
+}
+func (sm *stream) aborted() bool {
+	a, ok := sm.dg.(interface{ Aborted() bool })
+	return ok && a.Aborted()
+}
+func (sm *stream) terminalError() error {
+	if sm.aborted() {
+		return geminio.ErrStreamAborted
+	}
+	return io.EOF
+}
+
+func (sm *stream) Close() error { return sm.CloseWithTimeout(30 * time.Second) }
+
+// CloseWithTimeout bounds draining AND the handshake; the first close wins.
+// Timeout escalates to Abort. A positive timeout is required.
+func (sm *stream) CloseWithTimeout(timeout time.Duration) error {
+	if timeout <= 0 {
+		return errors.New("close timeout must be positive")
+	}
+
 	sm.closeOnce.Do(func() {
+		sm.closeTimerMu.Lock()
+		select {
+		case <-sm.monitorStop:
+			sm.closeTimerMu.Unlock()
+			return
+		default:
+		}
+		sm.closeTimer = time.AfterFunc(timeout, func() { _ = sm.Abort() })
+		sm.closeTimerMu.Unlock()
+
 		sm.mtx.RLock()
 		defer sm.mtx.RUnlock()
 		if !sm.streamOK {
@@ -665,6 +706,17 @@ func (sm *stream) fini() {
 	// Closing monitorStop now lets those Writers escape their select,
 	// release RLock, and let us proceed to the rest of teardown.
 	close(sm.monitorStop)
+	sm.closeTimerMu.Lock()
+	if sm.closeTimer != nil {
+		sm.closeTimer.Stop()
+	}
+	sm.closeTimerMu.Unlock()
+	sm.rpcMtx.Lock()
+	for id, cancel := range sm.rpcCancels {
+		cancel()
+		delete(sm.rpcCancels, id)
+	}
+	sm.rpcMtx.Unlock()
 
 	sm.mtx.Lock()
 	defer sm.mtx.Unlock()
@@ -683,6 +735,15 @@ func (sm *stream) fini() {
 	// the outside should care about message and stream channel status
 	close(sm.messageCh)
 	close(sm.streamCh)
+	if sm.aborted() {
+		for range sm.streamCh {
+		}
+		for range sm.messageCh {
+		}
+		sm.cacheMtx.Lock()
+		sm.cache = nil
+		sm.cacheMtx.Unlock()
+	}
 
 	// Timer lifecycle is owned exclusively by End, not by individual streams.
 	// All streams share the same *opts pointer, so writing sm.tmr = nil here

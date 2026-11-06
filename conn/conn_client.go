@@ -211,6 +211,8 @@ func (cc *ClientConn) initFSM() {
 
 func (cc *ClientConn) connect() error {
 	pkt := cc.pf.NewConnPacket(cc.clientID, true, cc.heartbeat, cc.meta)
+	pkt.ConnData.StreamReset = packet.StreamResetV1
+	pkt.ConnData.FlowControl = packet.FlowControlV1
 	sync := cc.shub.New(pkt.PacketID, synchub.WithTimeout(10*time.Second))
 	cc.sendToWriteIn(pkt) //nolint:errcheck
 	event := <-sync.C()
@@ -424,6 +426,12 @@ func (cc *ClientConn) handleInConnAckPacket(pkt *packet.ConnAckPacket) iodefine.
 		// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
 		go func() { cc.sendToWriteIn(retPkt) }() //nolint:errcheck
 		return iodefine.IOSuccess
+	}
+	if pkt.ConnData.StreamReset == packet.StreamResetV1 && pkt.ConnData.FlowControl == packet.FlowControlV1 {
+		atomic.StoreUint32(&cc.streamReset, packet.StreamResetV1)
+	}
+	if pkt.ConnData.FlowControl == packet.FlowControlV1 {
+		atomic.StoreUint32(&cc.flowControl, packet.FlowControlV1)
 	}
 	cc.shub.Done(pkt.PacketID)
 	cc.onlined = true

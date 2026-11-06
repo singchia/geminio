@@ -152,7 +152,6 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 		goto ERR
 	}
 	end.stream = newStream(end, cn, dg, end.opts)
-	end.streams.Store(dg.DialogueID(), end.stream)
 
 	// RPCs
 	// pre register local RPCs
@@ -166,18 +165,25 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	}
 	// wait for all remote RPCs registration
 	if len(end.opts.remoteMethods) != 0 {
-		// check whether remote RPCs have been registered
+		// Check and subscribe under the same lock used to publish remote RPCs.
+		// Otherwise registration can arrive between the check and shub.Add,
+		// and its notification is lost forever.
+		end.stream.rpcMtx.RLock()
 		tocheckMethods := []string{}
 		for _, method := range end.opts.remoteMethods {
-			if !end.stream.hasRemoteRPC(method) {
+			if _, registered := end.stream.remoteRPCs[method]; !registered {
 				tocheckMethods = append(tocheckMethods, method)
 			}
 		}
+		var pending synchub.Sync
 		if len(tocheckMethods) != 0 {
 			ifs := strings2interfaces(tocheckMethods...)
 			syncID := fmt.Sprintf(registrationFormat, cn.ClientID(), dg.DialogueID())
-			sync := end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
-			event := <-sync.C()
+			pending = end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
+		}
+		end.stream.rpcMtx.RUnlock()
+		if pending != nil {
+			event := <-pending.C()
 			if event.Error != nil {
 				err = event.Error
 				goto ERR
@@ -221,7 +227,6 @@ func (end *End) OpenStreamContext(ctx context.Context, opts ...*options.OpenStre
 		return nil, err
 	}
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
 
@@ -235,7 +240,6 @@ func (end *End) AcceptStream() (geminio.Stream, error) {
 		return nil, err
 	}
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
 
@@ -284,7 +288,6 @@ func (end *End) fini() {
 // TODO optimize
 func (end *End) AcceptDialogue(dg multiplexer.Dialogue) {
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	if sm.acceptStreamFunc != nil {
 		sm.acceptStreamFunc(sm)
 	}
