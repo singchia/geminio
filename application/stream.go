@@ -89,10 +89,11 @@ type stream struct {
 	failedChSize  int
 
 	// deadline mtx protects SetDeadline, SetReadDeadline, SetWriteDeadline and all Read Write
-	dlMtx                       sync.RWMutex
-	dlReadSync, dlWriteSync     synchub.Sync
-	dlReadChList, dlWriteChList *list.List
-	dlRead, dlWrite             time.Time
+	dlMtx                               sync.RWMutex
+	dlReadTimer, dlWriteTimer           *time.Timer
+	dlReadGeneration, dlWriteGeneration uint64
+	dlReadChList, dlWriteChList         *list.List
+	dlRead, dlWrite                     time.Time
 
 	// io
 	writeInCh   chan packet.Packet // for multiple message types
@@ -143,14 +144,6 @@ func newStream(end *End, cn conn.Conn, dg multiplexer.Dialogue, opts *opts) *str
 	// Start channel monitoring for debugging memory issues
 	sm.startChannelMonitor(false, 30*time.Second)
 	return sm
-}
-
-func (sm *stream) hasRemoteRPC(method string) bool {
-	sm.rpcMtx.RLock()
-	defer sm.rpcMtx.RUnlock()
-
-	_, ok := sm.remoteRPCs[method]
-	return ok
 }
 
 func (sm *stream) StreamID() uint64 {
@@ -728,6 +721,10 @@ func (sm *stream) fini() {
 	for pkt := range sm.writeInCh {
 		sm.shub.Error(pkt.ID(), io.ErrClosedPipe)
 	}
+	sm.dlMtx.Lock()
+	sm.setReadDeadline(time.Time{})
+	sm.setWriteDeadline(time.Time{})
+	sm.dlMtx.Unlock()
 	sm.shub.Close()
 	// Do NOT set sm.writeInCh or sm.shub to nil: handlePkt goroutines may still be
 	// running; after close/Close() those are safe no-ops.
