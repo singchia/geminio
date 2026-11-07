@@ -24,7 +24,8 @@ type ClientConn struct {
 	*baseConn
 	dlgt ClientConnDelegate
 
-	closeOnce *sync.Once
+	closeOnce     *sync.Once
+	heartbeatStop sync.Once
 }
 
 type ClientConnOption func(*ClientConn) error
@@ -166,10 +167,7 @@ func newClientConn(netconn net.Conn, opts ...ClientConnOption) (*ClientConn, err
 	return cc, nil
 ERR:
 	// cancel heartbeat tick before closing connection
-	if cc.hbTick != nil {
-		cc.hbTick.Cancel()
-		cc.hbTick = nil
-	}
+	cc.stopHeartbeat()
 	// let fini finish the end
 	cc.netconn.Close()
 	return nil, err
@@ -503,6 +501,17 @@ func (cc *ClientConn) sendHeartbeat(event *timer.Event) {
 
 }
 
+// stopHeartbeat is shared by failed setup, graceful close, and final teardown.
+// hbTick is published before workers start and remains immutable thereafter.
+func (cc *ClientConn) stopHeartbeat() {
+	cc.heartbeatStop.Do(func() {
+		if cc.hbTick != nil {
+			// Cancellation is best effort when the owning timer is already stopped.
+			cc.hbTick.Cancel()
+		}
+	})
+}
+
 func (cc *ClientConn) Close() {
 	cc.closeOnce.Do(func() {
 		cc.connMtx.RLock()
@@ -510,10 +519,7 @@ func (cc *ClientConn) Close() {
 		if !cc.connOK {
 			return
 		}
-		if cc.hbTick != nil {
-			cc.hbTick.Cancel()
-			cc.hbTick = nil
-		}
+		cc.stopHeartbeat()
 
 		cc.log.Debugf("client is closing, clientID: %d, remote: %s, meta: %s",
 			cc.clientID, cc.netconn.RemoteAddr(), string(cc.meta))
@@ -534,10 +540,7 @@ func (cc *ClientConn) fini() {
 	}
 	cc.log.Debugf("client finishing, clientID: %d, remote: %s, meta: %s",
 		cc.clientID, remote, string(cc.meta))
-	if cc.hbTick != nil {
-		cc.hbTick.Cancel()
-		cc.hbTick = nil
-	}
+	cc.stopHeartbeat()
 	// collect shub
 	cc.shub.Close()
 	// Do NOT set cc.shub = nil: concurrent goroutines may still call shub methods.
