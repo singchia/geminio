@@ -598,6 +598,11 @@ func (sm *stream) doRPC(pkt *packet.RequestPacket, rpc methodRPC, method string,
 			}()
 			rpc(ctx, method, req, rsp)
 		}()
+		// A handler returning after its propagated context expires must not
+		// race the caller's timer with an apparently successful empty reply.
+		if rsp.err == nil && ctx.Err() != nil {
+			rsp.err = ctx.Err()
+		}
 		// once the rpc complete, we should cancel the context
 		sm.rpcMtx.Lock()
 		cancel, ok := sm.rpcCancels[pkt.ID()]
