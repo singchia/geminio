@@ -2,6 +2,7 @@ package geminio
 
 import (
 	"context"
+	"errors"
 	"net"
 	"time"
 
@@ -138,6 +139,9 @@ const (
 )
 
 type Stream interface {
+	// ForceClose cancels this stream locally without draining or notifying the peer.
+	// It is idempotent and does not wait for cleanup to finish.
+	ForceClose() error
 	// a stream is a geminio
 	RawRPCMessager
 	// meta info for a stream
@@ -168,4 +172,39 @@ type End interface {
 	net.Listener
 
 	Close() error
+}
+
+// ContextMultiplexer opens a stream with a deadline for negotiation only.
+// Canceling ctx after a successful return does not close the stream.
+// This optional interface preserves compatibility with existing End implementations.
+type ContextMultiplexer interface {
+	OpenStreamContext(context.Context, ...*options.OpenStreamOptions) (Stream, error)
+}
+
+var ErrOpenStreamContextUnsupported = errors.New("context-aware stream opening unsupported")
+
+// OpenStreamContext requires cancellation support rather than silently ignoring ctx.
+func OpenStreamContext(ctx context.Context, end Multiplexer, opts ...*options.OpenStreamOptions) (Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if opener, ok := end.(ContextMultiplexer); ok {
+		return opener.OpenStreamContext(ctx, opts...)
+	}
+	return nil, ErrOpenStreamContextUnsupported
+}
+
+// ErrStreamAborted distinguishes abnormal termination from an orderly EOF.
+var ErrStreamAborted = errors.New("stream aborted")
+var ErrStreamAbortUnsupported = errors.New("peer does not support stream abort")
+
+// AbortStream releases local IO immediately and, when negotiated, asks the peer
+// to terminate this stream. It does not abort other streams on the connection.
+// Unsupported peers still get local cleanup, but no remote cleanup guarantee.
+func AbortStream(s Stream) error {
+	if a, ok := s.(interface{ Abort() error }); ok {
+		return a.Abort()
+	}
+	_ = s.ForceClose()
+	return ErrStreamAbortUnsupported
 }

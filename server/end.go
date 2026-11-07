@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"github.com/singchia/geminio/options"
 	"net"
 
 	"github.com/jumboframes/armorigo/log"
@@ -48,6 +50,9 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 		ep     geminio.End
 		epOpts []application.EndOption
 	)
+	// Publish the application end before asynchronous stream callbacks use it.
+	ready := make(chan struct{})
+	defer close(ready)
 	// we share packet factory, log, timer and delegate for follow 3 layers.
 
 	// connection layer
@@ -68,12 +73,18 @@ func new(netcn net.Conn, opts ...*EndOptions) (geminio.End, error) {
 	// multiplexer and application
 	if eo.AcceptStreamFunc != nil {
 		acceptfn = func(dg multiplexer.Dialogue) {
-			ep.(*application.End).AcceptDialogue(dg)
+			<-ready
+			if ep != nil {
+				ep.(*application.End).AcceptDialogue(dg)
+			}
 		}
 	}
 	if eo.ClosedStreamFunc != nil {
 		closedfn = func(dg multiplexer.Dialogue) {
-			ep.(*application.End).ClosedDialogue(dg)
+			<-ready
+			if ep != nil {
+				ep.(*application.End).ClosedDialogue(dg)
+			}
 		}
 	}
 	// multiplexer
@@ -144,4 +155,8 @@ func (se *ServerEnd) Close() error {
 		se.opts.Timer.Close()
 	}
 	return err
+}
+
+func (end *ServerEnd) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	return geminio.OpenStreamContext(ctx, end.End, opts...)
 }

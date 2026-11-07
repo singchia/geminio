@@ -1,6 +1,7 @@
 package multiplexer
 
 import (
+	"context"
 	"errors"
 
 	"github.com/singchia/geminio"
@@ -57,6 +58,8 @@ type DialogueDescriber interface {
 }
 
 type Dialogue interface {
+	// ForceClose cancels local IO without a peer handshake.
+	ForceClose()
 	Reader
 	Writer
 	Closer
@@ -70,4 +73,9 @@ type Dialogue interface {
 	Peer() string
 	// Done returns a channel that is closed when the dialogue is closed.
 	Done() <-chan struct{}
+}
+
+// ContextMultiplexer adds cancellable negotiation without changing Multiplexer.
+type ContextMultiplexer interface {
+	OpenDialogueContext(context.Context, []byte, string) (Dialogue, error)
 }

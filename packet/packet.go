@@ -54,6 +54,10 @@ type Type byte
 
 func (typ Type) String() string {
 	switch typ {
+	case TypeStreamResetPacket:
+		return "stream reset packet"
+	case TypeWindowUpdatePacket:
+		return "window update packet"
 	case TypeConnPacket:
 		return "conn packet"
 	case TypeConnAckPacket:
@@ -95,6 +99,8 @@ func (typ Type) String() string {
 }
 
 const (
+	TypeStreamResetPacket   Type = 0x44
+	TypeWindowUpdatePacket  Type = 0x43
 	TypeConnPacket          Type = 0x01
 	TypeConnAckPacket       Type = 0x02
 	TypeDisConnPacket       Type = 0x11
@@ -145,6 +151,9 @@ type PacketHeader struct {
 	PacketLen uint32
 	Cnss      Cnss
 }
+
+// WireLength includes the fixed header and the decoded payload.
+func (pktHdr *PacketHeader) WireLength() int { return 14 + int(pktHdr.PacketLen) }
 
 // Length returns payload length
 func (pktHdr *PacketHeader) Length() int {

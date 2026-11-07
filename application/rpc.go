@@ -234,6 +234,8 @@ func (sm *stream) Hijack(rpc geminio.HijackRPC, opts ...*options.HijackOptions) 
 		pRPC.match = *fo.Match
 	}
 	pRPC.rpc = rpc
+	sm.rpcMtx.Lock()
 	sm.hijackRPC = pRPC
+	sm.rpcMtx.Unlock()
 	return nil
 }

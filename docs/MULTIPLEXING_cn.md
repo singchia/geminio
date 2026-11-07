@@ -468,6 +468,36 @@ if event.Error != nil {
 3. **幂等性**：PacketID 去重 + 应用层幂等处理。
 4. **灵活性**：支持三种语义，按需选择。
 
+### 5.5 逐 dialogue 流控（FlowControl V1）
+
+`Conn/ConnAck` 的 JSON 数据新增 `flow_control: 1`。只有双方协商成功才启用；字段缺失或版本不支持时保留旧行为，因此混合版本连接仍可能出现单流背压阻塞共享读取。默认 dialogue（ID 1）也参与流控。
+
+每个方向、每条 dialogue 初始拥有 **16 MiB 编码字节额度和 64 个包额度**。字节数包含 14 字节包头；空 Raw 包也消耗 22 字节和一个包额度。16 MiB 窗口可容纳现有最大合法包，不要求对 Message/RPC 做分片。除 Session/SessionAck 建流包及 WindowUpdate 外，所有 dialogue 包都消耗额度，包括大 MessageAck/Response 和 Dismiss/DismissAck。
+
+```text
+应用写入 → dialogue 有界发送队列 → 等待该流额度 → 共享连接发送队列
+                                                       ↓
+共享连接读取 → dialogueMgr 非阻塞投递 → 独立接收队列 → 上层消费者
+                    ↑                       │
+                    └── WindowUpdate ← 释放接收队列容量
+```
+
+新增包类型 `WindowUpdate = 0x43`，沿用 14 字节包头，包体固定 16 字节、网络字节序：
+
+| 字段 | 类型 | 含义 |
+| --- | --- | --- |
+| SessionID | uint64 | 返还额度的 dialogue |
+| Credit | uint32 | 本次新增编码字节额度 |
+| Packets | uint32 | 本次新增包额度 |
+
+接收 FSM 从入口队列取走包后返还容量，累计到 32 个包或 4 MiB 时发送更新。字节阈值小于“窗口减去最大合法包”，避免剩余小批次额度无法返还、下一大包又不能发送的相互等待。无需每包 ACK 或定时器。应用停读会逐级填满已有的有界队列，最终停止返还额度；恢复读取后继续传输，无需丢弃或重建该流。
+
+额度更新直接由 `dialogueMgr` 处理，不进入被堵住的 dialogue 队列，也不消耗额度。复用每条 dialogue 已有的发送 goroutine 等待额度；每条物理连接增加一个可取消的更新发送任务，合并待发送更新。共享分发不等待单流队列。对端超额发送、超额返还额度属于协议错误，会关闭连接；已关闭 dialogue 的迟到更新被忽略。
+
+**范围与限制：** 本功能隔离不同 dialogue 的接收背压，不保证同一 dialogue 内 Raw、Message、RPC 之间独立推进；不消除 TCP 丢包造成的连接级队头阻塞。16 MiB 是接收入口的流控窗口，不是整条流的总内存上限，已有应用层和发送层缓冲另外占用内存。`ForceClose` 仍是本地取消，未新增远端 reset 语义。需要升级连接两端后才能获得隔离效果。
+
+回归测试 `TestSlowStreamDoesNotBlockConnection` 覆盖双向、默认流和新建流：A 停读至发送背压，B 传输、C 建流，随后 A 恢复并校验全部数据。
+
 ### 6. 并发安全
 
 #### 6.1 锁机制
@@ -544,3 +574,17 @@ Geminio 的多路复用机制通过以下方式实现：
 6. **可靠传输**：支持三种消息到达语义，满足不同场景的可靠性需求。
 
 这种设计在保持简单性的同时，提供了高效的多路复用能力和可靠的消息传输保证。
+
+### 异常流终止与排空总时限
+
+双方在 Conn/ConnAck 的 `stream_reset: 1` 字段协商流终止能力，且必须同时启用 `flow_control: 1`。未协商时不发送新包。
+
+`geminio.AbortStream(stream)` 立即取消本地 IO，并异步通知对端；它与保持原语义的本地 `ForceClose()` 分开。对不支持能力的端仍清理本地，但返回 `ErrStreamAbortUnsupported`，不保证远端资源释放。收到终止后的原始流 Read/Write 返回 `ErrStreamAborted`，而不是正常 EOF。
+
+终止包为 `0x44`，body 长度固定 16 字节：dialogue ID（uint64）和接收端的 negotiating ID（uint64，未知时为零），均采用网络字节序。第二个 ID 用于接收方刚 Accept 就取消、RESET 先于 SessionAck 到达的情况。已建立流优先按 dialogue ID 查找，否则按 negotiating ID 找到正在建立的流。重复、迟到和未知 ID 的终止忽略，接收终止不会回复另一个终止。
+
+终止不经过 dialogue 的数据队列或窗口，接收端由 manager 直接取消。发送使用连接现有的有界紧急队列，由原 socket writer 串行写入；不增加每流常驻 goroutine。manager 待发送终止表最多 256 项，另有最多一批 256 项正在写出；溢出关闭连接。发送等待实际 socket write 完成，持续 30 秒无法写出则关闭连接。本地回收不等待这些步骤。终止可以越过尚未写出的数据，只有异常场景使用。
+
+`stream.Close()` 仍尝试排空和握手，但从调用起有 30 秒总时限；具体 stream 实现还提供可选的 `CloseWithTimeout(time.Duration) error` 方法（首次关闭决定时限），到期升级为 Abort。这覆盖尚未进入 dialogue.Close 的阻塞排空阶段。正常结束保留缓冲直到 Read 消费；异常结束清理缓冲并取消未完成 RPC handler。
+
+中继必须把异常 Read/Write 错误传播到配对流，使用对侧流自己的 ID 调用 AbortStream。正常 EOF 继续使用 Close。RPC 的 RequestCancel 仍是请求级取消，不能代替整流终止；本次未将 RPC RequestCancel 改为独立控制通道。

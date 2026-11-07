@@ -152,7 +152,6 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 		goto ERR
 	}
 	end.stream = newStream(end, cn, dg, end.opts)
-	end.streams.Store(dg.DialogueID(), end.stream)
 
 	// RPCs
 	// pre register local RPCs
@@ -166,18 +165,25 @@ func NewEnd(cn conn.Conn, multiplexer multiplexer.Multiplexer, options ...EndOpt
 	}
 	// wait for all remote RPCs registration
 	if len(end.opts.remoteMethods) != 0 {
-		// check whether remote RPCs have been registered
+		// Check and subscribe under the same lock used to publish remote RPCs.
+		// Otherwise registration can arrive between the check and shub.Add,
+		// and its notification is lost forever.
+		end.stream.rpcMtx.RLock()
 		tocheckMethods := []string{}
 		for _, method := range end.opts.remoteMethods {
-			if !end.stream.hasRemoteRPC(method) {
+			if _, registered := end.stream.remoteRPCs[method]; !registered {
 				tocheckMethods = append(tocheckMethods, method)
 			}
 		}
+		var pending synchub.Sync
 		if len(tocheckMethods) != 0 {
 			ifs := strings2interfaces(tocheckMethods...)
 			syncID := fmt.Sprintf(registrationFormat, cn.ClientID(), dg.DialogueID())
-			sync := end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
-			event := <-sync.C()
+			pending = end.stream.shub.Add(syncID, synchub.WithSub(ifs...))
+		}
+		end.stream.rpcMtx.RUnlock()
+		if pending != nil {
+			event := <-pending.C()
 			if event.Error != nil {
 				err = event.Error
 				goto ERR
@@ -195,17 +201,32 @@ ERR:
 func (end *End) OpenStream(opts ...*options.OpenStreamOptions) (
 	geminio.Stream, error) {
 
+	return end.OpenStreamContext(context.Background(), opts...)
+}
+
+// OpenStreamContext applies ctx only to the stream-opening handshake.
+func (end *End) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	oo := options.MergeOpenStreamOptions(opts...)
 	peer := ""
 	if oo.Peer != nil {
 		peer = *oo.Peer
 	}
-	dg, err := end.multiplexer.OpenDialogue(oo.Meta, peer)
+	var dg multiplexer.Dialogue
+	var err error
+	if opener, ok := end.multiplexer.(multiplexer.ContextMultiplexer); ok {
+		dg, err = opener.OpenDialogueContext(ctx, oo.Meta, peer)
+	} else if ctx.Done() == nil {
+		dg, err = end.multiplexer.OpenDialogue(oo.Meta, peer)
+	} else {
+		return nil, geminio.ErrOpenStreamContextUnsupported
+	}
 	if err != nil {
 		return nil, err
 	}
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
 
@@ -219,7 +240,6 @@ func (end *End) AcceptStream() (geminio.Stream, error) {
 		return nil, err
 	}
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	return sm, nil
 }
 
@@ -268,7 +288,6 @@ func (end *End) fini() {
 // TODO optimize
 func (end *End) AcceptDialogue(dg multiplexer.Dialogue) {
 	sm := newStream(end, end.cn, dg, end.opts)
-	end.streams.Store(sm.StreamID(), sm)
 	if sm.acceptStreamFunc != nil {
 		sm.acceptStreamFunc(sm)
 	}
@@ -281,4 +300,15 @@ func (end *End) ClosedDialogue(dg multiplexer.Dialogue) {
 	if ok && end.closedStreamFunc != nil {
 		end.closedStreamFunc(sm.(*stream))
 	}
+}
+
+// ForceClose stops all streams and the transport without a close handshake.
+func (end *End) ForceClose() error {
+	end.onceClose.Do(func() {
+		for _, st := range end.ListStreams() {
+			st.ForceClose()
+		}
+		end.cn.ForceClose()
+	})
+	return nil
 }

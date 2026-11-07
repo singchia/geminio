@@ -1,6 +1,8 @@
 package client
 
 import (
+	"context"
+	"github.com/singchia/geminio/options"
 	"net"
 
 	"github.com/singchia/geminio"
@@ -128,4 +130,8 @@ func (ce *clientEnd) Close() error {
 		ce.opts.Timer.Close()
 	}
 	return err
+}
+
+func (end *clientEnd) OpenStreamContext(ctx context.Context, opts ...*options.OpenStreamOptions) (geminio.Stream, error) {
+	return geminio.OpenStreamContext(ctx, end.End, opts...)
 }

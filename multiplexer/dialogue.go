@@ -3,6 +3,7 @@ package multiplexer
 import (
 	"context"
 	"io"
+	"sync/atomic"
 	"time"
 
 	"github.com/jumboframes/armorigo/log"
@@ -38,6 +39,12 @@ const (
 )
 
 type dialogue struct {
+	flow    *dialogueFlow
+	flowMgr *dialogueMgr
+	// pendingUp/pendingDown are owned only by handlePkt.
+	pendingUp   packet.Packet
+	pendingDown packet.Packet
+
 	// options for timer, packet factory, log, delegate and meta
 	*opts
 	// log and pf are independent from opts to avoid data races when updated via options
@@ -67,8 +74,9 @@ type dialogue struct {
 
 	// ctx/cancel controls dialogue lifetime; replaces dialogueOK bool.
 	// All senders select on ctx.Done() before writing to writeInCh.
-	ctx    context.Context
-	cancel context.CancelFunc
+	aborted uint32
+	ctx     context.Context
+	cancel  context.CancelFunc
 
 	// io
 	readInCh, writeOutCh     chan packet.Packet
@@ -76,7 +84,6 @@ type dialogue struct {
 	readInSize, writeOutSize int
 	readOutSize, writeInSize int
 	failedCh                 chan packet.Packet
-
 
 	closeOnce   *gsync.Once
 	closeIOOnce *gsync.Once
@@ -167,7 +174,13 @@ func NewDialogue(cn conn.Conn, baseOpts *opts, opts ...DialogueOption) (*dialogu
 	for _, opt := range opts {
 		opt(dg)
 	}
-// io size
+	// Configure flow state before either worker starts.
+	if capable, ok := cn.(interface{ FlowControl() uint32 }); ok && capable.FlowControl() == packet.FlowControlV1 {
+		dg.flow = newDialogueFlow()
+		dg.readInSize = int(packet.FlowWindowPackets) + 2
+		dg.flowMgr, _ = dg.dlgt.(*dialogueMgr)
+	}
+	// io size
 	dg.readInCh = make(chan packet.Packet, dg.readInSize)
 	dg.writeOutCh = make(chan packet.Packet, dg.writeOutSize)
 	dg.readOutCh = make(chan packet.Packet, dg.readOutSize)
@@ -248,15 +261,15 @@ func (dg *dialogue) sendToWriteIn(pkt packet.Packet) error {
 	}
 }
 
-// sendToWriteOut is the single entry point for all writes to writeOutCh.
-// It selects on ctx.Done() so it never blocks after writePkt() exits.
+// sendToWriteOut queues protocol output for writeOutCh.
+// Protocol handlers retain output for the outer event loop to deliver.
+// Called only by the state-machine owner after older output has drained.
 func (dg *dialogue) sendToWriteOut(pkt packet.Packet) error {
-	select {
-	case <-dg.ctx.Done():
+	if dg.ctx.Err() != nil {
 		return io.EOF
-	case dg.writeOutCh <- pkt:
-		return nil
 	}
+	dg.pendingDown = pkt
+	return nil
 }
 
 func (dg *dialogue) Read() (packet.Packet, error) {
@@ -319,7 +332,7 @@ func (dg *dialogue) initFSM() {
 	dg.fsm.AddEvent(ET_FINI, dismissed, fini)
 }
 
-func (dg *dialogue) open() error {
+func (dg *dialogue) open(ctx context.Context) error {
 	dg.log.Debugf("dialogue is opening, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
@@ -327,21 +340,29 @@ func (dg *dialogue) open() error {
 	// sync must set before the packet send down, in case of the ack coming first
 	sync := dg.shub.Add(pkt.PacketID, synchub.WithTimeout(30*time.Second))
 
-	if err := dg.sendToWriteIn(pkt); err != nil {
-		return err
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-dg.ctx.Done():
+		return io.EOF
+	case dg.writeInCh <- pkt:
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-dg.ctx.Done():
+		return io.EOF
+	case event := <-sync.C():
+		return event.Error
 	}
 
-	event := <-sync.C()
-	if event.Error != nil {
-		dg.log.Debugf("dialogue open err: %s, clientID: %d, dialogueID: %d",
-			event.Error, dg.cn.ClientID(), dg.dialogueID)
-		// ctx.Done() will stop handlePkt; readInCh will be garbage collected.
-	}
-	return event.Error
 }
 
 // we may or not separate the goroutine because the underlay is still a channel
 func (dg *dialogue) writePkt() {
+	// Normal close drains queued output (including the final ACK) before cancel.
+	// ForceClose cancels immediately and interrupts WriteContext instead.
+	defer dg.cancel()
 	// Capture the channel locally so fini() writing dg.writeOutCh = nil
 	// concurrently does not race with our range expression.
 	writeOutCh := dg.writeOutCh
@@ -359,7 +380,16 @@ func (dg *dialogue) writePkt() {
 }
 
 func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
-	err := dg.cn.Write(pkt)
+	if dg.flow != nil && flowControlled(pkt) {
+		cost, err := outgoingCost(pkt)
+		if err != nil {
+			return err
+		}
+		if err := dg.flow.acquire(dg.ctx, cost); err != nil {
+			return err
+		}
+	}
+	err := dg.cn.WriteContext(dg.ctx, pkt)
 	if err != nil {
 		// A write failure after the dialogue context has been canceled —
 		// or a plain "conn gone" error from the layer below (EOF, closed
@@ -376,7 +406,10 @@ func (dg *dialogue) dowritePkt(pkt packet.Packet, record bool) error {
 		}
 		if record && dg.failedCh != nil {
 			// only upper layer packet need to be notified
-			dg.failedCh <- pkt
+			select {
+			case dg.failedCh <- pkt:
+			case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+			}
 		}
 	}
 	return err
@@ -386,8 +419,69 @@ func (dg *dialogue) handlePkt() {
 	readInCh := dg.readInCh
 	writeInCh := dg.writeInCh
 
+	var deferredIn, deferredOut packet.Packet
+
+	finishing := false
+
 	for {
+		in, out := readInCh, writeInCh
+		var up, down chan packet.Packet
+		if dg.pendingUp != nil {
+			in = nil
+			up = dg.readOutCh
+		}
+		if dg.pendingDown != nil {
+			out = nil
+			down = dg.writeOutCh
+		}
+		if deferredIn != nil {
+			in = nil
+		}
+		if deferredOut != nil {
+			out = nil
+		}
+		if !finishing && dg.pendingDown == nil {
+			if deferredIn != nil {
+				pkt := deferredIn
+				deferredIn = nil
+				ret := dg.handleIn(pkt)
+				if ret == iodefine.IOErr {
+					dg.closeIO()
+					goto FINI
+				}
+				if ret == iodefine.IOClosed {
+					finishing = true
+				}
+				continue
+			}
+			if deferredOut != nil {
+				pkt := deferredOut
+				deferredOut = nil
+				ret := dg.handleOut(pkt)
+				if ret == iodefine.IOErr {
+					dg.closeIO()
+					goto FINI
+				}
+				if ret == iodefine.IOClosed {
+					finishing = true
+				}
+				continue
+			}
+		}
+
+		if finishing {
+			in, out = nil, nil
+			if dg.pendingUp == nil && dg.pendingDown == nil {
+				goto FINI
+			}
+		}
+
 		select {
+		case up <- dg.pendingUp:
+			dg.pendingUp = nil
+		case down <- dg.pendingDown:
+			dg.pendingDown = nil
+
 		case <-dg.ctx.Done():
 			// fini() cancelled us; drain writeInCh before exiting
 			for {
@@ -397,37 +491,57 @@ func (dg *dialogue) handlePkt() {
 						goto FINI
 					}
 					if dg.failedCh != nil && !packet.SessionLayer(pkt) {
-						dg.failedCh <- pkt
+						select {
+						case dg.failedCh <- pkt:
+						case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+						}
 					}
 				default:
 					goto FINI
 				}
 			}
-		case pkt, ok := <-readInCh:
+		case pkt, ok := <-in:
 			if !ok {
 				goto FINI
 			}
+			if dg.flow != nil && dg.flowMgr != nil && flowControlled(pkt) {
+				cost := incomingCost(pkt)
+				credit, count := dg.flow.releaseReceive(cost)
+				if count != 0 {
+					dg.flowMgr.returnCredit(dg, pkt.(packet.SessionAbove).SessionID(), credit, count)
+				}
+			}
 			dg.log.Tracef("dialogue read in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+			if packet.SessionLayer(pkt) && dg.pendingDown != nil {
+				deferredIn = pkt
+				continue
+			}
 			ret := dg.handleIn(pkt)
 			switch ret {
 			case iodefine.IONewActive, iodefine.IOSuccess:
 				continue
 			case iodefine.IOClosed:
-				goto FINI
+				finishing = true
 			case iodefine.IOErr:
+				dg.closeIO()
 				goto FINI
 			}
-		case pkt := <-writeInCh:
+		case pkt := <-out:
 			dg.log.Tracef("dialogue write in packet, clientID: %d, dialogueID: %d, packetID: %d, packetType: %s",
 				dg.cn.ClientID(), dg.dialogueID, pkt.ID(), pkt.Type().String())
+			if packet.SessionLayer(pkt) {
+				deferredOut = pkt
+				continue
+			}
 			ret := dg.handleOut(pkt)
 			switch ret {
 			case iodefine.IONewPassive, iodefine.IOSuccess:
 				continue
 			case iodefine.IOClosed:
-				goto FINI
+				finishing = true
 			case iodefine.IOErr:
+				dg.closeIO()
 				goto FINI
 			}
 		}
@@ -436,8 +550,9 @@ FINI:
 	dg.log.Debugf("dialogue handle pkt done, clientID: %d, dialogueID: %d",
 		dg.cn.ClientID(), dg.dialogueID)
 
-	// only onlined Dialogue need to be notified
-	if dg.dlgt != nil && dg.onlined {
+	// The manager may have published a passive dialogue before its ACK is flushed.
+	// Always release that registration, including abort during AcceptStream.
+	if dg.dlgt != nil {
 		dg.dlgt.DialogueOffline(dg)
 	}
 	// only handlePkt leads to this fini, and reclaims all channels and other resources
@@ -602,15 +717,14 @@ func (dg *dialogue) handleInDataPacket(pkt packet.Packet) iodefine.IORet {
 		dg.log.Debugf("data at non normal status, clientID: %d, dialogueID: %d, packetID: %d, status: %s",
 			dg.cn.ClientID(), dg.dialogueID, pkt.ID(), dg.fsm.State())
 		if dg.failedCh != nil {
-			dg.failedCh <- pkt
+			select {
+			case dg.failedCh <- pkt:
+			case <-dg.ctx.Done(): // Cancellation must not wait for failure reporting.
+			}
 		}
 		return iodefine.IODiscard
 	}
-	select {
-	case dg.readOutCh <- pkt:
-	case <-dg.ctx.Done():
-		return iodefine.IODiscard
-	}
+	dg.pendingUp = pkt
 	return iodefine.IOSuccess
 }
 
@@ -710,13 +824,31 @@ func (dg *dialogue) handleOutDismissAckPacket(pkt *packet.DismissAckPacket) iode
 }
 
 func (dg *dialogue) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
-	if err := dg.sendToWriteOut(pkt); err != nil {
-		return iodefine.IOClosed
-	}
-	dg.log.Tracef("dialogue write data down succeed, clientID: %d, dialogueID: %d, packetID: %d",
-		dg.cn.ClientID(), dg.dialogueID, pkt.ID())
+	dg.pendingDown = pkt
 	return iodefine.IOSuccess
 }
+
+func (dg *dialogue) Aborted() bool { return atomic.LoadUint32(&dg.aborted) != 0 }
+
+// Abort is idempotent and never waits for the transport. The manager owns notification.
+func (dg *dialogue) Abort() error {
+	if !atomic.CompareAndSwapUint32(&dg.aborted, 0, 1) {
+		return nil
+	}
+	// Queue before closeIO: offline cleanup can otherwise remove our routing ID.
+	var err error = geminio.ErrStreamAbortUnsupported
+	if dm, ok := dg.dlgt.(*dialogueMgr); ok {
+		err = dm.queueReset(dg)
+	}
+	dg.closeIO()
+	return err
+}
+func (dg *dialogue) receiveReset() {
+	atomic.StoreUint32(&dg.aborted, 1)
+	dg.closeIO()
+}
+
+func (dg *dialogue) ForceClose() { dg.closeIO() }
 
 func (dg *dialogue) Close() {
 	dg.closeOnce.Do(func() {
@@ -798,8 +930,8 @@ func (dg *dialogue) fini() {
 		dg.log.Debugf("dialogue finishing, clientID: %d, dialogueID: %d",
 			dg.cn.ClientID(), dg.dialogueID)
 
-		// Signal all senders to stop; handlePkt will drain writeInCh then exit.
-		dg.cancel()
+		// The writer signals normal completion after draining writeOutCh.
+		// Error and force-close paths already cancelled through closeIO.
 		close(dg.monitorStop)
 
 		// collect shub
@@ -813,7 +945,7 @@ func (dg *dialogue) fini() {
 		// Do NOT set dg.writeOutCh = nil: writePkt captures the channel
 		// locally before ranging, so a concurrent nil assignment just
 		// races the read with no benefit (senders already bail out via
-		// sendToWriteOut's ctx.Done case).
+		// sendToWriteOut's cancellation check).
 		// TODO we left the readInCh buffer at some edge cases which may cause peer msg timeout
 
 		// collect fsm

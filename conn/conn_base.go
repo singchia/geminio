@@ -6,7 +6,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/jumboframes/armorigo/log"
 	"github.com/jumboframes/armorigo/synchub"
@@ -56,6 +55,15 @@ type connOpts struct {
 }
 
 type baseConn struct {
+	streamReset uint32
+	flowControl uint32 // immutable after the connection handshake
+	// pendingUp/pendingDown are owned only by handlePkt.
+	pendingUp   packet.Packet
+	pendingDown packet.Packet
+	// Ack completion is reported by the existing socket writer.
+	ackWritten chan struct{}
+	ackQueued  bool
+
 	connOpts
 	cn Conn
 
@@ -85,6 +93,10 @@ type baseConn struct {
 	monitorStop chan struct{} // closed when conn shuts down to stop the channel-monitor goroutine
 }
 
+func (bc *baseConn) StreamReset() uint32 { return atomic.LoadUint32(&bc.streamReset) }
+
+func (bc *baseConn) FlowControl() uint32 { return atomic.LoadUint32(&bc.flowControl) }
+
 func (bc *baseConn) Read() (packet.Packet, error) {
 	pkt, ok := <-bc.readOutCh
 	if !ok {
@@ -99,6 +111,14 @@ func (bc *baseConn) ChannelRead() <-chan packet.Packet {
 }
 
 func (bc *baseConn) Write(pkt packet.Packet) error {
+	return bc.WriteContext(context.Background(), pkt)
+}
+
+// WriteContext allows one dialogue to stop waiting without closing the connection.
+func (bc *baseConn) WriteContext(ctx context.Context, pkt packet.Packet) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Minimize lock holding time: only check connOK and get channel reference
 	bc.connMtx.RLock()
 	if !bc.connOK {
@@ -120,6 +140,8 @@ func (bc *baseConn) Write(pkt packet.Packet) error {
 	select {
 	case writeInCh <- pkt:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	case <-bc.ctx.Done():
 		return io.EOF
 	}
@@ -138,87 +160,58 @@ func (bc *baseConn) sendToWriteIn(pkt packet.Packet) error {
 
 // common read/write/handle
 func (bc *baseConn) writePkt() {
-	writeOutCh := bc.writeOutCh
-	heartbeatWriteCh := bc.heartbeatWriteCh
-	err := error(nil)
-	lastLogTime := time.Now()
-	packetCount := 0
-
 	for {
+		if bc.ctx.Err() != nil {
+			return
+		}
+		var pkt packet.Packet
+		var ok bool
+		// Prefer a queued heartbeat/reset between socket writes. This cannot preempt
+		// a blocked socket write, and never reorders data or graceful close packets. Resets may discard data.
 		select {
-		case pkt, ok := <-heartbeatWriteCh:
-			if !ok {
+		case pkt = <-bc.heartbeatWriteCh:
+		default:
+			select {
+			case <-bc.ctx.Done():
 				return
-			}
-			// Priority processing for heartbeat packets to avoid being blocked by application layer messages
-			bc.log.Tracef("conn write heartbeat down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
-				bc.ClientID(), pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
-			record := !packet.ConnLayer(pkt)
-			writeStart := time.Now()
-			err = bc.dowritePkt(pkt, record)
-			writeDuration := time.Since(writeStart)
-			if err != nil {
-				// write to net Conn error, we should close the layer
-				if bc.ctx.Err() != nil {
-					bc.log.Debugf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
-				} else {
-					bc.log.Errorf("conn write heartbeat error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
+			case pkt = <-bc.heartbeatWriteCh:
+			case pkt, ok = <-bc.writeOutCh:
+				if !ok {
+					return
 				}
-				bc.netconn.Close()
-				bc.cancel()
-				return
-			}
-			if writeDuration > 5*time.Second {
-				bc.log.Warnf("heartbeat write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
-					bc.ClientID(), pkt.ID(), writeDuration)
-			}
-		case pkt, ok := <-writeOutCh:
-			if !ok {
-				bc.log.Debugf("conn write done, clientID: %d", bc.ClientID())
-				return
-			}
-			packetCount++
-			// Log periodically to ensure writePkt() is still running
-			now := time.Now()
-			if now.Sub(lastLogTime) > 10*time.Second {
-				bc.log.Infof("writePkt() is running, clientID: %d, packets processed: %d, writeOutCh remaining: %d/%d",
-					bc.ClientID(), packetCount, len(writeOutCh), bc.writeOutSize)
-				lastLogTime = now
-			}
-			bc.log.Tracef("conn write down, clientID: %d, packetID: %d, packetType: %s, writeOutCh remaining: %d/%d",
-				bc.ClientID(), pkt.ID(), pkt.Type().String(), len(writeOutCh), bc.writeOutSize)
-			record := !packet.ConnLayer(pkt)
-			writeStart := time.Now()
-			err = bc.dowritePkt(pkt, record)
-			writeDuration := time.Since(writeStart)
-			if err != nil {
-				// write to net Conn error, we should close the layer.
-				// Teardown-path write failures (ctx canceled or the net.Conn
-				// already gone) are expected — log at Debug. Anything else
-				// is a genuine IO problem and stays at Error.
-				if bc.ctx.Err() != nil || iodefine.IsConnGone(err) {
-					bc.log.Debugf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
-				} else {
-					bc.log.Errorf("conn write error, closing connection: %s, clientID: %d, packetID: %d, packetType: %s, writeDuration: %v",
-						err, bc.ClientID(), pkt.ID(), pkt.Type().String(), writeDuration)
-				}
-				bc.netconn.Close()
-				bc.cancel()
-				return
-			}
-			if writeDuration > 5*time.Second {
-				bc.log.Warnf("data packet write took too long, clientID: %d, packetID: %d, writeDuration: %v (network may be blocking)",
-					bc.ClientID(), pkt.ID(), writeDuration)
 			}
 		}
+		if err := bc.dowritePkt(pkt, !packet.ConnLayer(pkt)); err != nil {
+			bc.ForceClose()
+			return
+		}
+	}
+}
+
+// queueHeartbeat never parks the packet dispatcher behind data output.
+// A full bounded control queue means this connection cannot make progress;
+// abort the transport rather than silently losing liveness or growing memory.
+func (bc *baseConn) queueHeartbeat(pkt packet.Packet) bool {
+	if bc.ctx.Err() != nil {
+		return false
+	}
+	select {
+	case <-bc.ctx.Done():
+		return false
+	case bc.heartbeatWriteCh <- pkt:
+		return true
+	default:
+		bc.log.Warnf("heartbeat output queue full, closing clientID: %d", bc.ClientID())
+		bc.ForceClose()
+		return false
 	}
 }
 
 func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 	err := packet.EncodeToWriter(pkt, bc.netconn)
+	if receipt, ok := pkt.(*resetReceipt); ok {
+		receipt.written <- err
+	}
 	if err != nil {
 		// Expected during teardown: our own ctx canceled, or the underlying
 		// net.Conn was closed by the peer while we were flushing a trailing
@@ -233,7 +226,16 @@ func (bc *baseConn) dowritePkt(pkt packet.Packet, record bool) error {
 		}
 		if record && bc.failedCh != nil {
 			// only upper layer packet need to be notified
-			bc.failedCh <- pkt
+			select {
+			case bc.failedCh <- pkt:
+			case <-bc.ctx.Done():
+			}
+		}
+	}
+	if err == nil && pkt.Type() == packet.TypeDisConnAckPacket {
+		select {
+		case bc.ackWritten <- struct{}{}:
+		default:
 		}
 	}
 	return err
@@ -269,10 +271,18 @@ func (bc *baseConn) readPkt() {
 			default:
 				// If heartbeat channel is full, fallback to normal channel
 				// This should rarely happen as heartbeat packets are small and infrequent
-				readInCh <- pkt
+				select {
+				case readInCh <- pkt:
+				case <-bc.ctx.Done():
+					goto FINI
+				}
 			}
 		} else {
-			readInCh <- pkt
+			select {
+			case readInCh <- pkt:
+			case <-bc.ctx.Done():
+				goto FINI
+			}
 		}
 	}
 FINI:
@@ -323,13 +333,8 @@ func (bc *baseConn) handleOutDisConnPacket(pkt *packet.DisConnPacket) iodefine.I
 			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
-	// DisConnPacket is critical (connection-related), must be sent successfully, so we block here
-	// This ensures the disconnection packet is always sent, even if writeOutCh is full
-	select {
-	case bc.writeOutCh <- pkt:
-	case <-bc.ctx.Done():
-		return iodefine.IOClosed
-	}
+	// Queue behind earlier output; the event loop owns delivery.
+	bc.pendingDown = pkt
 	bc.log.Debugf("send dis conn down succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
@@ -342,11 +347,8 @@ func (bc *baseConn) handleOutDisConnAckPacket(pkt *packet.DisConnAckPacket) iode
 			err, bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta), bc.fsm.State())
 		return iodefine.IOErr
 	}
-	// make sure this packet is flushed before writeOutCh closed
-	err = bc.dowritePkt(pkt, false)
-	if err != nil {
-		return iodefine.IOErr
-	}
+	bc.pendingDown = pkt
+	bc.ackQueued = true
 	bc.log.Debugf("send dis conn ack succeed, clientID: %d, PacketID: %d, packetType: %s",
 		bc.ClientID(), pkt.ID(), pkt.Type().String())
 	if bc.fsm.State() == CLOSE_HALF {
@@ -377,14 +379,8 @@ func (bc *baseConn) handleOutDataPacket(pkt packet.Packet) iodefine.IORet {
 			writeOutLen, writeOutSize, bc.ClientID(), pkt.ID(), pkt.Type().String())
 	}
 
-	// Data packets: block to ensure delivery, no packet loss
-	// This ensures all packets are sent, even if it means slower processing
-	// The blocking will wait for writePkt() to process packets and make room
-	select {
-	case writeOutCh <- pkt:
-	case <-bc.ctx.Done():
-		return iodefine.IOClosed
-	}
+	// Retain this packet until the outer select can deliver it.
+	bc.pendingDown = pkt
 	bc.log.Tracef("send data succeed, clientID: %d, packetID: %d, remote: %s, meta: %s",
 		bc.ClientID(), pkt.ID(), bc.netconn.RemoteAddr(), string(bc.meta))
 	return iodefine.IOSuccess
@@ -413,4 +409,37 @@ func (bc *baseConn) ClientID() uint64 {
 
 func (bc *baseConn) Close() {
 	bc.cn.Close()
+}
+
+// ForceClose stops the entire transport; individual dialogues use their own context.
+func (bc *baseConn) ForceClose() {
+	bc.cancel()
+	bc.netconn.Close()
+}
+
+// resetReceipt is local-only; Encode delegates to the original wire packet.
+type resetReceipt struct {
+	packet.Packet
+	written chan error
+}
+
+// WriteResetContext uses the bounded urgent queue and waits for the socket write,
+// not just queue admission. The caller closes the connection on timeout.
+func (bc *baseConn) WriteResetContext(ctx context.Context, p *packet.StreamResetPacket) error {
+	receipt := &resetReceipt{Packet: p, written: make(chan error, 1)}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-bc.ctx.Done():
+		return io.EOF
+	case bc.heartbeatWriteCh <- receipt:
+	}
+	select {
+	case err := <-receipt.written:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-bc.ctx.Done():
+		return io.EOF
+	}
 }

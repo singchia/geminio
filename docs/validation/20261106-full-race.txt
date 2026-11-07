@@ -1,0 +1,54 @@
+go test -race ./... -count=1 -timeout=600s
+?   	github.com/singchia/geminio	[no test files]
+ok  	github.com/singchia/geminio/application	26.917s
+?   	github.com/singchia/geminio/application/mock	[no test files]
+ok  	github.com/singchia/geminio/client	2.269s
+ok  	github.com/singchia/geminio/conn	2.977s
+?   	github.com/singchia/geminio/conn/batch/client	[no test files]
+?   	github.com/singchia/geminio/conn/bench/client	[no test files]
+?   	github.com/singchia/geminio/conn/example/client	[no test files]
+?   	github.com/singchia/geminio/conn/example/server	[no test files]
+?   	github.com/singchia/geminio/delegate	[no test files]
+?   	github.com/singchia/geminio/examples/chatroom/client	[no test files]
+?   	github.com/singchia/geminio/examples/chatroom/server	[no test files]
+?   	github.com/singchia/geminio/examples/chatroom/share	[no test files]
+?   	github.com/singchia/geminio/examples/messager/client	[no test files]
+?   	github.com/singchia/geminio/examples/messager/server	[no test files]
+?   	github.com/singchia/geminio/examples/messager/share	[no test files]
+?   	github.com/singchia/geminio/examples/mq/broker	[no test files]
+?   	github.com/singchia/geminio/examples/mq/consumer	[no test files]
+?   	github.com/singchia/geminio/examples/mq/producer	[no test files]
+?   	github.com/singchia/geminio/examples/mq/share	[no test files]
+?   	github.com/singchia/geminio/examples/relay	[no test files]
+?   	github.com/singchia/geminio/examples/traversal/internet	[no test files]
+?   	github.com/singchia/geminio/examples/traversal/intranet	[no test files]
+?   	github.com/singchia/geminio/examples/usage/brpc/client	[no test files]
+?   	github.com/singchia/geminio/examples/usage/brpc/server	[no test files]
+?   	github.com/singchia/geminio/examples/usage/message/client	[no test files]
+?   	github.com/singchia/geminio/examples/usage/message/server	[no test files]
+?   	github.com/singchia/geminio/examples/usage/multiplexer/client	[no test files]
+?   	github.com/singchia/geminio/examples/usage/multiplexer/server	[no test files]
+?   	github.com/singchia/geminio/examples/usage/rpc/client	[no test files]
+?   	github.com/singchia/geminio/examples/usage/rpc/server	[no test files]
+ok  	github.com/singchia/geminio/multiplexer	3.400s
+?   	github.com/singchia/geminio/multiplexer/bench	[no test files]
+?   	github.com/singchia/geminio/multiplexer/example/client	[no test files]
+?   	github.com/singchia/geminio/multiplexer/example/server	[no test files]
+?   	github.com/singchia/geminio/options	[no test files]
+ok  	github.com/singchia/geminio/packet	3.161s
+?   	github.com/singchia/geminio/pkg/id	[no test files]
+?   	github.com/singchia/geminio/pkg/iodefine	[no test files]
+?   	github.com/singchia/geminio/pkg/net	[no test files]
+?   	github.com/singchia/geminio/pkg/sync	[no test files]
+?   	github.com/singchia/geminio/server	[no test files]
+?   	github.com/singchia/geminio/test	[no test files]
+ok  	github.com/singchia/geminio/test/bench	3.342s [no tests to run]
+ok  	github.com/singchia/geminio/test/chaos	229.707s
+?   	github.com/singchia/geminio/test/chaos/helpers	[no test files]
+ok  	github.com/singchia/geminio/test/e2e	5.175s
+ok  	github.com/singchia/geminio/test/harness	4.587s
+ok  	github.com/singchia/geminio/test/integration	10.350s
+ok  	github.com/singchia/geminio/test/regression	4.115s
+ok  	github.com/singchia/geminio/test/security	22.565s
+ok  	github.com/singchia/geminio/test/unit	2.902s
+?   	github.com/singchia/geminio/tools/packets_drop	[no test files]
