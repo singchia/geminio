@@ -24,3 +24,7 @@ test-short-race:
 
 vet:
 	go vet ./...
+
+.PHONY: test-reset-pressure
+test-reset-pressure:
+	go test -race ./multiplexer -run 'TestReset' -count=10 -timeout=120s

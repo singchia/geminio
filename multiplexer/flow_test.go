@@ -192,8 +192,7 @@ func TestFlowBatchedReturnsCannotStrandLargePacket(t *testing.T) {
 	}
 }
 
-// A non-reading transport must not let a burst of stream resets grow memory
-// without bound. Overflow tears down the shared connection as a last resort.
+// A burst of terminal notices must pause admission, not destroy the transport.
 type resetQueueConn struct {
 	conn.Conn
 	closed bool
@@ -201,7 +200,7 @@ type resetQueueConn struct {
 
 func (c *resetQueueConn) StreamReset() uint32 { return packet.StreamResetV1 }
 func (c *resetQueueConn) ForceClose()         { c.closed = true }
-func TestResetQueueOverflowClosesTransport(t *testing.T) {
+func TestResetQueuePressurePreservesTransport(t *testing.T) {
 	c := &resetQueueConn{}
 	dm := &dialogueMgr{cn: c, flowCtx: context.Background(), resets: make(map[uint64]*packet.StreamResetPacket), credits: make(map[*dialogue]*packet.WindowUpdatePacket), creditWake: make(chan struct{}, 1), dialogues: make(map[uint64]*dialogue)}
 	for i := uint64(1); i <= 257; i++ {
@@ -211,10 +210,21 @@ func TestResetQueueOverflowClosesTransport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if !c.closed {
-		t.Fatal("reset overload did not close transport")
+	if c.closed {
+		t.Fatal("reset pressure closed transport")
 	}
-	if len(dm.resets) > 256 {
-		t.Fatal("unbounded reset queue")
+	if len(dm.resets) != 257 || dm.resetPending != 257 {
+		t.Fatal("terminal notice lost")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !errors.Is(dm.waitResetDrain(ctx), context.Canceled) {
+		t.Fatal("admission ignored cancellation")
+	}
+	for dm.resetPending > resetLowWater {
+		dm.resetWritten()
+	}
+	if err := dm.waitResetDrain(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 }
