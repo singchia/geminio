@@ -613,7 +613,22 @@ func (dg *dialogue) handleInSessionPacket(pkt *packet.SessionPacket) iodefine.IO
 	retPkt := dg.pf.NewSessionAckPacket(pkt.PacketID, pkt.NegotiateID(), dialogueID, nil)
 	// Send from a goroutine because handlePkt() is the only consumer of writeInCh;
 	// blocking here would deadlock. sendToWriteIn selects on ctx.Done() for safety.
-	go func() { dg.sendToWriteIn(retPkt) }() //nolint:errcheck
+	go func() {
+		// Remote opens obey the same admission pressure as local opens. Waiting
+		// here leaves the shared reader free to process data, resets and credits.
+		if dm, ok := dg.dlgt.(*dialogueMgr); ok {
+			// Match the existing negotiation lifetime; a remote caller may
+			// disappear while its handshake is waiting for local capacity.
+			ctx, cancel := context.WithTimeout(dg.ctx, 30*time.Second)
+			err := dm.waitResetDrain(ctx)
+			cancel()
+			if err != nil {
+				dg.closeIO()
+				return
+			}
+		}
+		dg.sendToWriteIn(retPkt) // Cancellation is normal during handshake teardown.
+	}()
 	return iodefine.IOSuccess
 }
 

@@ -44,13 +44,15 @@ type multiplexerOpts struct {
 }
 
 type dialogueMgr struct {
-	flowCtx    context.Context
-	flowCancel context.CancelFunc
-	resets     map[uint64]*packet.StreamResetPacket
-	creditMu   sync.Mutex
-	credits    map[*dialogue]*packet.WindowUpdatePacket
-	creditWake chan struct{}
-	creditDone chan struct{}
+	flowCtx       context.Context
+	flowCancel    context.CancelFunc
+	resets        map[uint64]*packet.StreamResetPacket
+	resetPending  int           // queued plus currently being written; protected by creditMu
+	resetPressure chan struct{} // non-nil while admission is paused
+	creditMu      sync.Mutex
+	credits       map[*dialogue]*packet.WindowUpdatePacket
+	creditWake    chan struct{}
+	creditDone    chan struct{}
 	// options
 	*multiplexerOpts
 	// under layer
@@ -276,6 +278,9 @@ func (dm *dialogueMgr) OpenDialogue(meta []byte, peer string) (Dialogue, error) 
 }
 
 func (dm *dialogueMgr) OpenDialogueContext(ctx context.Context, meta []byte, peer string) (Dialogue, error) {
+	if err := dm.waitResetDrain(ctx); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

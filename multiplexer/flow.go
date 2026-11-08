@@ -209,6 +209,7 @@ func (dm *dialogueMgr) writeCredits() {
 			if !dm.writeControl(p) {
 				return
 			}
+			dm.resetWritten()
 		}
 		for dg, p := range batch {
 			if dg.ctx.Err() != nil {
@@ -270,10 +271,14 @@ func (dm *dialogueMgr) queueReset(dg *dialogue) error {
 		dm.creditMu.Unlock()
 		return nil
 	}
-	if len(dm.resets) >= 256 {
-		dm.creditMu.Unlock()
-		dm.cn.ForceClose()
-		return nil
+	// Existing dialogues must always be able to publish their terminal notice.
+	// A burst is bounded by already admitted dialogues, not an arbitrary queue
+	// cap. Pause new handshakes instead of killing unrelated active streams.
+	if _, exists := dm.resets[id]; !exists {
+		dm.resetPending++
+	}
+	if dm.resetPending >= resetHighWater && dm.resetPressure == nil {
+		dm.resetPressure = make(chan struct{})
 	}
 	dm.resets[id] = packet.NewStreamResetPacket(id)
 	dm.resets[id].NegotiateID = dg.peerNegotiatingID
@@ -299,5 +304,46 @@ func (dm *dialogueMgr) applyReset(p *packet.StreamResetPacket) {
 	// Unknown and late resets are harmless. Never echo a received reset.
 	if dg != nil {
 		dg.receiveReset()
+	}
+}
+
+// Hysteresis avoids waking every opener for every single completed reset.
+const resetHighWater = 256
+const resetLowWater = resetHighWater / 2
+
+// waitResetDrain is only used by new-stream callers/handshake goroutines, never
+// the shared packet dispatcher or Abort. Count in-flight writes as well as the
+// pending map: moving a batch out of the map has not drained the transport.
+func (dm *dialogueMgr) waitResetDrain(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if dm.flowCtx.Err() != nil {
+			return ErrOperationOnClosedMultiplexer
+		}
+		dm.creditMu.Lock()
+		pressure := dm.resetPressure
+		dm.creditMu.Unlock()
+		if pressure == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-dm.flowCtx.Done():
+			return ErrOperationOnClosedMultiplexer
+		case <-pressure:
+		}
+	}
+}
+
+func (dm *dialogueMgr) resetWritten() {
+	dm.creditMu.Lock()
+	defer dm.creditMu.Unlock()
+	dm.resetPending--
+	if dm.resetPending <= resetLowWater && dm.resetPressure != nil {
+		close(dm.resetPressure)
+		dm.resetPressure = nil
 	}
 }
